@@ -138,9 +138,14 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(!backend.enabled)throw new Error('The Xiaohongshu backend is disabled. Enable it in the search settings before reading a note.');
     if(backend.mode!=='browser')throw new Error(`The Xiaohongshu backend uses the access mode "${backend.mode}", which cannot read a note.`);
     if(!args.url&&!args.id)throw new Error('Pass url (the share link) or id (a note id from an earlier search).');
-    const token=(await ctx.credentials.resolve(credentialRef(backend.credentialRef)))?.value;
+    // The endpoint token and session file may live on the shared browser resource, which is how
+    // several browser-backed readers share one container.
+    const token=(await ctx.credentials.resolve(credentialRef(backend.credentialRef)))?.value
+      ??(config.browser.credentialRef?(await ctx.credentials.resolve(credentialRef(config.browser.credentialRef)))?.value:undefined);
     const settings=backend.options as {statePath?:string};
-    const read={wsEndpoint:backend.endpoint,...(token?{token}:{}),...(settings.statePath?{statePath:settings.statePath}:{}),timeoutMs:backend.timeoutMs,signal:AbortSignal.any([lifetime.signal,exec.signal])};
+    const wsEndpoint=config.browser.endpoint||backend.endpoint;
+    if(!wsEndpoint)throw new Error('No browser endpoint is configured. Set the shared browser endpoint, or the Xiaohongshu backend endpoint.');
+    const read={wsEndpoint,...(token?{token}:{}),...(settings.statePath||config.browser.statePath?{statePath:settings.statePath||config.browser.statePath}:{}),timeoutMs:config.browser.timeoutMs||backend.timeoutMs,signal:AbortSignal.any([lifetime.signal,exec.signal])};
     const target={...(args.url?{url:args.url}:{}),...(args.id?{id:args.id}:{})};
     const note=await fetchXhsNote(target,read);
     const limit=Math.min(Math.max(Math.trunc(Number(args.commentLimit??20))||20,1),50);
