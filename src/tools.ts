@@ -1,5 +1,6 @@
 import {
   SearchEngine,
+  backendCredentialRef,
   fetchRedditThread,
   fetchXThread,
   parseXCredentials,
@@ -7,7 +8,7 @@ import {
 } from '@nite07/search-core';
 import type { RedditComment, SearchOverrides } from '@nite07/search-core';
 import type { ServerConfig } from './config.js';
-import { describeBackends, enabledBackendIds } from './config.js';
+import { credentialResolver, describeBackends, enabledBackendIds } from './config.js';
 import { fetchImages, type InlineImage } from './images.js';
 
 export interface ServerIdentity {
@@ -109,7 +110,7 @@ export function createTools(
       if (source !== 'reddit') throw new Error(`Unknown source "${source}"; pass "reddit" or "x".`);
       const backend = config.search.backends.reddit;
       if (!backend) throw new Error('The Reddit backend is missing from the configuration.');
-      const raw = backend.mode === 'oauth' ? (config.credentials.reddit ?? process.env[backend.credentialRef] ?? '') : '';
+      const raw = backend.mode === 'oauth' ? (await credentialResolver(config)(backendCredentialRef('reddit')) ?? '') : '';
       const thread = await readers.reddit(
         { id, sort: typeof args.sort === 'string' ? args.sort : 'confidence', limit: int(args.limit) ?? 100, depth: int(args.depth) ?? 3, maxChars: 20000 },
         { mode: backend.mode === 'oauth' ? 'oauth' : 'anonymous', credentials: raw ? JSON.parse(raw) as Record<string, string> : {}, signal, timeoutMs: backend.timeoutMs },
@@ -152,10 +153,10 @@ async function readXThread(id: string, args: Record<string, unknown>, signal: Ab
   const backend = config.search.backends.x;
   if (!backend) throw new Error('The X backend is missing from the configuration.');
   if (backend.mode === 'anonymous') throw new Error('The X backend is set to anonymous, which cannot read conversations; switch it to session or key mode.');
-  const raw = config.credentials.x ?? process.env[backend.credentialRef] ?? '';
+  const raw = await credentialResolver(config)(backendCredentialRef('x')) ?? '';
   const credentials = parseXCredentials(raw);
   if (!credentials.authToken || !credentials.ct0) {
-    throw new Error(`X needs both cookies: set credentials.x (or ${backend.credentialRef}) to {"authToken":"...","ct0":"..."}.`);
+    throw new Error(`X needs both cookies: set credentials.x (or ${backendCredentialRef('x')}) to {"authToken":"...","ct0":"..."}.`);
   }
   const thread = await read(
     { id, limit: int(args.limit) ?? 20, depth: int(args.depth) ?? 3, maxChars: 20000 },

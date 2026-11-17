@@ -1,13 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { catalog, defaultConfig, validateConfig } from '@nite07/search-core';
+import { catalog, defaultConfig, parseConfig, backendCredentialRef, browserCredentialRef } from '@nite07/search-core';
 import type { BackendDefinition, SearchConfig } from '@nite07/search-core';
 
 /**
  * The server has no settings UI, so configuration is a file plus environment variables.
- * Every credential reference in the config is also an environment variable name, and the
- * environment wins: it is the safer place for a secret.
+ * Credential environment names are fixed in search-core; the environment wins over file values.
  */
 export interface ServerConfig {
   search: SearchConfig;
@@ -30,15 +29,12 @@ export class ConfigError extends Error {
   }
 }
 
-const expand = (value: string, env: NodeJS.ProcessEnv): string =>
-  value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => env[name] ?? '');
-
 /** Deterministic message when no config exists yet: the caller learns the exact path to create. */
 export function starterConfig(): unknown {
   const search = defaultConfig();
   return {
     search,
-    credentials: Object.fromEntries(catalog.map(item => [item.id, `\${${search.backends[item.id]!.credentialRef}}`])),
+    credentials: {},
     compactByDefault: false,
   };
 }
@@ -58,15 +54,16 @@ export async function loadConfig(options: LoadOptions = {}): Promise<ServerConfi
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(expand(raw, env));
+    parsed = JSON.parse(raw);
   } catch (error) {
     throw new ConfigError(`The configuration at ${configPath} is not valid JSON.`, [String(error)]);
   }
   const body = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
-  const search = body.search ?? body;
-  const issues = validateConfig(search);
-  if (issues.length > 0) {
-    throw new ConfigError(`The configuration at ${configPath} is invalid.`, issues.map(issue => `${issue.path}: ${issue.message}`));
+  let search: SearchConfig;
+  try {
+    search = parseConfig(body.search ?? body);
+  } catch (error) {
+    throw new ConfigError(`The configuration at ${configPath} is invalid.`, String(error instanceof Error ? error.message : error).split('\n'));
   }
   const credentials: Record<string, string> = {};
   for (const [id, value] of Object.entries((body.credentials ?? {}) as Record<string, unknown>)) {
@@ -80,19 +77,12 @@ export async function loadConfig(options: LoadOptions = {}): Promise<ServerConfi
   };
 }
 
-/** Credential lookup order: the config value, then the environment under its reference name. */
+/** Only fixed credential names are addressable; environment values take precedence. */
 export function credentialResolver(config: ServerConfig, env: NodeJS.ProcessEnv = process.env) {
-  return async (reference: string): Promise<string | undefined> => {
-    for (const item of catalog) {
-      const backend = config.search.backends[item.id];
-      if (backend?.credentialRef === reference) {
-        const fromEnv = env[reference];
-        if (fromEnv) return fromEnv;
-        const stored = config.credentials[item.id];
-        if (stored) return stored;
-      }
-    }
-    return env[reference];
+  return async (name: string): Promise<string | undefined> => {
+    if (name === browserCredentialRef()) return env[name] || config.credentials.browser || undefined;
+    const item = catalog.find(item => backendCredentialRef(item.id) === name && config.search.backends[item.id]?.mode !== 'browser');
+    return item ? env[name] || config.credentials[item.id] || undefined : undefined;
   };
 }
 
@@ -106,8 +96,8 @@ export function describeBackends(config: ServerConfig, env: NodeJS.ProcessEnv = 
       enabled: saved?.enabled === true,
       mode: saved?.mode,
       modes: backend.modes.map(mode => ({ mode: mode.mode, tier: mode.tier, endpoint: mode.endpoint, limits: mode.limits.en })),
-      requiresCredential: saved?.mode !== 'anonymous',
-      credentialPresent: saved?.mode === 'anonymous' ? true : resolverIds.has(backend.id) || Boolean(env[saved?.credentialRef ?? '']),
+      requiresCredential: saved?.mode !== 'anonymous' && saved?.mode !== 'browser',
+      credentialPresent: saved?.mode === 'anonymous' ? true : saved?.mode === 'browser' ? Boolean(env[browserCredentialRef()] || config.credentials.browser) : resolverIds.has(backend.id) || Boolean(env[backendCredentialRef(backend.id)]),
       options: backend.options.map(option => ({ key: option.key, label: option.label.en, default: option.default })),
     };
   });

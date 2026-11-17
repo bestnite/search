@@ -52,7 +52,6 @@
         "enabled": true,
         "mode": "anonymous",
         "endpoint": "https://api.keenable.ai/v1/search/public",
-        "credentialRef": "NITE_SEARCH_KEENABLE_KEY",
         "timeoutMs": 15000,
         "rateLimitPerMinute": 0,
         "dailyAttemptLimit": 0,
@@ -65,7 +64,6 @@
         "enabled": true,
         "mode": "anonymous",
         "endpoint": "https://gql-fed.reddit.com/",
-        "credentialRef": "NITE_SEARCH_REDDIT_KEY",
         "timeoutMs": 15000,
         "rateLimitPerMinute": 0,
         "dailyAttemptLimit": 0,
@@ -79,7 +77,6 @@
         "enabled": false,
         "mode": "session",
         "endpoint": "https://x.com/i/api/graphql",
-        "credentialRef": "DSH_SEARCH_X_KEY",
         "timeoutMs": 20000,
         "rateLimitPerMinute": 0,
         "dailyAttemptLimit": 0,
@@ -87,12 +84,13 @@
           "postsPerSearch": 25
         }
       }
+    },
+    "browser": {
+      "endpoint": "",
+      "statePath": "",
+      "timeoutMs": 60000
     }
   },
-  "credentials": {
-    "keenable": "${NITE_SEARCH_KEENABLE_KEY}",
-    "reddit": "${NITE_SEARCH_REDDIT_KEY}",
-    "x": "${DSH_SEARCH_X_KEY}"
-  },
+  "credentials": {},
   "compactByDefault": false
 }

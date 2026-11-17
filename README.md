@@ -1,6 +1,6 @@
 # websearch-mcp
 
-An MCP server for multi-backend web search, plus discussion reading for Reddit, built on
+An MCP server for multi-backend web search, plus discussion reading for Reddit and X, built on
 [`@nite07/search-core`](https://git.nite07.com/nite/search-core). Works with any MCP client: Claude
 Code, Codex, DSH, or your own.
 
@@ -20,8 +20,20 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 ```
 
 Then edit that file: enable the backends you want. Anonymous tiers (Keenable, Exa, You.com,
-AnySearch, Parallel, Reddit) need no account at all. Credentials are read from the environment first,
-so `"credentials": { "keenable": "${NITE_SEARCH_KEENABLE_KEY}" }` keeps the secret out of the file.
+AnySearch, Parallel, Reddit) need no account at all. Credentials are read from fixed environment names first, for example
+`DSH_SEARCH_KEENABLE_KEY`, `DSH_SEARCH_REDDIT_KEY` and `DSH_SEARCH_X_KEY`. Backend ids
+are uppercased and hyphens become underscores. These names are defined by search-core,
+not configurable fields. Set them in the MCP client's `env` block or the process environment.
+
+If an environment value is absent, `credentials.<backend-id>` may contain the credential value
+itself. Values are literal strings: `${...}` is not an environment reference and is not expanded.
+Old `credentialRef` fields in saved search settings are discarded when loading the file.
+
+Browser-backed searches use `search.browser.endpoint` and the single `DSH_SEARCH_BROWSER_TOKEN`
+environment variable, or the literal `credentials.browser` value when that variable is absent.
+The token authenticates the browser connection; site sign-in happens in the browser through VNC.
+A token stored under `credentials.xiaohongshu` is not used. This server currently exposes
+Xiaohongshu search, but not a Xiaohongshu note-reading tool.
 
 ## Client configuration
 

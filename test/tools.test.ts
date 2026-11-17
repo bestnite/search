@@ -123,3 +123,22 @@ test('tool schemas stay honest about their bounds', () => {
   assert.equal(thread.properties.depth!.maximum, 8);
   assert.equal(thread.properties.limit!.maximum, 500);
 });
+
+
+test('Reddit and X readers use the same fixed-name environment-first credentials as search',async()=>{
+ const oldX=process.env.DSH_SEARCH_X_KEY;const oldReddit=process.env.DSH_SEARCH_REDDIT_KEY;
+ process.env.DSH_SEARCH_X_KEY='{"authToken":"env-auth","ct0":"env-csrf"}';
+ process.env.DSH_SEARCH_REDDIT_KEY='{"clientId":"env-id","clientSecret":"env-secret"}';
+ const config=configWith(['reddit','x']);config.search.backends.reddit!.mode='oauth';
+ config.credentials={reddit:'{"clientId":"file-id","clientSecret":"file-secret"}',x:'{"authToken":"file-auth","ct0":"file-csrf"}'};
+ const seen:Record<string,unknown>[]=[];
+ const readers={
+  reddit:(async (_input:unknown,options:Record<string,unknown>)=>{seen.push(options);return {post:{title:'test',author:'a',score:1,url:'https://reddit.com/comments/1'},comments:[],truncated:false};}) as unknown as typeof import('@nite07/search-core').fetchRedditThread,
+  x:(async (_input:unknown,options:Record<string,unknown>)=>{seen.push(options);return {post:{text:'test',url:'https://x.com/a/status/1'},replies:[],truncated:false};}) as unknown as typeof import('@nite07/search-core').fetchXThread,
+ };
+ try{
+  const tool=createTools(config,identity,undefined,readers).find(tool=>tool.name==='read_thread')!;
+  await tool.call({source:'reddit',postId:'1'},new AbortController().signal);await tool.call({source:'x',postId:'1'},new AbortController().signal);
+  assert.deepEqual(seen[0]!.credentials,{clientId:'env-id',clientSecret:'env-secret'});assert.deepEqual(seen[1]!.credentials,{authToken:'env-auth',ct0:'env-csrf'});
+ }finally{if(oldX===undefined)delete process.env.DSH_SEARCH_X_KEY;else process.env.DSH_SEARCH_X_KEY=oldX;if(oldReddit===undefined)delete process.env.DSH_SEARCH_REDDIT_KEY;else process.env.DSH_SEARCH_REDDIT_KEY=oldReddit;}
+});
