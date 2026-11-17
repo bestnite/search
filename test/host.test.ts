@@ -34,3 +34,10 @@ test('the note tool explains what is missing before it touches the browser',asyn
  const enabled=defaultConfig();enabled.backends.xiaohongshu!.enabled=true;const h2=harness();await apply(h2.ctx,enabled);
  await assert.rejects(h2.tool('xiaohongshu_note')!.execute({},{signal}),/Pass url .* or id/);
 });
+
+test('a browser endpoint behind a container runtime alias survives save and read-back',async()=>{const h=harness();await apply(h.ctx,defaultConfig());const endpoint='ws://host.containers.internal:3030/ws';
+ const next=defaultConfig();next.browser.endpoint=endpoint;next.backends.xiaohongshu!.enabled=true;next.backends.xiaohongshu!.mode='browser';next.backends.xiaohongshu!.endpoint='';
+ const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});
+ await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal:new AbortController().signal});
+ assert.equal((h.stored as any).browser.endpoint,endpoint,'the shared endpoint is kept as typed');assert.equal((h.stored as any).backends.xiaohongshu.endpoint,'','a browser backend inherits it');
+});

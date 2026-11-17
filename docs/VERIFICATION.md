@@ -6,7 +6,7 @@ Date: 2026-11-17 (Asia/Shanghai), profile `web`. The DSH release running at that
 
 `npm run check` (typecheck + 28 tests + build) passes. Coverage highlights:
 
-- Config validation: unknown fields, ranges, enumerations, non-loopback `http`, credentials in URLs, unverified backends cannot be enabled.
+- Config validation: unknown fields, ranges, enumerations, endpoint schemes (`http(s)` or `ws(s)`, no credentials, query or fragment), unverified backends cannot be enabled.
 - Fixed access modes: anonymous mode never resolves or transmits a stored key; key mode without a credential fails without any request; no fallback path exists in the engine.
 - Retry: only allowlisted statuses; bounded attempts on the same endpoint; `Retry-After` honoured and never shortened; `401`/quota-exhaustion bodies are not retried and never surface in results.
 - Failure reporting: partial failures and total failure appear in returned content with backend, mode, kind and attempt count; failed backends are not cached.
