@@ -42,6 +42,10 @@ env:
 
 jobs:
   build:
+    # Gitea reads .github/workflows too, and this repository is mirrored there. The job needs
+    # docker/buildx and registry secrets that only the GitHub side has, so anywhere else it is
+    # skipped rather than failed.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
