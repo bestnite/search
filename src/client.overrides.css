@@ -64,3 +64,8 @@
 .ns-blockers--info{border-color:var(--dsw-alias-border-l2)}.ns-blockers--info h3{color:var(--dsw-alias-label-primary)}
 
 .ns-credential-shape code{display:block;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);font-size:11px;overflow-wrap:anywhere}
+.ns-inherit{margin:16px 0;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.ns-inherit p{font-size:13px;margin:0 0 8px}
+.ns-inherit p:last-child{margin-bottom:0}
+.ns-inherit .ns-link{margin-left:8px;min-height:0;padding:0;border:0;background:none;color:var(--dsw-alias-brand-primary);text-decoration:underline;font-size:13px}
+.ns-inherit .ns-advanced{margin:8px 0 0;border-top:0;padding-top:0}

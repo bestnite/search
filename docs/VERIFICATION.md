@@ -4,10 +4,11 @@ Date: 2026-11-17 (Asia/Shanghai), profile `web`. The DSH release running at that
 
 ## Automated
 
-`npm run check` (typecheck + 28 tests + build) passes. Coverage highlights:
+`npm run check` (typecheck + 19 tests + build) passes. Coverage highlights:
 
 - Config validation: unknown fields, ranges, enumerations, endpoint schemes (`http(s)` or `ws(s)`, no credentials, query or fragment), unverified backends cannot be enabled.
 - Fixed access modes: anonymous mode never resolves or transmits a stored key; key mode without a credential fails without any request; no fallback path exists in the engine.
+- Browser token scope: the endpoint token belongs to the shared browser block, so the page stores and reports it once and a browser backend carries no reference of its own; a backend-level reference is only the legacy fallback, and a stored token is never echoed back.
 - Retry: only allowlisted statuses; bounded attempts on the same endpoint; `Retry-After` honoured and never shortened; `401`/quota-exhaustion bodies are not retried and never surface in results.
 - Failure reporting: partial failures and total failure appear in returned content with backend, mode, kind and attempt count; failed backends are not cached.
 - Deduplication, domain filtering, local budget accounting (durable domain, serialized reservations, fail-closed on storage errors), cancellation.

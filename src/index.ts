@@ -34,10 +34,17 @@ export async function apply(ctx:Context,raw:SearchConfig){
   ctx.effect(()=>ctx.web.registerSearchProvider({id:'nite-search',title:'DSH search',description:{en:'Explicit access modes and transparent backend failures.',zh:'固定接入模式，明确报告各后端调用失败。'},available:()=>true,search:(request:WebSearchRequest,signal?:AbortSignal)=>engine.search(request,AbortSignal.any([lifetime.signal,...(signal?[signal]:[])]))}));
   const currentRevision=revision(config);
   async function snapshot():Promise<SettingsSnapshot>{
-    const credentials:SettingsSnapshot['credentials']={};for(const d of catalog){const info=await ctx.credentials.describe(credentialRef(config.backends[d.id]!.credentialRef));credentials[d.id]={configured:info.configured,writable:info.writable};}
+    const credentials:SettingsSnapshot['credentials']={};
+    for(const d of catalog){
+      // A browser backend carries no reference of its own; the endpoint token lives on the browser.
+      const reference=config.backends[d.id]!.credentialRef;
+      const info=reference?await ctx.credentials.describe(credentialRef(reference)):{configured:false,writable:true};
+      credentials[d.id]={configured:info.configured,writable:info.writable};
+    }
+    const browserInfo=config.browser.credentialRef?await ctx.credentials.describe(credentialRef(config.browser.credentialRef)):{configured:false,writable:true};
     let searchProvider:string|undefined;
     try{const row=ctx.configEditor.configuration().find(item=>item.entry.options.id==='web');searchProvider=({...row?.inherited,...row?.override} as {searchProvider?:string}).searchProvider;}catch{/* Diagnostics only: never fail the page over a read. */}
-    return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,active:{...(searchProvider?{searchProvider}:{}),isSelf:searchProvider==='nite-search'},credentials,diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}]))};
+    return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,active:{...(searchProvider?{searchProvider}:{}),isSelf:searchProvider==='nite-search'},credentials,browser:{credentialConfigured:browserInfo.configured,writable:browserInfo.writable},diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}]))};
   }
   async function operate(args:any,signal:AbortSignal):Promise<unknown>{
     if(args?.action==='settings')return snapshot();
@@ -57,10 +64,12 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(args?.action==='clear-cache'){engine.clearCache();return {cleared:true};}
     if(args?.action==='clear-diagnostics'){engine.clearDiagnostics();return {cleared:true};}
     if(args?.action==='credential'){
-      const b=config.backends[args.backendId];if(!b)throw new Error('Unknown backend id.');
+      // A browser backend owns no reference: its token belongs to the shared browser block, so a
+      // caller may name that reference directly instead of pointing at a backend row.
+      const b=args.backendId?config.backends[args.backendId]:undefined;if(args.backendId&&!b)throw new Error('Unknown backend id.');
       // The reference may be the one the editor currently shows rather than the saved one: choosing a
       // different access mode should not force a save before a credential can be entered.
-      const target=String(args.ref??b.credentialRef??'');if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(target))throw new Error('The credential reference must be an environment-style name.');
+      const target=String(args.ref??b?.credentialRef??'');if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(target))throw new Error('The credential reference must be an environment-style name.');
       if(args.remove===true)await ctx.credentials.unset(credentialRef(target));else {if(typeof args.value!=='string'||!args.value.trim()||args.value.length>16384)throw new Error('A nonempty credential is required.');await ctx.credentials.set(credentialRef(target),args.value);}
       engine.clearCache();return {saved:true};
     }

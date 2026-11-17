@@ -39,5 +39,18 @@ test('a browser endpoint behind a container runtime alias survives save and read
  const next=defaultConfig();next.browser.endpoint=endpoint;next.backends.xiaohongshu!.enabled=true;next.backends.xiaohongshu!.mode='browser';next.backends.xiaohongshu!.endpoint='';
  const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});
  await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal:new AbortController().signal});
- assert.equal((h.stored as any).browser.endpoint,endpoint,'the shared endpoint is kept as typed');assert.equal((h.stored as any).backends.xiaohongshu.endpoint,'','a browser backend inherits it');
+ assert.equal((h.stored as any).browser.endpoint,endpoint,'the shared endpoint is kept as typed');assert.equal((h.stored as any).backends.xiaohongshu.endpoint,'','a browser backend inherits it');assert.equal((h.stored as any).backends.xiaohongshu.credentialRef,'','and owns no credential reference of its own');
+});
+
+test('the endpoint token is stored once on the shared browser reference',async()=>{const h=harness();await apply(h.ctx,defaultConfig());const signal=new AbortController().signal;
+ const first=await h.tool('search_manage')!.execute({action:'settings'},{signal});
+ assert.deepEqual(first.browser,{credentialConfigured:false,writable:true},'the page starts with no endpoint token');
+ // The reference is named directly: a browser backend has none of its own to point at.
+ await h.tool('search_manage')!.execute({action:'credential',ref:'DSH_SEARCH_BROWSER_TOKEN',value:'ENDPOINT_TOKEN'},{signal});
+ const second=await h.tool('search_manage')!.execute({action:'settings'},{signal});
+ assert.equal(second.browser.credentialConfigured,true);
+ assert.equal(second.credentials.xiaohongshu.configured,false,'the backend row reports no credential of its own');
+ assert.ok(!JSON.stringify(second).includes('ENDPOINT_TOKEN'),'a stored token is never echoed back');
+ await h.tool('search_manage')!.execute({action:'credential',ref:'DSH_SEARCH_BROWSER_TOKEN',remove:true},{signal});
+ assert.equal((await h.tool('search_manage')!.execute({action:'settings'},{signal})).browser.credentialConfigured,false);
 });

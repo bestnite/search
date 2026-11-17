@@ -6,5 +6,7 @@ export interface SettingsSnapshot {
   /** Which provider the web seam currently selected, and whether it is this plugin. */
   active: { searchProvider?: string; isSelf: boolean };
   credentials: Record<string, { configured: boolean; writable: boolean }>;
+  /** State of the endpoint token, which belongs to the shared browser rather than to one backend. */
+  browser: { credentialConfigured: boolean; writable: boolean };
   diagnostics: BackendOutcome[]; counters: Record<string, { attempts: number; day: string }>;
 }
