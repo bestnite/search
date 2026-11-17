@@ -7,7 +7,8 @@ export interface XhsNoteReport {
   author: string;
   desc: string;
   tags: string[];
-  images: number;
+  /** Pictures the note carries, in display order. */
+  imageUrls: string[];
   stats: { likes: string; collects: string; comments: string; shares: string };
   publishedAt?: string;
   comments?: Array<{ author: string; content: string; likes: string; replies: string; ipLocation?: string }>;
@@ -28,7 +29,7 @@ export function formatXhsNote(note: XhsNote, comments?: XhsComment[], commentsTr
     author: note.author,
     desc: note.desc,
     tags: note.tags,
-    images: note.images,
+    imageUrls: note.imageUrls,
     stats: { likes: note.likes, collects: note.collects, comments: note.comments, shares: note.shares },
     ...(note.publishedAt ? { publishedAt: note.publishedAt } : {}),
     ...(comments

@@ -6,7 +6,7 @@ import { formatXhsNote, renderXhsNote } from '../src/xhs-note.js';
 const note: XhsNote = {
   id: 'abc', title: '露营装备', desc: '第一次露营只带五件', author: '二许',
   likes: '1200', collects: '300', comments: '45', shares: '12', tags: ['露营', '装备'],
-  images: 6, url: 'https://www.xiaohongshu.com/explore/abc',
+  imageUrls: ['https://img.example/a.jpg', 'https://img.example/b.jpg'], url: 'https://www.xiaohongshu.com/explore/abc',
 };
 const comments: XhsComment[] = [
   { id: 'c1', author: '阿熊', content: '这个清单靠谱', likes: '8', replies: '1', ipLocation: '上海' },
