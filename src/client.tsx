@@ -95,7 +95,7 @@ export function createClient(React: any) {
         function focusPath(path: string) {
           if (path === 'backends' || path === 'sec-backends') { setTab('backends'); setPendingFocus('sec-backends'); return; }
           const reliability = path.startsWith('retry.') || path.startsWith('breaker.') || path.startsWith('cache.') || path === 'diagnostics.enabled' || path === 'diagnostics.maxEntries';
-          setTab(path.startsWith('backends.') ? 'backends' : reliability ? 'reliability' : 'behavior');
+          setTab(path.startsWith('backends.') || path.startsWith('browser.') ? 'backends' : reliability ? 'reliability' : 'behavior');
           setPendingFocus(path);
         }
         React.useEffect(() => {
@@ -238,6 +238,7 @@ export function createClient(React: any) {
             <section className="ns-card" aria-labelledby="sec-transfer"><h3 id="sec-transfer">{t('transferTitle')}</h3><p>{t('transferHelp')}</p><div className="ns-actions"><button disabled={!!pending} onClick={exportConfig}>{t('export')}</button><button disabled={!!pending} aria-expanded={showTransfer} onClick={() => setShowTransfer(!showTransfer)}>{t('import')}</button><button disabled={!!pending} onClick={() => setConfirming({ kind: 'restore-defaults' })}>{t('restoreDefaults')}</button></div>{confirmRow('restore-defaults', 'defaultsConfirm', () => { setDraft(clone(snapshot.defaults)); setIssues([]); setNotice('defaultsRestored'); })}{showTransfer && <div className="ns-field"><label htmlFor="ns-import">{t('importLabel')}</label><textarea id="ns-import" value={importText} disabled={!!pending} onChange={(event: any) => setImportText(event.target.value)} rows={8} /><button disabled={!!pending || !importText.trim()} onClick={importConfig}>{t('applyImport')}</button></div>}</section>
           </div>}
           {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
+            {section('sharedBrowser', ['sec-browser'], ['browser.endpoint', 'browser.credentialRef', 'browser.statePath', 'browser.timeoutMs'], { 'browser.timeoutMs': { type: 'number' } })}
             <section className="ns-backends" id="sec-backends" tabIndex={-1} aria-labelledby="sec-backends-title">
               <h3 id="sec-backends-title">{t('backends')} <span className="ns-muted">{tr('enabledSummary', { enabled: enabledCount, total: definitions.length })}</span></h3>
               <p className="ns-muted">{t('backendIntro')} {t('colorLegend')}</p>

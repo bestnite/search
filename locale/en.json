@@ -231,5 +231,14 @@
   "help.tools.webSearchPlus": "Off hides the tool entirely: the agent then searches only through the configured strategy.",
   "field.tools.compactByDefault": "Compact results by default",
   "help.tools.compactByDefault": "Sources carry only URL, title and date. Saves context when the agent only needs links; a call can still ask for full snippets.",
-  "choice.browser": "Browser"
+  "choice.browser": "Browser",
+  "field.browser.endpoint": "Shared browser endpoint",
+  "field.browser.credentialRef": "Shared token reference",
+  "field.browser.statePath": "Shared session file",
+  "field.browser.timeoutMs": "Browser read timeout (ms)",
+  "help.browser.endpoint": "The Playwright endpoint every browser-backed reader shares, for example ws://<host>:3000/ws. When set it wins over a backend's own endpoint; leave it empty to let each backend name its own.",
+  "help.browser.credentialRef": "Optional. Fallback reference for the endpoint token; used only when a backend's own credential has no token.",
+  "help.browser.statePath": "Optional. Where the browser container writes the signed-in session; empty uses the search core default.",
+  "help.browser.timeoutMs": "How long one browser read may take.",
+  "sharedBrowser": "Shared browser"
 }

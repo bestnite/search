@@ -231,5 +231,14 @@
   "help.tools.webSearchPlus": "关闭后这个工具不会注册，agent 只能用配置里的固定策略搜索。",
   "field.tools.compactByDefault": "默认返回精简结果",
   "help.tools.compactByDefault": "结果只保留链接、标题和日期。agent 只需要链接时能省下大量上下文；单次调用仍可要求完整摘要。",
-  "choice.browser": "浏览器"
+  "choice.browser": "浏览器",
+  "field.browser.endpoint": "共享浏览器端点",
+  "field.browser.credentialRef": "共享令牌引用",
+  "field.browser.statePath": "共享会话文件",
+  "field.browser.timeoutMs": "浏览器读取超时（毫秒）",
+  "help.browser.endpoint": "所有依赖浏览器的后端共用的 Playwright 端点，例如 ws://<主机>:3000/ws。填写后优先于各后端自己的端点；留空则各后端各用自己的。",
+  "help.browser.credentialRef": "可选。端点令牌的回退引用；后端自己的凭证里没填令牌时才会用到这一个。",
+  "help.browser.statePath": "可选。浏览器容器把登录态写在哪个文件；留空则用搜索核心的默认位置。",
+  "help.browser.timeoutMs": "一次浏览器读取最多等多久。",
+  "sharedBrowser": "共享浏览器"
 }
