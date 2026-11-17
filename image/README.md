@@ -51,29 +51,38 @@ credential ever leaves the container.
 
 If the window ever closes, restart the unit: the keeper reopens it.
 
-Run it as a quadlet so systemd owns the lifecycle:
+Run it as a quadlet so systemd owns the lifecycle. The deployment directory follows the layout the
+other containers on this machine use — unit, environment file, data and a reload script per service:
+
+```
+~/pod/xhs-browser/
+  xhs-browser.container   # quadlet: image, published address, profile mount
+  .env                    # XHS_VNC_PASSWORD, mode 600, never committed
+  data/                   # profile: state.json and ws-token
+  reload.sh               # copy into ~/.config/containers/systemd and restart
+```
 
 ```sh
 podman build -t xhs-playwright ~/dev/search-core/image
-cp image/xhs-browser.container ~/.config/containers/systemd/
-printf 'XHS_VNC_PASSWORD=<eight chars or fewer>\n' > ~/.config/dsh-search/xhs/vnc.env
-chmod 600 ~/.config/dsh-search/xhs/vnc.env
-systemctl --user daemon-reload && systemctl --user start xhs-browser
+cd ~/pod/xhs-browser && ./reload.sh
 ```
 
 A plain `podman restart` is not enough in rootless mode: the published ports are re-established by
 the unit's start, and a bare restart can leave a specific published address unbound while the
 container itself is healthy.
 
+The search core reads `~/.config/dsh-search/xhs/state.json` by default. Point that path at the data
+directory with a symlink, or set the backend's `statePath` option; the container only ever writes
+inside `data/`.
+
 ## Publishing it beyond loopback
 
 A remote machine needs the ports bound to an address it can reach, for example a tailnet address:
 
 ```sh
-podman run -d --name xhs-browser \
+podman run -d --restart unless-stopped --name xhs-browser \
   -p 100.64.0.10:3030:3000 -p 100.64.0.10:6080:6080 \
-  -e XHS_VNC_PASSWORD='<eight chars or fewer>' \
-  -v ~/.config/dsh-search/xhs:/profile:Z --shm-size=1gb xhs-playwright
+  -v ~/pod/xhs-browser/data:/profile:Z --shm-size=1gb xhs-playwright
 ```
 
 Bind the VNC port only where you trust the network, and set a password whenever it is not loopback:
@@ -113,7 +122,7 @@ or typing, which is why that trade is acceptable here.
 
 ## Operations
 
-- **Browser crashed or the page is stuck**: `systemctl --user restart xhs-browser`, or `podman restart xhs-browser`. The profile survives.
+- **Browser crashed or the page is stuck**: `systemctl --user restart xhs-browser`. The profile survives.
 - **Signed out of Xiaohongshu**: sign in again over VNC; the next save updates the volume.
 - **Token rotated**: delete `/profile/ws-token` (or set `XHS_WS_TOKEN`) and restart; update the core's credential.
 - **Wiped volume**: both the login and the token are gone; sign in again and copy the new token.
