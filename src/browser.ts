@@ -2,14 +2,14 @@
 // Both sides of the connection must share a major.minor, so the browser image pins the same version.
 import { chromium, type Browser, type Page } from 'patchright-core';
 import { existsSync } from 'node:fs';
-import { SearchError } from '../transport.js';
+import { SearchError } from './transport.js';
 
 /**
  * One connection to the browser the user runs. The browser belongs to them: this class never
  * launches anything, never installs anything and never touches the profile — it attaches, reuses
  * the page that is already there, and evaluates scripts inside it.
  */
-export interface BrowserOptions {
+export interface BrowserSessionOptions {
   /** Playwright server endpoint, for example ws://127.0.0.1:3000/xhs. */
   wsEndpoint: string;
   /** Bearer token checked by the proxy in front of that endpoint. */
@@ -26,13 +26,13 @@ export interface BrowserOptions {
 
 const SITE_HOST = 'xiaohongshu.com';
 
-export class XhsBrowser {
+export class BrowserSession {
   private browser: Browser | undefined;
   private page: Page | undefined;
   private savedAt = 0;
   private context: Awaited<ReturnType<Browser['newContext']>> | undefined;
 
-  constructor(private readonly options: BrowserOptions) {}
+  constructor(private readonly options: BrowserSessionOptions) {}
 
   private async connect(): Promise<Browser> {
     if (this.browser?.isConnected()) return this.browser;
@@ -118,7 +118,7 @@ export class XhsBrowser {
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** A refused endpoint, a missing one and a version mismatch each need a different fix. */
-export function connectFailure(error: unknown, options: BrowserOptions): SearchError {
+export function connectFailure(error: unknown, options: BrowserSessionOptions): SearchError {
   const text = message(error);
   if (/version mismatch/i.test(text) || /\b428\b/.test(text)) {
     return new SearchError('protocol', `The Playwright server and this client disagree on protocol version, so no request was sent. Update whichever side is older; both must share the same major.minor. (${text.slice(0, 200)})`);
@@ -130,4 +130,24 @@ export function connectFailure(error: unknown, options: BrowserOptions): SearchE
     return new SearchError('network', `No Playwright server answered at ${options.wsEndpoint}. Start the browser container, or fix the endpoint address.`);
   }
   return new SearchError('network', `Could not attach to the Playwright endpoint at ${options.wsEndpoint}: ${text.slice(0, 200)}`);
+}
+
+/** Sessions are shared by endpoint: one connection, many readers, one page per site. */
+const sessions = new Map<string, BrowserSession>();
+
+/** The session for an endpoint, created on first use and reused for the life of the process. */
+export function sessionFor(key: string, options: BrowserSessionOptions): BrowserSession {
+  let session = sessions.get(key);
+  if (!session) {
+    session = new BrowserSession(options);
+    sessions.set(key, session);
+  }
+  return session;
+}
+
+/** Close every kept session; the host calls this when it shuts down. */
+export async function closeBrowserSessions(): Promise<void> {
+  const open = [...sessions.values()];
+  sessions.clear();
+  await Promise.all(open.map(session => session.close().catch(() => undefined)));
 }

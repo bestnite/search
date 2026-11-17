@@ -18,22 +18,33 @@ function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',da
     const title=string(r[keys.title]);const snippet=string(r[keys.snippet]);const date=string(r[keys.date]);
     return [{url,...(title?{title}:{}),...(snippet?{snippet}:{}),...(date?{publishedAt:date}:{})}];});
 }
+
+/**
+ * Backends that read through the shared browser. A backend added here gets the endpoint, the session
+ * file and the timeout from the shared browser configuration, and needs no other wiring.
+ */
+export interface BrowserRead {
+  /** Browser reads get the endpoint, the optional session file and the caller's signal. */
+  search(input:{query:string;maxResults:number;options:Record<string,unknown>;key?:string},ctx:{wsEndpoint:string;statePath?:string;timeoutMs:number;signal:AbortSignal}):Promise<Source[]>;
+}
+
+export const browserBackends:Record<string,BrowserRead>={};
+import { registerBrowserBackends } from './browser-backends.js';
+registerBrowserBackends(browserBackends);
+
 export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Promise<AdapterResult>{
   const b=i.backend;const o=b.options;const c=i.config;const headers:Record<string,string>={'Content-Type':'application/json'};
-  if(id==='xiaohongshu'){
-    // The browser belongs to the user, so there is no attempt budget to reserve per request:
+  const browser=browserBackends[id];
+  if(browser){
+    // The browser belongs to whoever runs the container, so there is no attempt budget to reserve:
     // one page read is one read on their own infrastructure.
-    const wsEndpoint=String(o.wsEndpoint||b.endpoint||'');
-    const notes=await searchXhs({query:i.query,maxResults:i.maxResults,...(typeof o.sort==='string'&&o.sort!==''?{sort:o.sort}:{})},{
-      wsEndpoint,
-      ...(i.key?{token:i.key}:{}),
-      ...(typeof o.statePath==='string'&&o.statePath!==''?{statePath:o.statePath}:{}),
-      timeoutMs:b.timeoutMs,
-      signal:t.signal,
-    });
-    return {sources:notes};
+    const endpoint=String(c.browser?.endpoint||o.wsEndpoint||b.endpoint||'');
+    if(!endpoint)throw new SearchError('configuration',`${id} reads through a browser, but no endpoint is configured. Set the shared browser endpoint, or this backend's own.`);
+    const statePath=String(o.statePath||c.browser?.statePath||'');
+    const timeoutMs=Number(c.browser?.timeoutMs||b.timeoutMs);
+    const sources=await browser.search({query:i.query,maxResults:i.maxResults,options:o,key:i.key},{wsEndpoint:endpoint,...(statePath?{statePath}:{}),timeoutMs,signal:t.signal});
+    return {sources};
   }
-  if(id==='tencent-wsa')return searchTencent(i,t);
   if(id==='x'){
     const credentials:XCredentials=parseXCredentials(i.key);
     if(b.mode!=='key'&&b.mode!=='session')throw new SearchError('configuration','X supports only the key and session access modes.');

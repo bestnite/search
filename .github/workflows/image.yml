@@ -1,13 +1,13 @@
 name: image
 
 # The browser image is the only thing here that ships as an artifact, and its version tracks the
-# Patchright driver inside it, so it gets its own tag line: `xhs-v1.64.3` publishes 1.64.3, 1.64,
+# Patchright driver inside it, so it gets its own tag line: `browser-v1.64.3` publishes 1.64.3, 1.64,
 # 1.64.3-<sha> and latest. A manual run rebuilds the current commit and tags it with the short SHA,
 # which is what a re-publish looks like without inventing a version number.
 on:
   push:
     tags:
-      - 'xhs-v*'
+      - 'browser-v*'
   workflow_dispatch:
     inputs:
       push:
@@ -35,7 +35,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: xhs-playwright
+  IMAGE_NAME: search-browser
   # One place decides whether this run publishes: a pull request never does, and a manual run says so
   # itself. Everything downstream reads this instead of re-deriving the condition.
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
@@ -81,14 +81,14 @@ jobs:
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=match,pattern=xhs-v(\d+\.\d+\.\d+),group=1
-            type=match,pattern=xhs-v(\d+\.\d+),group=1
-            type=match,pattern=xhs-v(\d+),group=1
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/xhs-v') }}
+            type=match,pattern=browser-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+),group=1
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/browser-v') }}
             type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' }}
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
           labels: |
-            org.opencontainers.image.title=Xiaohongshu browser for @nite07/search-core
+            org.opencontainers.image.title=Search browser for @nite07/search-core
             org.opencontainers.image.description=Patchright-driven Google Chrome with a token-protected Playwright endpoint and a VNC surface for the one-time sign-in
             org.opencontainers.image.licenses=MIT
 

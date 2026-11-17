@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SearchError } from '../src/transport.js';
 import { catalog } from '../src/catalog.js';
-import { connectFailure } from '../src/xhs/browser.js';
+import { connectFailure } from '../src/browser.js';
 import { fetchXhsComments, fetchXhsNote, readXhsSearchNotes, resolveTarget, searchXhs } from '../src/xhs/index.js';
 
 interface Call { script: string }

@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { SearchError } from '../transport.js';
 import type { Source } from '../types.js';
-import { XhsBrowser, type BrowserOptions } from './browser.js';
+import { BrowserSession, sessionFor, type BrowserSessionOptions } from '../browser.js';
 import { commentsScript, healthScript, noteScript, searchScript } from './scripts.js';
 
 /**
@@ -18,14 +18,14 @@ export interface XhsContext {
   timeoutMs: number;
   signal: AbortSignal;
   /** Injected in tests; production uses the real browser connection. */
-  browser?: Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'>;
+  browser?: Pick<BrowserSession, 'evaluate' | 'target' | 'persist' | 'close'>;
 }
 
 /**
  * Default session file, kept beside the browser container's volume so the session the container
  * saves is the session a read starts from. Override with the statePath option or XHS_STATE_PATH.
  */
-export const DEFAULT_STATE_PATH = join(homedir(), '.config', 'dsh-search', 'xhs', 'state.json');
+export const DEFAULT_STATE_PATH = join(homedir(), '.config', 'dsh-search', 'browser', 'state.json');
 
 export const DEFAULT_SITE_URL = 'https://www.xiaohongshu.com/explore';
 
@@ -70,8 +70,6 @@ interface PageAnswer { ok?: boolean; code?: string; message?: string; status?: n
  * VNC. Dropping it after every read would close that window and leave no way to log in, so the
  * connection is reused until the host shuts it down.
  */
-const connections = new Map<string, XhsBrowser>();
-
 /**
  * Search results carry the per-note token that detail and comment reads require, but a Source must
  * not expose it. Keeping it here is what lets a caller read a note it just saw in a search.
@@ -88,25 +86,10 @@ function rememberToken(id: string, token: string | undefined): void {
   }
 }
 
-const browserFor = (ctx: XhsContext): Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'> => {
-  if (ctx.browser) return ctx.browser;
-  const key = `${ctx.wsEndpoint}|${ctx.token ?? ''}`;
-  let browser = connections.get(key);
-  if (!browser) {
-    browser = new XhsBrowser(optionsOf(ctx));
-    connections.set(key, browser);
-  }
-  return browser;
-};
+const browserFor = (ctx: XhsContext): Pick<BrowserSession, 'evaluate' | 'target' | 'persist' | 'close'> =>
+  ctx.browser ?? sessionFor(`xhs|${ctx.wsEndpoint}|${ctx.token ?? ''}`, optionsOf(ctx));
 
-/** Close every kept connection; the host calls this when it shuts down. */
-export async function closeXhsBrowsers(): Promise<void> {
-  const browsers = [...connections.values()];
-  connections.clear();
-  await Promise.all(browsers.map(browser => browser.close().catch(() => undefined)));
-}
-
-export function optionsOf(ctx: XhsContext): BrowserOptions {
+export function optionsOf(ctx: XhsContext): BrowserSessionOptions {
   return {
     wsEndpoint: ctx.wsEndpoint,
     siteUrl: ctx.siteUrl ?? DEFAULT_SITE_URL,

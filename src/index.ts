@@ -30,8 +30,8 @@ export type { RedditComment, RedditCredentials, RedditThread } from './reddit/in
 export { parseXCredentials, searchX } from './x/index.js';
 export type { XCredentials } from './x/index.js';
 export { fetchXThread, normaliseId } from './x/thread.js';
-export { closeXhsBrowsers, fetchXhsComments, fetchXhsNote, readXhsSearchNotes, resolveTarget as resolveXhsTarget, searchXhs } from './xhs/index.js';
+export { fetchXhsComments, fetchXhsNote, readXhsSearchNotes, resolveTarget as resolveXhsTarget, searchXhs } from './xhs/index.js';
 export type { XhsComment, XhsContext, XhsNote, XhsNoteSummary } from './xhs/index.js';
-export { connectFailure, XhsBrowser } from './xhs/browser.js';
+export { BrowserSession, closeBrowserSessions, connectFailure, sessionFor, type BrowserSessionOptions } from './browser.js';
 export type { XThread } from './x/thread.js';
 export type { XReply, XThreadPost } from './x/parse.js';

@@ -5,6 +5,7 @@ export function defaultConfig(): SearchConfig {
   return {
     mode:'parallel', singleBackend:'keenable', maxResults:8, concurrency:4, overallTimeoutMs:30000,
     language:'', region:'', recency:'any', safeSearch:true, includeDomains:[], excludeDomains:[],dedup:'url',fusion:'rrf',
+    browser:{endpoint:'',credentialRef:'DSH_SEARCH_BROWSER_TOKEN',statePath:'',timeoutMs:60000},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false},
     backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
@@ -60,19 +61,24 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   num(c.retry.maxRetries,0,5,'retry.maxRetries');num(c.retry.initialDelayMs,0,60000,'retry.initialDelayMs');num(c.retry.maxDelayMs,0,120000,'retry.maxDelayMs');
   if(c.retry.initialDelayMs>c.retry.maxDelayMs)fail('retry.maxDelayMs','Maximum delay must not be shorter than initial delay.');
   num(c.cache.ttlSeconds,1,86400,'cache.ttlSeconds');num(c.cache.maxEntries,1,1000,'cache.maxEntries');num(c.breaker.threshold,1,100,'breaker.threshold');num(c.breaker.cooldownMs,1000,3600000,'breaker.cooldownMs');num(c.diagnostics.maxEntries,1,500,'diagnostics.maxEntries');
+  // A browser backend points at a Playwright server (a WebSocket URL), so both kinds share one rule.
+  const checkEndpoint=(endpoint:string,path:string)=>{try{
+      const url=new URL(endpoint);if(url.username||url.password||url.hash||url.search)throw 0;
+      const local=isPrivateHost(url.hostname);
+      const schemes=url.protocol==='ws:'||url.protocol==='wss:'?['ws:','wss:']:['http:','https:'];
+      if(!schemes.includes(url.protocol))throw 0;
+      const plain=url.protocol==='http:'||url.protocol==='ws:';if(plain&&!local)throw 0;
+    }catch{fail(path,'Use an HTTPS or WSS endpoint without credentials, query, or fragment; unencrypted HTTP and WS are allowed only on loopback or a private network.');}};
+  const sharedBrowser=c.browser.endpoint;
+  if(sharedBrowser)checkEndpoint(sharedBrowser,'browser.endpoint');
+  if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.browser.credentialRef))fail('browser.credentialRef','Expected an environment-style credential reference.');
+  if(!(c.browser.timeoutMs>=1000&&c.browser.timeoutMs<=120000))fail('browser.timeoutMs','Expected 1000 to 120000 milliseconds.');
   for(const d of catalog){const b=c.backends[d.id]!;const p=`backends.${d.id}`;
     choice(b.mode,d.modes.map(m=>m.mode),`${p}.mode`);
     if(b.enabled&&d.status==='unverified')fail(`${p}.enabled`,'Backend protocol is not verified.');
-    if(b.endpoint){try{
-      const url=new URL(b.endpoint);if(url.username||url.password||url.hash||url.search)throw 0;
-      const local=isPrivateHost(url.hostname);
-      // A browser backend points at a Playwright server, whose endpoint is a WebSocket URL.
-      const schemes=url.protocol==='ws:'||url.protocol==='wss:'?['ws:','wss:']:['http:','https:'];
-      if(!schemes.includes(url.protocol))throw 0;
-      // Unencrypted transports are only acceptable on loopback; anything remote must be TLS.
-      const plain=url.protocol==='http:'||url.protocol==='ws:';if(plain&&!local)throw 0;
-    }catch{fail(`${p}.endpoint`,'Use an HTTPS or WSS endpoint without credentials, query, or fragment; unencrypted HTTP and WS are allowed only on loopback.');}}
-    else if(b.enabled)fail(`${p}.endpoint`,'An endpoint is required.');
+    if(b.endpoint)checkEndpoint(b.endpoint,`${p}.endpoint`);
+    // A browser backend may inherit the shared endpoint instead of naming its own.
+    else if(b.enabled&&!(b.mode==='browser'&&sharedBrowser))fail(`${p}.endpoint`,'An endpoint is required.');
     if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(b.credentialRef))fail(`${p}.credentialRef`,'Expected an environment-style credential reference.');
     num(b.timeoutMs,1000,120000,`${p}.timeoutMs`);num(b.rateLimitPerMinute,0,100000,`${p}.rateLimitPerMinute`);num(b.dailyAttemptLimit,0,1000000,`${p}.dailyAttemptLimit`);
     for(const o of d.options){const v=b.options[o.key];if(o.choices&&!o.choices.includes(String(v)))fail(`${p}.options.${o.key}`,'Unsupported option.');if(typeof v==='number')num(v,o.min??1,o.max??100000,`${p}.options.${o.key}`);}

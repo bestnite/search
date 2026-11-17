@@ -29,6 +29,8 @@ export interface SearchConfig {
   overallTimeoutMs: number; language: string; region: string; recency: 'any' | 'day' | 'week' | 'month' | 'year';
   safeSearch: boolean; includeDomains: string[]; excludeDomains: string[]; dedup: 'url' | 'url-title';
   fusion: 'rrf' | 'ordered'; retry: RetryConfig;
+  /** Shared by every browser-backed reader; empty fields fall back to the backend's own settings. */
+  browser: BrowserConfig;
   cache: { enabled: boolean; ttlSeconds: number; maxEntries: number };
   breaker: { enabled: boolean; threshold: number; cooldownMs: number };
   diagnostics: { enabled: boolean; maxEntries: number };
@@ -36,6 +38,12 @@ export interface SearchConfig {
   tools: { webSearchPlus: boolean; compactByDefault: boolean };
   backends: Record<string, BackendConfig>;
 }
+/**
+ * One browser, shared by every backend that reads through one. A backend that set its own endpoint
+ * keeps working: the shared endpoint wins only when it is filled in.
+ */
+export interface BrowserConfig { endpoint: string; credentialRef: string; statePath: string; timeoutMs: number }
+
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
 export interface SearchInput { query: string; maxResults?: number }
 /** Per-call strategy; it never mutates saved configuration. */

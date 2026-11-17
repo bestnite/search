@@ -118,7 +118,11 @@ export class SearchEngine {
       // A browser backend authenticates against the user's own browser; its credential is an
       // optional token, so a missing one must not block the call.
       const needsCredential=b.mode!=='anonymous'&&b.mode!=='browser';
-      const key=b.mode==='browser'?await this.resolveKey(b.credentialRef).catch(()=>undefined):(needsCredential?await this.resolveKey(b.credentialRef):undefined);
+      // A browser backend's token may live on the shared browser resource instead of the backend,
+      // which is what lets several backends share one endpoint and one token.
+      const key=b.mode==='browser'
+        ?(await this.resolveKey(b.credentialRef).catch(()=>undefined))??(this.config.browser.credentialRef?await this.resolveKey(this.config.browser.credentialRef).catch(()=>undefined):undefined)
+        :(needsCredential?await this.resolveKey(b.credentialRef):undefined);
       if(needsCredential&&!key)throw new SearchError('configuration',b.mode==='key'?'API-key mode selected but credential is missing. Ask the user to set the credential.':`The ${b.mode} mode selected for this backend needs a stored credential. Ask the user to set it.`);
       for(const [field,active]of [['language',!!this.config.language],['region',!!this.config.region],['recency',this.config.recency!=='any'],['safeSearch',this.config.safeSearch]]as const)if(active&&!d.capabilities.includes(field))warnings.push(`${field} is unsupported by this backend and was not applied upstream.`);
       if(id==='deepseek'&&query.length>128)throw new SearchError('configuration','DeepSeek search query must not exceed 128 characters.');
