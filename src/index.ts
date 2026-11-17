@@ -40,8 +40,11 @@ async function migrateBrowserToken(ctx:Context,raw:SearchConfig,migrated:SearchC
     if(!stored?.value)continue;
     // Both names holding a token is not ours to resolve: keep the old entry and leave a note in the UI.
     if((await ctx.credentials.resolve(credentialRef(shared)).catch(()=>undefined))?.value)continue;
-    await ctx.credentials.set(credentialRef(shared),stored.value);
-    await ctx.credentials.unset(credentialRef(legacy)).catch(()=>undefined);
+    // A credential store that refuses the write must not stop the plugin from loading: the reference
+    // the row names is already dropped, so a refusal costs a token, not the whole settings page.
+    await ctx.credentials.set(credentialRef(shared),stored.value).catch(()=>undefined);
+    if(await ctx.credentials.resolve(credentialRef(shared)).catch(()=>undefined))
+      await ctx.credentials.unset(credentialRef(legacy)).catch(()=>undefined);
   }
 }
 export async function apply(ctx:Context,raw:SearchConfig){
