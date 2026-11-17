@@ -222,5 +222,8 @@
   "choice.oauth": "OAuth",
   "tier.account": "Own account",
   "choice.session": "Browser session cookies",
-  "colorLegend": "Green: free path, own account or self-hosted. Yellow: free allowance. Red: trial credits or paid. Sorted cheapest first."
+  "colorLegend": "Green: free path, own account or self-hosted. Yellow: free allowance. Red: trial credits or paid. Sorted cheapest first.",
+  "credentialPending": "Wait for the current action to finish.",
+  "credentialRefRequired": "Set a credential reference name first.",
+  "credentialReadOnly": "This reference is read-only: another source supplies its value, so the plugin cannot overwrite it. Pick a different reference name, such as DSH_SEARCH_X_SESSION."
 }
