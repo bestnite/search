@@ -4,9 +4,7 @@
     "description": "Multi-backend search with explicit anonymous or key access, cost tiers, bounded retries and complete Web settings. Backends start disabled; account-backed requests may incur charges."
   },
   "title": "Web search",
-  "eyebrow": "NITE SEARCH",
   "intro": "{{enabled}} of {{total}} backends enabled. Choose explicit access modes, control request budgets, and inspect search activity.",
-  "close": "Close",
   "loading": "Loading saved settings…",
   "loadFailed": "Could not load settings. Reload to try again.",
   "reload": "Reload settings",

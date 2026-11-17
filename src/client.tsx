@@ -49,7 +49,7 @@ export function createClient(React: any) {
       ctx.effect(() => ctx.locale.register('nite.search', 'zh', zhUi));
       const t = ctx.locale.bind('nite.search');
       const tr = (key: string, vars: Record<string, string | number>) => String(t(key)).replace(/\{\{(\w+)\}\}/g, (_m: string, name: string) => String(vars[name] ?? ''));
-      function Page({ close }: { close: () => void }) {
+      function Page() {
         const locale = React.useSyncExternalStore((fn: () => void) => ctx.locale.subscribe(fn), () => ctx.locale.getSnapshot());
         const lang = locale.active.startsWith('zh') ? 'zh' : 'en';
         const [snapshot, setSnapshot] = React.useState(null as SettingsSnapshot | null);
@@ -187,7 +187,7 @@ export function createClient(React: any) {
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
         return <div className="ns-page" aria-busy={!!pending}>
           <style>{styles}{overrides}</style>
-          <header className="ns-header"><div><p className="ns-eyebrow">{t('eyebrow')}</p><h2>{t('title')}</h2><p>{tr('intro', { enabled: enabledCount, total: definitions.length })}</p></div><button type="button" onClick={close}>{t('close')}</button></header>
+          <header className="ns-header"><div><h2>{t('title')}</h2><p>{tr('intro', { enabled: enabledCount, total: definitions.length })}</p></div></header>
           <div className="ns-status" role="status" aria-live="polite"><span className={failed ? 'ns-error' : ''}>{notice ? t(notice) : !snapshot ? t('loading') : dirty ? t('unsaved') : t('upToDate')}</span>{!!pending && <span>{t('pending')}</span>}</div>
           {!!issues.length && <div className="ns-summary" role="alert" tabIndex={-1} ref={summary}><h3>{t('validationTitle')}</h3><ul>{issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><a href={`#${fieldId(issue.path)}`} onClick={(event: any) => { event.preventDefault(); focusPath(issue.path); }}>{label(issue.path)} <code>{issue.path}</code> — {t('invalidField')}</a></li>)}</ul></div>}
           {!!blockers.length && <div className="ns-blockers" role="status" aria-live="polite"><h3>{t('blockersTitle')}</h3><ul>{blockers.map(blocker => <li key={blocker.key}>{tr(blocker.key, blocker.vars)} <button type="button" className="ns-link" onClick={() => focusPath(blocker.jump)}>{t('fixIt')}</button></li>)}</ul></div>}

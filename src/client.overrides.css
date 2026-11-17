@@ -54,3 +54,4 @@
 .ns-test-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
 .ns-test-actions small{color:var(--dsw-alias-label-secondary)}
 @media (max-width:720px){.ns-tabs{gap:2px}.ns-tab{padding:6px 10px}}
+.ns-header{margin-bottom:8px}
