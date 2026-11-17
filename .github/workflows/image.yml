@@ -60,30 +60,29 @@ jobs:
           podman-remote --url "${PODMAN_URL}" version --format 'server {{.Server.Version}}'
 
       - name: Work out the tags
-        id: tags
-        run: |
-          set -eu
-          platform="${{ inputs.platform || 'linux/amd64' }}"
-          case "${GITHUB_REF_NAME}" in
-            browser-v*)
-              version="${GITHUB_REF_NAME#browser-v}"
-              major="$(echo "$version" | cut -d. -f1)"
-              minor="$(echo "$version" | cut -d. -f1-2)"
-              tags="${version} ${minor} ${major} latest"
-              ;;
-            *)
-              tags="latest sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
-              ;;
-          esac
-          if [ -n "${{ inputs.tag }}" ]; then tags="${tags} ${{ inputs.tag }}"; fi
-          printf 'platform=%s\n' "$platform" >> "$GITHUB_OUTPUT"
-          printf 'tags<<TAGS\n%s\nTAGS\n' "$tags" >> "$GITHUB_OUTPUT"
-          echo "platform: $platform"
-          echo "tags: $tags"
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/search-browser
+          # latest is assigned explicitly below rather than by flavor, because a main-branch build and
+          # a release tag are both "latest" here and metadata would otherwise also add it to sha runs.
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=Search browser for @nite07/search-core
+            org.opencontainers.image.description=Patchright-driven Google Chrome behind a token-protected Playwright endpoint, with a VNC window for the sign-in
+          tags: |
+            type=match,pattern=browser-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+),group=1
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/browser-v') }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ !startsWith(github.ref, 'refs/tags/browser-v') }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
 
       - name: Build
         env:
-          PLATFORM: ${{ steps.tags.outputs.platform }}
+          PLATFORM: ${{ inputs.platform || 'linux/amd64' }}
         run: |
           set -eu
           podman-remote --url "${PODMAN_URL}" build \
@@ -99,7 +98,7 @@ jobs:
       - name: Publish
         if: env.PUBLISH == 'true'
         env:
-          TAGS: ${{ steps.tags.outputs.tags }}
+          TAGS: ${{ steps.meta.outputs.tags }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
@@ -111,31 +110,38 @@ jobs:
             exit 1
           fi
           podman_remote() { podman-remote --url "${PODMAN_URL}" "$@"; }
-          targets="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          # metadata-action hands back complete references, one per line.
+          if [ -z "${TAGS:-}" ]; then
+            echo "::error::no tags were produced"
+            exit 1
+          fi
           # GHCR is optional: it needs a GitHub token that can write packages, which a Gitea runner
           # has no way to mint on its own.
+          ghcr="${GHCR_USERNAME:+1}"
           if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
-            targets="${targets} ghcr.io/${GHCR_USERNAME}/${IMAGE_NAME}"
+            echo "${GHCR_TOKEN}" | podman_remote login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
           else
+            ghcr=""
             echo "no GHCR secrets: publishing to Docker Hub only"
           fi
           echo "${DOCKERHUB_TOKEN}" | podman_remote login -u "${DOCKERHUB_USERNAME}" --password-stdin docker.io
-          if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
-            echo "${GHCR_TOKEN}" | podman_remote login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
-          fi
-          for target in $targets; do
-            for tag in $TAGS; do
-              podman_remote tag "${IMAGE_NAME}:build" "${target}:${tag}"
-              podman_remote push "${target}:${tag}"
-              echo "pushed ${target}:${tag}"
-            done
+          for ref in $TAGS; do
+            podman_remote tag "${IMAGE_NAME}:build" "$ref"
+            podman_remote push "$ref"
+            echo "pushed $ref"
+            if [ -n "$ghcr" ]; then
+              tag="${ref##*:}"
+              podman_remote tag "${IMAGE_NAME}:build" "ghcr.io/${GHCR_USERNAME}/${IMAGE_NAME}:${tag}"
+              podman_remote push "ghcr.io/${GHCR_USERNAME}/${IMAGE_NAME}:${tag}"
+              echo "pushed ghcr.io/${GHCR_USERNAME}/${IMAGE_NAME}:${tag}"
+            fi
           done
 
       - name: Summary
         if: always()
         env:
-          TAGS: ${{ steps.tags.outputs.tags }}
-          PLATFORM: ${{ steps.tags.outputs.platform }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          PLATFORM: ${{ inputs.platform || 'linux/amd64' }}
         run: |
           echo "image: ${IMAGE_NAME}"
           echo "platform: ${PLATFORM}"
