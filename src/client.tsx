@@ -126,9 +126,15 @@ export function createClient(React: any) {
             {!!errors.length && <small className="ns-error" id={`${id}-error`}>{type === 'number' && min !== undefined && max !== undefined ? tr('expectedRange', { min, max }) : t('invalidField')}<button type="button" className="ns-link" onClick={() => focusPath(path)}>{t('showField')}</button></small>}
           </div>;
         }
-        /** Renders a field group, dropping members hidden by their owning switch. */
+        /**
+         * Renders a field group, dropping members hidden by their owning switch. Checkboxes lead the
+         * group: they are switches, and the values they gate make no sense above the switch itself.
+         */
         function fields(paths: string[], options: Record<string, any> = {}) {
-          return paths.filter(path => visible(path, draft)).map(path => field(path, options[path] || {}));
+          const shown = paths.filter(path => visible(path, draft));
+          const switches = shown.filter(path => options[path]?.type === 'checkbox');
+          const rest = shown.filter(path => options[path]?.type !== 'checkbox');
+          return [...switches, ...rest].map(path => field(path, options[path] || {}));
         }
         function section(title: string, ids: string[], paths: string[], options: Record<string, any> = {}) {
           const shown = fields(paths, options);
