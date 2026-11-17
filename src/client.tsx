@@ -153,16 +153,16 @@ export function createClient(React: any) {
           catch { setFailed(true); setNotice('actionFailed'); } finally { setPending(''); }
         }
         async function credential(id: string, remove: boolean) {
-          if (!snapshot) return; const reference = draft.backends[id]?.credentialRef;
+          if (!snapshot) return;
           setPending(`credential-${id}`); setFailed(false); setNotice('working');
-          try { await request('credential', { backendId: id, ref: reference, ...(remove ? { remove: true } : { value: secrets[id] }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); await refresh(); setNotice('credentialSaved'); }
+          try { await request('credential', { backendId: id, ...(remove ? { remove: true } : { value: secrets[id] }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); await refresh(); setNotice('credentialSaved'); }
           catch { setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); setFailed(true); setNotice('credentialFailed'); } finally { setPending(''); }
         }
         /** The endpoint token guards the browser, so it is stored once here rather than per backend. */
         async function browserCredential(remove: boolean) {
-          const reference = draft.browser.credentialRef; if (!snapshot || !reference) return;
+          if (!snapshot) return;
           setPending('credential-browser'); setFailed(false); setNotice('working');
-          try { await request('credential', { ref: reference, ...(remove ? { remove: true } : { value: secrets.browser }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); await refresh(); setNotice('credentialSaved'); }
+          try { await request('credential', { scope: 'browser', ...(remove ? { remove: true } : { value: secrets.browser }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); await refresh(); setNotice('credentialSaved'); }
           catch { setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); setFailed(true); setNotice('credentialFailed'); } finally { setPending(''); }
         }
         function importConfig() {
@@ -207,10 +207,7 @@ export function createClient(React: any) {
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
         const credentialDisabledReason = (id: string): string => {
         if (pending) return t('credentialPending');
-        const reference = draft.backends[id]?.credentialRef;
-        if (!reference) return t('credentialRefRequired');
-        const savedReference = snapshot?.config.backends[id]?.credentialRef;
-        if (reference === savedReference && snapshot?.credentials[id] && !snapshot.credentials[id]!.writable) return t('credentialReadOnly');
+        if (snapshot?.credentials[id] && !snapshot.credentials[id]!.writable) return t('credentialReadOnly');
         return '';
       };
       const credentialDisabled = (id: string): boolean => credentialDisabledReason(id) !== '';
@@ -246,7 +243,7 @@ export function createClient(React: any) {
           </div>}
           {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
             <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p><div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs'], { 'browser.timeoutMs': { type: 'number' } })}</div>
-              {!!snapshot && <div className="ns-credential"><h5>{t('browserTokenTitle')}</h5><p>{t(snapshot.browser.credentialConfigured ? 'credentialConfigured' : 'credentialMissing')} · {t('browserTokenHelp')}</p><label htmlFor="secret-browser">{t('browserTokenValue')}</label><input id="secret-browser" type="password" autoComplete="new-password" value={secrets.browser || ''} disabled={!!pending} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, browser: event.target.value }))} />{!draft.browser.credentialRef && <small className="ns-warning">{t('credentialRefRequired')}</small>}<div className="ns-actions"><button disabled={!!pending || !secrets.browser} onClick={() => browserCredential(false)}>{t('saveToken')}</button><button disabled={!!pending || !snapshot.browser.credentialConfigured} onClick={() => setConfirming({ kind: 'delete-browser-credential' })}>{t('deleteCredential')}</button></div>{confirmRow('delete-browser-credential', 'deleteCredentialConfirm', () => { void browserCredential(true); })}<p className="ns-muted">{tr('browserTokenStoredAt', { ref: draft.browser.credentialRef || t('notSpecified') })}</p><details className="ns-advanced"><summary>{t('browserTokenRefAdvanced')}</summary><div className="ns-grid">{fields(['browser.credentialRef'])}</div></details></div>}
+              {!!snapshot && <div className="ns-credential"><h5>{t('browserTokenTitle')}</h5><p>{t(snapshot.browser.credentialConfigured ? 'credentialConfigured' : 'credentialMissing')} · {t('browserTokenHelp')}</p><label htmlFor="secret-browser">{t('browserTokenValue')}</label><input id="secret-browser" type="password" autoComplete="new-password" value={secrets.browser || ''} disabled={!!pending || !snapshot.browser.writable} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, browser: event.target.value }))} /><div className="ns-actions"><button disabled={!!pending || !snapshot.browser.writable || !secrets.browser} onClick={() => browserCredential(false)}>{t('saveToken')}</button><button disabled={!!pending || !snapshot.browser.writable || !snapshot.browser.credentialConfigured} onClick={() => setConfirming({ kind: 'delete-browser-credential' })}>{t('deleteCredential')}</button></div>{confirmRow('delete-browser-credential', 'deleteCredentialConfirm', () => { void browserCredential(true); })}</div>}
             </section>
             <section className="ns-backends" id="sec-backends" tabIndex={-1} aria-labelledby="sec-backends-title">
               <h3 id="sec-backends-title">{t('backends')} <span className="ns-muted">{tr('enabledSummary', { enabled: enabledCount, total: definitions.length })}</span></h3>
@@ -262,12 +259,11 @@ export function createClient(React: any) {
                     <div className="ns-backend-body">
                       {locked && <p className="ns-warning">{t('unverifiedHelp')}</p>}
                       <p className="ns-quota">{mode?.limits[lang]} <a href={mode?.pricingUrl || def.docs} target="_blank" rel="noreferrer">{t('source')}</a> · {t('verifiedAt')} {def.verifiedAt || t('notVerified')}</p>
-                      <div className="ns-grid">{fields(readsThroughBrowser ? [`${base}.enabled`, `${base}.mode`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`] : [`${base}.enabled`, `${base}.mode`, `${base}.endpoint`, `${base}.credentialRef`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`], { [`${base}.enabled`]: { type: 'checkbox', disabled: locked }, [`${base}.mode`]: { choices: def.modes.map(item => item.mode), disabled: locked }, [`${base}.timeoutMs`]: { type: 'number' }, [`${base}.rateLimitPerMinute`]: { type: 'number' }, [`${base}.dailyAttemptLimit`]: { type: 'number' } }).filter(node => !(anonymous && node.key === `${base}.credentialRef`))}</div>
+                      <div className="ns-grid">{fields(readsThroughBrowser ? [`${base}.enabled`, `${base}.mode`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`] : [`${base}.enabled`, `${base}.mode`, `${base}.endpoint`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`], { [`${base}.enabled`]: { type: 'checkbox', disabled: locked }, [`${base}.mode`]: { choices: def.modes.map(item => item.mode), disabled: locked }, [`${base}.timeoutMs`]: { type: 'number' }, [`${base}.rateLimitPerMinute`]: { type: 'number' }, [`${base}.dailyAttemptLimit`]: { type: 'number' } })}</div>
                       {readsThroughBrowser && <div className="ns-inherit">
                         <p>{draft.browser.endpoint ? tr('browserInheritedEndpoint', { endpoint: draft.browser.endpoint }) : backend.endpoint ? tr('browserOwnEndpoint', { endpoint: backend.endpoint }) : t('browserInheritedEndpointMissing')}{!draft.browser.endpoint && !backend.endpoint && <button type="button" className="ns-link" onClick={() => focusPath('browser.endpoint')}>{t('fixIt')}</button>}</p>
-                        <p>{snapshot?.browser.credentialConfigured ? tr('browserInheritedTokenConfigured', { ref: draft.browser.credentialRef || t('notSpecified') }) : credentialState?.configured ? tr('browserOwnToken', { ref: backend.credentialRef }) : tr('browserInheritedTokenMissing', { ref: draft.browser.credentialRef || t('notSpecified') })}</p>
                         <p className="ns-muted">{t('browserInheritedHint')}</p>
-                        <details className="ns-advanced"><summary>{t('browserOverride')}</summary><p className="ns-muted">{t('browserOverrideHint')}</p><div className="ns-grid">{fields([`${base}.endpoint`, `${base}.credentialRef`], { [`${base}.credentialRef`]: { disabled: locked } })}</div></details>
+                        <details className="ns-advanced"><summary>{t('browserOverride')}</summary><p className="ns-muted">{t('browserOverrideHint')}</p><div className="ns-grid">{fields([`${base}.endpoint`])}</div></details>
                       </div>}
                       {anonymous && !locked && <p className="ns-muted">{t('anonymousNoCredential')}</p>}
                       {def.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.options.map(option => field(`${base}.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], disabled: locked, min: option.min, max: option.max }))}</div></details>}

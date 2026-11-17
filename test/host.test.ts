@@ -7,11 +7,9 @@ test('native DSH Config supplies exact shared defaults',()=>assert.deepEqual(Con
 test('Host UI route and Agent tool share config save/read and credential operations',async()=>{const h=harness();const c=defaultConfig();await apply(h.ctx,c);const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});assert.deepEqual(snapshot.config,c);assert.equal(snapshot.revision,revision(c));assert.deepEqual(snapshot.active,{searchProvider:'nite-search',isSelf:true});const route=h.routes.get('/api/nite-search/settings');assert.deepEqual((await (await route.fetch(new Request('https://localhost/api/nite-search/settings'))).json()).config,c);
  const next=structuredClone(c);next.maxResults=12;await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal:new AbortController().signal});assert.deepEqual(h.stored,next);
  await assert.rejects(h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:'stale'},{signal:new AbortController().signal}),/revision conflict/);
- const ref=c.backends.keenable!.credentialRef;await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref,value:'PRIVATE_KEY'},{signal:new AbortController().signal});const after=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});assert.equal(after.credentials.keenable.configured,true);assert.ok(!JSON.stringify(after).includes('PRIVATE_KEY'));await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref,remove:true},{signal:new AbortController().signal});assert.equal(h.secrets.size,0);
- // A credential may be written under the reference the editor shows, before the configuration is saved.
- await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'DSH_SEARCH_KEENABLE_SESSION',value:'DRAFT_SECRET'},{signal:new AbortController().signal});assert.equal(h.secrets.get('DSH_SEARCH_KEENABLE_SESSION'),'DRAFT_SECRET');
- await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'not a ref',value:'a'},{signal:new AbortController().signal}),/environment-style/);
- await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'nope',ref:'X_KEY',value:'a'},{signal:new AbortController().signal}),/Unknown backend/);
+ await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',value:'PRIVATE_KEY'},{signal:new AbortController().signal});const after=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});assert.equal(after.credentials.keenable.configured,true);assert.ok(!JSON.stringify(after).includes('PRIVATE_KEY'));await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',remove:true},{signal:new AbortController().signal});assert.equal(h.secrets.size,0);
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'ARBITRARY_SECRET',value:'a'},{signal:new AbortController().signal}),/cannot be configured/);
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'nope',value:'a'},{signal:new AbortController().signal}),/Unknown backend/);
 });
 test('every config scalar and array has an editable client field or generated backend option',async()=>{const {readFile}=await import('node:fs/promises');const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');const defaults=defaultConfig();
  // Paths are declared either as quoted literals in a fields()/section() array or, for backend rows, as a `${base}.x` template.
@@ -39,36 +37,42 @@ test('a browser endpoint behind a container runtime alias survives save and read
  const next=defaultConfig();next.browser.endpoint=endpoint;next.backends.xiaohongshu!.enabled=true;next.backends.xiaohongshu!.mode='browser';next.backends.xiaohongshu!.endpoint='';
  const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});
  await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal:new AbortController().signal});
- assert.equal((h.stored as any).browser.endpoint,endpoint,'the shared endpoint is kept as typed');assert.equal((h.stored as any).backends.xiaohongshu.endpoint,'','a browser backend inherits it');assert.equal((h.stored as any).backends.xiaohongshu.credentialRef,'','and owns no credential reference of its own');
+ assert.equal((h.stored as any).browser.endpoint,endpoint,'the shared endpoint is kept as typed');assert.equal((h.stored as any).backends.xiaohongshu.endpoint,'','a browser backend inherits it');assert.equal('credentialRef' in h.stored.backends.xiaohongshu,false);
 });
 
 test('the endpoint token is stored once on the shared browser reference',async()=>{const h=harness();await apply(h.ctx,defaultConfig());const signal=new AbortController().signal;
  const first=await h.tool('search_manage')!.execute({action:'settings'},{signal});
  assert.deepEqual(first.browser,{credentialConfigured:false,writable:true},'the page starts with no endpoint token');
- // The reference is named directly: a browser backend has none of its own to point at.
- await h.tool('search_manage')!.execute({action:'credential',ref:'DSH_SEARCH_BROWSER_TOKEN',value:'ENDPOINT_TOKEN'},{signal});
+ // The caller selects a scope, never a storage name.
+ await h.tool('search_manage')!.execute({action:'credential',scope:'browser',value:'ENDPOINT_TOKEN'},{signal});
  const second=await h.tool('search_manage')!.execute({action:'settings'},{signal});
  assert.equal(second.browser.credentialConfigured,true);
  assert.equal(second.credentials.xiaohongshu.configured,false,'the backend row reports no credential of its own');
  assert.ok(!JSON.stringify(second).includes('ENDPOINT_TOKEN'),'a stored token is never echoed back');
- await h.tool('search_manage')!.execute({action:'credential',ref:'DSH_SEARCH_BROWSER_TOKEN',remove:true},{signal});
+ await h.tool('search_manage')!.execute({action:'credential',scope:'browser',remove:true},{signal});
  assert.equal((await h.tool('search_manage')!.execute({action:'settings'},{signal})).browser.credentialConfigured,false);
 });
 
-test('a token stored under the generated per-backend reference moves to the shared browser reference',async()=>{const h=harness();const legacy='DSH_SEARCH_XIAOHONGSHU_KEY';
- h.secrets.set(legacy,'ENDPOINT_TOKEN');
- const saved=defaultConfig();saved.backends.xiaohongshu!.enabled=true;saved.backends.xiaohongshu!.credentialRef=legacy;saved.browser.endpoint='ws://host.containers.internal:3030/ws';
- await apply(h.ctx,saved);
- const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});
- assert.equal(snapshot.browser.credentialConfigured,true,'the token now lives on the shared reference');
- assert.equal(h.secrets.get('DSH_SEARCH_BROWSER_TOKEN'),'ENDPOINT_TOKEN');
- assert.equal(h.secrets.has(legacy),false,'the generated reference no longer exists');
- assert.equal(snapshot.config.backends.xiaohongshu.credentialRef,'','the row names no reference of its own');
- assert.equal(snapshot.credentials.xiaohongshu.configured,false);
- // A reference the operator chose is left untouched.
- const chosen=harness();chosen.secrets.set('MY_OWN_TOKEN_REF','OTHER');
- const custom=defaultConfig();custom.backends.xiaohongshu!.credentialRef='MY_OWN_TOKEN_REF';
- await apply(chosen.ctx,custom);
- assert.equal(chosen.secrets.get('MY_OWN_TOKEN_REF'),'OTHER');
- assert.equal(chosen.secrets.has('DSH_SEARCH_BROWSER_TOKEN'),false,'nothing is copied over a chosen reference');
+test('saved references cannot redirect credential lookups or writes',async()=>{
+ const h=harness();h.secrets.set('ARBITRARY_SECRET','UNRELATED');h.secrets.set('DSH_SEARCH_BROWSER_TOKEN','BROWSER');
+ const saved:any=defaultConfig();saved.browser.credentialRef='ARBITRARY_SECRET';saved.backends.keenable.credentialRef='ARBITRARY_SECRET';
+ await apply(h.ctx,saved);const signal=new AbortController().signal;
+ const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal});
+ assert.equal(snapshot.browser.credentialConfigured,true);
+ assert.equal(snapshot.credentials.keenable.configured,false);
+ assert.equal('credentialRef' in snapshot.config.browser,false);
+ assert.equal('credentialRef' in snapshot.config.backends.keenable,false);
+ await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',value:'FIXED_KEY'},{signal});
+ assert.equal(h.secrets.get('DSH_SEARCH_KEENABLE_KEY'),'FIXED_KEY');assert.equal(h.secrets.get('ARBITRARY_SECRET'),'UNRELATED');
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',scope:'browser',ref:'ARBITRARY_SECRET',remove:true},{signal}),/cannot be configured/);
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'xiaohongshu',value:'x'},{signal}),/browser credential scope/);
+ assert.equal(h.secrets.get('ARBITRARY_SECRET'),'UNRELATED');
+ const props=h.tool('search_manage').parameters.properties;assert.equal('ref' in props,false);assert.deepEqual(props.scope.enum,['browser']);
+});
+
+test('the client exposes token values without credential-name controls or explanations',async()=>{
+ const {readFile}=await import('node:fs/promises');const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');
+ assert.doesNotMatch(client,/credentialRef|browserTokenStoredAt|browserTokenRefAdvanced|browserOwnToken/);
+ assert.match(client,/scope: 'browser'/);assert.match(client,/secret-browser/);
+ for(const lang of ['en','zh']){const locale=JSON.parse(await readFile(new URL(`../locale/${lang}.json`,import.meta.url),'utf8'));assert.ok(!Object.keys(locale).some(key=>/credentialRef|browserTokenStoredAt|browserTokenRefAdvanced/i.test(key)));}
 });

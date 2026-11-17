@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
-import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, legacyCredentialRef, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
+import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
 import type { RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
@@ -24,34 +24,10 @@ export const Config=schema(defaultConfig());
 interface FetchRoute {path:string;methods:('GET'|'POST')[];requestBody:'buffered';fetch:(request:Request)=>Promise<Response>}
 interface Connection {fetch:{register:(route:FetchRoute)=>()=>Promise<void>}}
 interface Tools {register:(definition:{name:string;description:string;parameters:Record<string,unknown>;output:{schema:Record<string,unknown>;render:(args:unknown,value:any)=>{type:'text';text:string}[]};execute:(args:any,exec:{signal:AbortSignal})=>Promise<unknown>})=>()=>void}
-/**
- * Move an endpoint token that an earlier release stored under a generated per-backend reference onto
- * the shared browser reference, which is the only name this release reads first. The old entry is
- * removed only after the copy succeeds, and only when the shared reference holds nothing yet.
- */
-async function migrateBrowserToken(ctx:Context,raw:SearchConfig,migrated:SearchConfig){
-  const shared=migrated.browser.credentialRef;if(!shared)return;
-  for(const d of catalog){
-    if(!d.modes.every(m=>m.mode==='browser'))continue;
-    const legacy=legacyCredentialRef(d.id);
-    const savedRow=(raw.backends as Record<string,{credentialRef?:string}>|undefined)?.[d.id];
-    if(savedRow?.credentialRef!==legacy||migrated.backends[d.id]?.credentialRef!=='')continue;
-    const stored=await ctx.credentials.resolve(credentialRef(legacy)).catch(()=>undefined);
-    if(!stored?.value)continue;
-    // Both names holding a token is not ours to resolve: keep the old entry and leave a note in the UI.
-    if((await ctx.credentials.resolve(credentialRef(shared)).catch(()=>undefined))?.value)continue;
-    // A credential store that refuses the write must not stop the plugin from loading: the reference
-    // the row names is already dropped, so a refusal costs a token, not the whole settings page.
-    await ctx.credentials.set(credentialRef(shared),stored.value).catch(()=>undefined);
-    if(await ctx.credentials.resolve(credentialRef(shared)).catch(()=>undefined))
-      await ctx.credentials.unset(credentialRef(legacy)).catch(()=>undefined);
-  }
-}
 export async function apply(ctx:Context,raw:SearchConfig){
   // The library carries the caller's name on the wire; this host is the DSH plugin.
   setUserAgent(`dsh-search/${VERSION} (+${PROJECT_URL})`);
   const config=parseConfig(raw);
-  await migrateBrowserToken(ctx,raw,config);
   const usage=await openUsage(ctx);ctx.effect(()=>()=>usage.close());
   const engine=new SearchEngine(config,async ref=>(await ctx.credentials.resolve(credentialRef(ref)))?.value,fetch,usage.reserve);
   const lifetime=new AbortController();ctx.effect(()=>()=>{lifetime.abort();engine.clearCache();engine.clearDiagnostics();});
@@ -61,11 +37,11 @@ export async function apply(ctx:Context,raw:SearchConfig){
     const credentials:SettingsSnapshot['credentials']={};
     for(const d of catalog){
       // A browser backend carries no reference of its own; the endpoint token lives on the browser.
-      const reference=config.backends[d.id]!.credentialRef;
+      const reference=config.backends[d.id]!.mode==='browser'?undefined:backendCredentialRef(d.id);
       const info=reference?await ctx.credentials.describe(credentialRef(reference)):{configured:false,writable:true};
       credentials[d.id]={configured:info.configured,writable:info.writable};
     }
-    const browserInfo=config.browser.credentialRef?await ctx.credentials.describe(credentialRef(config.browser.credentialRef)):{configured:false,writable:true};
+    const browserInfo=await ctx.credentials.describe(credentialRef(browserCredentialRef()));
     let searchProvider:string|undefined;
     try{const row=ctx.configEditor.configuration().find(item=>item.entry.options.id==='web');searchProvider=({...row?.inherited,...row?.override} as {searchProvider?:string}).searchProvider;}catch{/* Diagnostics only: never fail the page over a read. */}
     return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,active:{...(searchProvider?{searchProvider}:{}),isSelf:searchProvider==='nite-search'},credentials,browser:{credentialConfigured:browserInfo.configured,writable:browserInfo.writable},diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}]))};
@@ -88,12 +64,13 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(args?.action==='clear-cache'){engine.clearCache();return {cleared:true};}
     if(args?.action==='clear-diagnostics'){engine.clearDiagnostics();return {cleared:true};}
     if(args?.action==='credential'){
-      // A browser backend owns no reference: its token belongs to the shared browser block, so a
-      // caller may name that reference directly instead of pointing at a backend row.
-      const b=args.backendId?config.backends[args.backendId]:undefined;if(args.backendId&&!b)throw new Error('Unknown backend id.');
-      // The reference may be the one the editor currently shows rather than the saved one: choosing a
-      // different access mode should not force a save before a credential can be entered.
-      const target=String(args.ref??b?.credentialRef??'');if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(target))throw new Error('The credential reference must be an environment-style name.');
+      if(Object.hasOwn(args,'ref'))throw new Error('Credential names cannot be configured.');
+      const browser=args.scope==='browser';
+      if(args.scope!==undefined&&!browser)throw new Error('Unknown credential scope.');
+      const backend=typeof args.backendId==='string'&&Object.hasOwn(config.backends,args.backendId)?config.backends[args.backendId]:undefined;
+      if(browser&&args.backendId!==undefined)throw new Error('Choose a browser token or a backend credential, not both.');
+      if(!browser&&(!backend||backend.mode==='browser'))throw new Error('Unknown backend id or browser credential scope required.');
+      const target=browser?browserCredentialRef():backendCredentialRef(args.backendId);
       if(args.remove===true)await ctx.credentials.unset(credentialRef(target));else {if(typeof args.value!=='string'||!args.value.trim()||args.value.length>16384)throw new Error('A nonempty credential is required.');await ctx.credentials.set(credentialRef(target),args.value);}
       engine.clearCache();return {saved:true};
     }
@@ -114,7 +91,7 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if (!backend) throw new Error('The Reddit backend entry is missing from this configuration.');
     let credentials: RedditCredentials = {};
     if (backend.mode === 'oauth') {
-      const raw = (await ctx.credentials.resolve(credentialRef(backend.credentialRef)))?.value;
+      const raw = (await ctx.credentials.resolve(credentialRef(backendCredentialRef('reddit'))))?.value;
       if (!raw) throw new Error('Reddit OAuth mode has no stored credential. Ask the user to add one.');
       try { credentials = JSON.parse(raw) as RedditCredentials; } catch { throw new Error('The stored Reddit credential is not valid JSON.'); }
       if (!credentials.clientId || !credentials.clientSecret) throw new Error('The stored Reddit credential needs clientId and clientSecret.');
@@ -134,7 +111,7 @@ export async function apply(ctx:Context,raw:SearchConfig){
     const backend = config.backends.x;
     if (!backend) throw new Error('The X backend entry is missing from this configuration.');
     if (backend.mode === 'anonymous') throw new Error('The X backend is in anonymous mode, which cannot read conversations. Switch it to session mode and store the cookies.');
-    const raw = (await ctx.credentials.resolve(credentialRef(backend.credentialRef)))?.value;
+    const raw = (await ctx.credentials.resolve(credentialRef(backendCredentialRef('x'))))?.value;
     const credentials = parseXCredentials(raw);
     if (!credentials.authToken || !credentials.ct0) {
       throw new Error(backend.mode === 'key'
@@ -176,8 +153,7 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(!args.url&&!args.id)throw new Error('Pass url (the share link) or id (a note id from an earlier search).');
     // The endpoint token and session file may live on the shared browser resource, which is how
     // several browser-backed readers share one container.
-    const token=(await ctx.credentials.resolve(credentialRef(backend.credentialRef)))?.value
-      ??(config.browser.credentialRef?(await ctx.credentials.resolve(credentialRef(config.browser.credentialRef)))?.value:undefined);
+    const token=(await ctx.credentials.resolve(credentialRef(browserCredentialRef())))?.value;
     const settings=backend.options as {statePath?:string};
     const wsEndpoint=config.browser.endpoint||backend.endpoint;
     if(!wsEndpoint)throw new Error('No browser endpoint is configured. Set the shared browser endpoint, or the Xiaohongshu backend endpoint.');
@@ -191,6 +167,6 @@ export async function apply(ctx:Context,raw:SearchConfig){
     return {...report,images:attached.images,markdown:attached.text};
   }}));
   if(config.tools.webSearchPlus)ctx.effect(()=>tools.register({name:'web_search_plus',description:'Search with an explicit strategy instead of the saved one: parallel or single mode, which enabled backends to use, how much of each source to return, and a result bound. Overrides apply to this call only and never change saved settings. Only enabled backends are usable; a disabled or unknown id is reported, not silently dropped. Single mode ignores a backend selection and the result says so. The result names the backends that actually ran, because a blacklist would otherwise pick up backends enabled later.',parameters:{type:'object',properties:{query:{type:'string',description:'Search query.'},mode:{type:'string',enum:['single','parallel'],description:'Strategy for this call. Omit to use the configured mode.'},backends:{type:'array',items:{type:'string'},description:'Enabled backend ids to use, for example ["exa","reddit"]. Omit for every enabled backend.'},allBackends:{type:'boolean',description:'Shorthand for every enabled backend before exclusions. Cheaper than listing ids.'},exclude:{type:'array',items:{type:'string'},description:'Backends to leave out of this call, applied to allBackends or to the backends list.'},backend:{type:'string',description:'Single backend id. Ignored (with a note) in single mode, where the configured backend wins, and in parallel mode.'},compact:{type:'boolean',description:'Return only url, title and date per source, dropping snippets. Defaults to the saved preference; pass false to force full sources.'},maxResults:{type:'integer',minimum:1,maximum:50,description:'Upper bound on returned sources for this call.'}},required:['query']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>{const result=value as {content?:string;sources?:Array<{title?:string;url:string}>};const lines:string[]=[];if(result.content)lines.push(result.content);for(const source of result.sources??[])lines.push(`- ${source.title||source.url} <${source.url}>`);return [{type:'text',text:lines.join('\n')||'No sources returned.'}];}},execute:async(args:any,exec:{signal:AbortSignal})=>engine.search({query:args.query,maxResults:args.maxResults},AbortSignal.any([lifetime.signal,exec.signal]),undefined,{...(args.mode?{mode:args.mode}:{}),...(args.allBackends?{backends:'all' as const}:(Array.isArray(args.backends)&&args.backends.length?{backends:args.backends.map(String)}:{})),...(Array.isArray(args.exclude)&&args.exclude.length?{exclude:args.exclude.map(String)}:{}),...(args.backend?{backend:String(args.backend)}:{}),...(typeof args.compact==='boolean'?{compact:args.compact}:{}),...(args.maxResults?{maxResults:args.maxResults}:{})})}));
-  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},ref:{type:'string',description:'Credential reference to write; defaults to the saved one for that backend.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
+  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},scope:{type:'string',enum:['browser'],description:'Manage the shared browser token instead of a backend credential.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
 }
 export { defaultConfig, validateConfig };
