@@ -3,12 +3,11 @@ import z from '@deepseek-ai/schemastery';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
-import { catalog } from './catalog.js';
-import { defaultConfig, parseConfig, validateConfig } from './config.js';
-import { revision, SearchEngine } from './engine.js';
+import { catalog, defaultConfig, fetchRedditThread, parseConfig, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
+import type { RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
 import { openUsage } from './usage.js';
-import { fetchRedditThread, type RedditComment, type RedditCredentials } from './reddit/index.js';
-import type { SearchConfig, SettingsSnapshot } from './types.js';
+import { PROJECT_URL, VERSION } from './version.js';
+import type { SettingsSnapshot } from './types.js';
 export const name='nite-search';
 export const inject=['web','credentials','configEditor','connection','tools','storageDomain'];
 // Build a complete native Config schema from the same defaults used by the UI.
@@ -24,6 +23,8 @@ interface FetchRoute {path:string;methods:('GET'|'POST')[];requestBody:'buffered
 interface Connection {fetch:{register:(route:FetchRoute)=>()=>Promise<void>}}
 interface Tools {register:(definition:{name:string;description:string;parameters:Record<string,unknown>;output:{schema:Record<string,unknown>;render:(args:unknown,value:any)=>{type:'text';text:string}[]};execute:(args:any,exec:{signal:AbortSignal})=>Promise<unknown>})=>()=>void}
 export async function apply(ctx:Context,raw:SearchConfig){
+  // The library carries the caller's name on the wire; this host is the DSH plugin.
+  setUserAgent(`dsh-search/${VERSION} (+${PROJECT_URL})`);
   const config=parseConfig(raw);
   const usage=await openUsage(ctx);ctx.effect(()=>()=>usage.close());
   const engine=new SearchEngine(config,async ref=>(await ctx.credentials.resolve(credentialRef(ref)))?.value,fetch,usage.reserve);

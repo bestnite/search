@@ -2,11 +2,10 @@ import styles from './client.css';
 import overrides from './client.overrides.css';
 import en from '../locale/en.json';
 import zh from '../locale/zh.json';
-import { defaultConfig, validateConfig } from './config';
+import { catalog, defaultConfig, LANGUAGES, REGIONS, validateConfig } from '@nite07/search-core';
+import type { BackendDefinition, BackendOutcome, ConfigIssue, SearchConfig } from '@nite07/search-core';
 import { blockersOf, visible } from './visibility';
-import { LANGUAGES, REGIONS } from './locale-map';
-import { catalog } from './catalog';
-import type { BackendDefinition, BackendOutcome, ConfigIssue, SearchConfig, SettingsSnapshot } from './types';
+import type { SettingsSnapshot } from './types';
 
 const API = '/api/nite-search';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));

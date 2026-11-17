@@ -1,4 +1,4 @@
-import type { SearchConfig } from './types.js';
+import type { SearchConfig } from '@nite07/search-core';
 
 /**
  * Which configuration paths are currently applicable.

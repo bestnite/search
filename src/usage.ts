@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
-import { SearchError } from './transport.js';
+import { SearchError } from '@nite07/search-core';
 const spec=defineDomain({name:'nite_search_usage',version:1,tables:{attempts:domainTable(z.object({day:z.string(),attempts:z.number().int().nonnegative(),recent:z.array(z.number())}))}});
 export async function openUsage(ctx:Context){
   const domain=await ctx.storageDomain.open(spec);const table=domain.table('attempts');let chain:Promise<unknown>=Promise.resolve();
