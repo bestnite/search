@@ -1,4 +1,4 @@
-# actionlint only knows the hosted runner labels; these come from the self-hosted runner.
+# actionlint only knows the hosted runner labels; this repository uses the default ubuntu one, so no
+# custom labels remain. The file stays in case one is added later.
 self-hosted-runner:
-  labels:
-    - build-host
+  labels: []
