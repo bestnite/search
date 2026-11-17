@@ -307,6 +307,52 @@ Facts that shape the design:
 
 The behaviour contract for both modes is covered by unit tests with mocked fetch. **Neither mode has been exercised against the live service**: no bearer token and no X cookies were supplied. The `session` parsing paths that depend on X's current layout are listed as assumptions in the port notes.
 
+## Xiaohongshu (added 2026-11-17)
+
+Xiaohongshu publishes no callable search API: notes and comments only exist inside its own page runtime, and its internal endpoints refuse a plain in-page fetch, so a read has to go through the site's own HTTP client inside a signed-in page. The backend therefore drives a browser the user hosts, and has exactly one access mode.
+
+| Access mode | Credential | Transport | Cost |
+| --- | --- | --- | --- |
+| `browser` (default, and the only one) | `DSH_SEARCH_BROWSER_TOKEN` — the bearer token the browser container prints at startup | Patchright over a Playwright WebSocket endpoint, evaluating scripts in a signed-in Xiaohongshu page | No vendor fee and no published quota; the browser and its machine are the cost |
+
+Facts that shape the design:
+
+- **The browser is a shared resource, not a backend.** The `browser` config block holds the endpoint, the session file and the read timeout, and every backend in `browser` mode attaches to it, so one container can serve several. A backend's own `endpoint` is a fallback used only while the shared one is empty. The endpoint token is resolved under the fixed name `DSH_SEARCH_BROWSER_TOKEN` for the same reason: it guards the endpoint, not a site account, so it is never a per-backend credential.
+- **Sign-in is not the plugin's.** The container keeps one window open on its display; a person signs in over VNC and the keeper client writes `/profile/state.json` every minute. Reads start from that file, so a restart resumes signed in. Nothing here can log in, and no site credential leaves the container.
+- **Reads are capped.** Search takes 1–40 notes per call with `sort` of `general`, `time_descending` or `popularity_descending`; one call returns citeable sources, one per note. A note read takes either a share link or a note id. Comments are cursor-paged, 1–100 per page (the `xiaohongshu_note` tool asks for 20 by default and never above 50).
+- **The per-note token is load-bearing.** Search results carry an `xsecToken` that detail and comment reads require, but a `Source` must not expose it, so nothing would remember it by default. The adapter keeps it in-process (bounded to 500 notes) and also accepts the `xsec_token` embedded in a share link. A read with neither fails as a configuration error naming both ways to get one, rather than returning an empty note.
+- **Failures are classified, not swallowed.** A page answer saying login is required, or HTTP 401/406, is reported as `authentication` with the action "sign in over VNC"; 403 is `authentication` naming privacy or missing permission; 429 is `rate-limit`; page-runtime codes (`NOT_READY`, `NO_RUNTIME`, `NO_CLIENT`, `NO_REGISTRATION`, `BAD_CLIENT`) are `protocol` with the action "open xiaohongshu.com in that browser once".
+- **Version lock between both ends.** Patchright is a direct dependency of the core and pins its own Playwright protocol version; a browser container built against a different major.minor refuses the connection with `428 Precondition Required`. The image ships the matching version, so upgrade both together.
+- **Reachability.** Plaintext `ws://` endpoints are accepted on loopback and on private or tailnet ranges, because a self-hosted browser is normally reached over a LAN or a tailnet rather than from the same host.
+
+### Shared browser settings
+
+| Config field | Meaning |
+| --- | --- |
+| `browser.endpoint` | The Playwright endpoint every browser-mode backend attaches to, for example `ws://127.0.0.1:3000/ws`. When set it wins over a backend's own endpoint. |
+| `browser.statePath` | Where the signed-in session is read from; empty uses the core's default, `~/.config/dsh-search/browser/state.json`, which has to be the file the container's `/profile` volume is mounted at. |
+| `browser.timeoutMs` | How long one browser read may take. |
+
+The endpoint token is stored once for the browser — in the settings page under **Shared browser**, or by `search_manage` with `scope: browser` — and the snapshot reports the endpoint and whether a token is configured, so the page can say which of the two a read actually uses.
+
+### Browser container (`image/`)
+
+`@nite07/search-core` ships the container in its own `image/` directory, and nothing inside it knows which site is being read:
+
+| Piece | Why it is there |
+| --- | --- |
+| Patchright + Google Chrome | A Playwright fork that closes the CDP leaks detection looks for, driving the browser its authors recommend |
+| Token proxy on `:3000` | The Playwright server has no authentication beyond an unguessable path; the proxy requires `Authorization: Bearer <token>` and forwards only authorised upgrades |
+| Xvfb + x11vnc + noVNC on `:6080` | One window a person can reach on a headless host, for the single sign-in |
+| Keeper client | Keeps a client attached so the window stays open, and writes the session to disk every minute |
+| `/profile` volume | Holds `state.json` and the endpoint token; the core reads the same file to start signed in |
+
+A compose file and an `env.example` sit next to the image sources: the endpoint port, the noVNC port and its password, the endpoint token (generated on first start when empty) and the start URL are all environment values. Without compose it is one `podman build` and one `podman run` with the same ports, volume and `--shm-size=1gb`.
+
+### Verification status for Xiaohongshu (2026-11-17, live)
+
+Search, note detail and comment reads were all executed against a signed-in session. Three defects only a live session could expose were found and fixed: the proxy forwarded `Origin` and `Host` unchanged so a reachable endpoint answered 403; a page script used a leftover placeholder instead of a string helper and threw past the health probe; and the per-note token was not remembered, so a note found by search could not be opened afterwards. Unit tests cover the read paths with an injected browser.
+
 ## Outbound identity
 
 Every request this plugin sends carries `dsh-search/<version> (+project url)` as its `User-Agent`, with the version injected from `package.json` at build time. Two paths opt out because they impersonate a first-party client, and `withAppUserAgent` leaves any caller-supplied agent alone:
