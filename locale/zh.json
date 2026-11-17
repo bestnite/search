@@ -210,5 +210,13 @@
   "failure.budget": "本地额度耗尽",
   "failure.circuit-open": "熔断中",
   "failure.unverified": "后端未核实",
-  "liveVerified": "已实测"
+  "liveVerified": "已实测",
+  "tabsLabel": "搜索设置分区",
+  "tab.behavior": "搜索行为",
+  "tab.reliability": "稳定性",
+  "tab.diagnostics": "试搜与诊断",
+  "tab.backends": "搜索后端",
+  "behaviorHint": "后端列表放在最后一个「搜索后端」标签页。",
+  "testQueryPlaceholder": "想让这个后端搜什么？",
+  "saveBeforeTest": "请先保存更改再试搜。"
 }

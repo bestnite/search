@@ -210,5 +210,13 @@
   "failure.budget": "Local budget exhausted",
   "failure.circuit-open": "Circuit open",
   "failure.unverified": "Unverified backend",
-  "liveVerified": "Live-tested"
+  "liveVerified": "Live-tested",
+  "tabsLabel": "Search settings sections",
+  "tab.behavior": "Search behavior",
+  "tab.reliability": "Reliability",
+  "tab.diagnostics": "Test & diagnostics",
+  "tab.backends": "Backends",
+  "behaviorHint": "Backends live under the Backends tab, last in this panel.",
+  "testQueryPlaceholder": "What should this backend look for?",
+  "saveBeforeTest": "Save your changes before testing."
 }
