@@ -34,8 +34,16 @@ launcher_pid=$!
 node /opt/xhs-bridge/ws-proxy.mjs &
 proxy_pid=$!
 
-# The sign-in window: kept open so a human can log in over VNC at any time.
-node /opt/xhs-bridge/keeper.mjs &
+# The sign-in window: kept open so a human can log in over VNC at any time. It is auxiliary — a
+# browser crash should reopen the window rather than take the whole container down — so it runs
+# under its own restart loop and is not part of the critical set below.
+(
+  while true; do
+    node /opt/xhs-bridge/keeper.mjs || true
+    log 'keeper exited; reopening the sign-in window in 5s'
+    sleep 5
+  done
+) &
 keeper_pid=$!
 
 cat >&2 <<BANNER
@@ -56,5 +64,5 @@ BANNER
 cleanup() { kill "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid" 2>/dev/null || true; }
 trap cleanup EXIT
 
-wait -n "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid"
+wait -n "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid"
 log 'a component exited; shutting down'

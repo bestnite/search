@@ -21,8 +21,11 @@ export interface XhsContext {
   browser?: Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'>;
 }
 
-/** Default session file: next to the other per-user configuration this project writes. */
-export const DEFAULT_STATE_PATH = join(homedir(), '.config', 'dsh-search', 'xhs-state.json');
+/**
+ * Default session file, kept beside the browser container's volume so the session the container
+ * saves is the session a read starts from. Override with the statePath option or XHS_STATE_PATH.
+ */
+export const DEFAULT_STATE_PATH = join(homedir(), '.config', 'dsh-search', 'xhs', 'state.json');
 
 export const DEFAULT_SITE_URL = 'https://www.xiaohongshu.com/explore';
 

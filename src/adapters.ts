@@ -24,6 +24,7 @@ export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Pr
     const notes=await searchXhs({query:i.query,maxResults:i.maxResults,...(typeof o.sort==='string'&&o.sort!==''?{sort:o.sort}:{})},{
       wsEndpoint,
       ...(i.key?{token:i.key}:{}),
+      ...(typeof o.statePath==='string'&&o.statePath!==''?{statePath:o.statePath}:{}),
       timeoutMs:b.timeoutMs,
       signal:t.signal,
     });
