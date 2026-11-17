@@ -4,22 +4,48 @@
   "description": "Provider-agnostic multi-backend search engine: backend catalog, adapters, transport and honest failure reporting. No DSH dependency.",
   "license": "MIT",
   "author": "nite07",
-  "repository": { "type": "git", "url": "git+https://git.nite07.com/nite/search-core.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.nite07.com/nite/search-core.git"
+  },
   "homepage": "https://git.nite07.com/nite/search-core",
-  "bugs": { "url": "https://git.nite07.com/nite/search-core/issues" },
-  "keywords": ["search", "web-search", "multi-backend", "mcp", "dsh"],
+  "bugs": {
+    "url": "https://git.nite07.com/nite/search-core/issues"
+  },
+  "keywords": [
+    "search",
+    "web-search",
+    "multi-backend",
+    "mcp",
+    "dsh"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md", "LICENSE"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./static": {
+      "types": "./dist/static.d.ts",
+      "import": "./dist/static.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "npm run typecheck && npm run test && npm run build"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
