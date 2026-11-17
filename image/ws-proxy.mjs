@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 const env = process.env;
 const publicPort = Number(env.XHS_PUBLIC_PORT ?? 3000);
-const internalPort = Number(env.XHS_INTERNAL_PORT ?? 3001);
+const endpointFile = env.XHS_ENDPOINT_FILE ?? '/tmp/xhs-endpoint';
 const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
 const tokenPath = join(profileDir, 'ws-token');
 const wsPath = env.XHS_WS_PATH ?? '/xhs';
@@ -44,6 +44,17 @@ const authorised = request => {
   }
 };
 
+/** The browser server picks its own port, so read where it announced itself. */
+function upstreamTarget() {
+  try {
+    const announced = readFileSync(endpointFile, 'utf8').trim();
+    const url = new URL(announced);
+    return { host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port), path: url.pathname };
+  } catch {
+    return null;
+  }
+}
+
 const server = createServer((request, response) => {
   if (request.url?.startsWith(wsPath)) {
     // A plain request to the websocket path is a configuration mistake worth naming.
@@ -61,11 +72,22 @@ server.on('upgrade', (request, socket, head) => {
     socket.destroy();
     return;
   }
-  const upstream = connect(internalPort, '127.0.0.1', () => {
+  const target = upstreamTarget();
+  if (!target) {
+    // The browser is still starting; say so instead of hanging the client.
+    socket.write('HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  const upstream = connect(target.port, target.host, () => {
     const headers = Object.entries(request.headers)
       .filter(([name]) => name.toLowerCase() !== 'authorization')
       .map(([name, value]) => `${name}: ${Array.isArray(value) ? value.join(', ') : value}`);
-    upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${headers.join('\r\n')}\r\n\r\n`);
+    // Forward to the announced path, keeping the query string the client sent.
+    const [path] = [request.url ?? '/'];
+    const question = path.indexOf('?');
+    const query = question >= 0 ? path.slice(question) : '';
+    upstream.write(`${request.method} ${target.path}${query} HTTP/1.1\r\n${headers.join('\r\n')}\r\n\r\n`);
     if (head.length > 0) upstream.write(head);
     socket.pipe(upstream).pipe(socket);
   });
@@ -74,7 +96,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 server.listen(publicPort, '0.0.0.0', () => {
-  process.stderr.write(`[proxy] listening on 0.0.0.0:${publicPort}, forwarding to 127.0.0.1:${internalPort}${wsPath}\n`);
+  process.stderr.write(`[proxy] listening on 0.0.0.0:${publicPort}, forwarding to whatever ${endpointFile} announces (path ${wsPath})\n`);
   process.stderr.write(`[proxy] bearer token: ${token}\n`);
   process.stderr.write(`[proxy] token file: ${tokenPath} (env XHS_WS_TOKEN overrides it, and skips the file)\n`);
 });

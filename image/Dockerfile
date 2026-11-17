@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /opt/xhs-bridge /profile
 
 WORKDIR /opt/xhs-bridge
-COPY package.json launcher.mjs ws-proxy.mjs entrypoint.sh /opt/xhs-bridge/
+COPY package.json launcher.mjs ws-proxy.mjs login.mjs entrypoint.sh /opt/xhs-bridge/
 RUN npm install --omit=dev --no-audit --no-fund \
     && npx patchright install chrome \
     && chmod +x /opt/xhs-bridge/entrypoint.sh
@@ -38,7 +38,7 @@ RUN npm install --omit=dev --no-audit --no-fund \
 # runtime download would only add a failure mode where a restart cannot start.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/browsers \
     DISPLAY=:99 \
-    XHS_INTERNAL_PORT=3001 \
+    XHS_ENDPOINT_FILE=/tmp/xhs-endpoint \
     XHS_PUBLIC_PORT=3000 \
     XHS_VNC_PORT=6080 \
     XHS_PROFILE_DIR=/profile \

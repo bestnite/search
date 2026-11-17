@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { SearchError } from '../transport.js';
 import type { Source } from '../types.js';
 import { XhsBrowser, type BrowserOptions } from './browser.js';
@@ -11,11 +13,16 @@ export interface XhsContext {
   wsEndpoint: string;
   token?: string;
   siteUrl?: string;
+  /** File holding the signed-in session, so a fresh process starts already logged in. */
+  statePath?: string;
   timeoutMs: number;
   signal: AbortSignal;
   /** Injected in tests; production uses the real browser connection. */
-  browser?: Pick<XhsBrowser, 'evaluate' | 'target' | 'close'>;
+  browser?: Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'>;
 }
+
+/** Default session file: next to the other per-user configuration this project writes. */
+export const DEFAULT_STATE_PATH = join(homedir(), '.config', 'dsh-search', 'xhs-state.json');
 
 export const DEFAULT_SITE_URL = 'https://www.xiaohongshu.com/explore';
 
@@ -53,14 +60,39 @@ export interface XhsComment {
 
 interface PageAnswer { ok?: boolean; code?: string; message?: string; status?: number }
 
-const browserFor = (ctx: XhsContext): Pick<XhsBrowser, 'evaluate' | 'target' | 'close'> =>
-  ctx.browser ?? new XhsBrowser(optionsOf(ctx));
+/**
+ * One connection per endpoint, kept for the life of the process.
+ *
+ * A connection owns its browser context, and that context is the window a human signs into over
+ * VNC. Dropping it after every read would close that window and leave no way to log in, so the
+ * connection is reused until the host shuts it down.
+ */
+const connections = new Map<string, XhsBrowser>();
+
+const browserFor = (ctx: XhsContext): Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'> => {
+  if (ctx.browser) return ctx.browser;
+  const key = `${ctx.wsEndpoint}|${ctx.token ?? ''}`;
+  let browser = connections.get(key);
+  if (!browser) {
+    browser = new XhsBrowser(optionsOf(ctx));
+    connections.set(key, browser);
+  }
+  return browser;
+};
+
+/** Close every kept connection; the host calls this when it shuts down. */
+export async function closeXhsBrowsers(): Promise<void> {
+  const browsers = [...connections.values()];
+  connections.clear();
+  await Promise.all(browsers.map(browser => browser.close().catch(() => undefined)));
+}
 
 export function optionsOf(ctx: XhsContext): BrowserOptions {
   return {
     wsEndpoint: ctx.wsEndpoint,
     siteUrl: ctx.siteUrl ?? DEFAULT_SITE_URL,
     timeoutMs: ctx.timeoutMs,
+    statePath: ctx.statePath ?? process.env.XHS_STATE_PATH ?? DEFAULT_STATE_PATH,
     ...(ctx.token ? { token: ctx.token } : {}),
   };
 }
@@ -76,6 +108,9 @@ export function unwrapAnswer<T>(answer: unknown): T {
   }
   if (code === 'EMPTY') return fail('protocol', `Xiaohongshu returned no note for that id (${detail}).`);
   const status = Number(body.status ?? 0);
+  if (/登录|login/i.test(detail)) {
+    return fail('authentication', `Xiaohongshu says the browser is not signed in (${detail}). Open the browser container's VNC page, sign in once in the window that is already open, and ask again.`);
+  }
   if (status === 401 || status === 406) return fail('authentication', `Xiaohongshu refused the read with HTTP ${status}; the browser session is not signed in or was challenged. Sign in again in that browser.`);
   if (status === 403) return fail('authentication', `Xiaohongshu denied this read with HTTP 403 (${detail}). The subject may be private, or the session lacks permission.`);
   if (status === 429) return fail('rate-limit', 'Xiaohongshu rate-limited the read; wait before asking again.');
@@ -102,6 +137,7 @@ export async function readXhsSearchNotes(input: { query: string; limit: number; 
     );
     return answer.items;
   } finally {
+    await browser.persist().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
 }
@@ -126,6 +162,7 @@ export async function fetchXhsNote(input: { url?: string; id?: string; token?: s
     const answer = unwrapAnswer<{ note: XhsNote }>(await browser.evaluate(noteScript({ id, token })));
     return answer.note;
   } finally {
+    await browser.persist().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
 }
@@ -140,6 +177,7 @@ export async function fetchXhsComments(input: { url?: string; id?: string; token
       await browser.evaluate(commentsScript({ id, token, cursor: input.cursor ?? '', limit: Math.min(Math.max(input.limit ?? 20, 1), 100) })),
     );
   } finally {
+    await browser.persist().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
 }

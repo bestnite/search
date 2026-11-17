@@ -8,20 +8,24 @@
  * is what the VNC viewer signs into and what the search core later reuses.
  */
 import { chromium } from 'patchright';
-import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 const env = process.env;
 const internalPort = Number(env.XHS_INTERNAL_PORT ?? 3001);
 const wsPath = env.XHS_WS_PATH ?? '/xhs';
 const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
-const statePath = join(profileDir, 'state.json');
 // Patchright already adjusts Playwright's launch arguments (no --enable-automation, and
 // --disable-blink-features=AutomationControlled is added), so only the container needs a say.
-const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage'];
+const launchArgs = [
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  // The window itself is what the VNC viewer signs in through, so give it a usable size.
+  `--window-size=${env.XHS_WINDOW_SIZE ?? '1440,900'}`,
+];
 // Headful by default: the display is virtual, and the VNC viewer needs a real window to sign in.
 const headless = env.XHS_HEADLESS === 'true';
-const startUrl = env.XHS_START_URL ?? 'https://www.xiaohongshu.com/explore';
+// launchServer picks its own port, so the endpoint is announced through a file the proxy reads.
+const endpointFile = env.XHS_ENDPOINT_FILE ?? '/tmp/xhs-endpoint';
 
 mkdirSync(profileDir, { recursive: true });
 const log = message => process.stderr.write(`[launcher] ${message}\n`);
@@ -33,45 +37,19 @@ const server = await chromium.launchServer({
   wsPath,
   args: launchArgs,
 });
-log(`server ${server.wsEndpoint()}`);
+const endpoint = server.wsEndpoint();
+writeFileSync(endpointFile, `${endpoint}\n`, { mode: 0o600 });
+log(`server ${endpoint} (announced in ${endpointFile})`);
 
-// One context, kept alive: the login done over VNC lands here, and every client attaches to it.
-const browser = await chromium.connect(server.wsEndpoint());
-const context = await browser.newContext({
-  locale: 'zh-CN',
-  viewport: { width: 1440, height: 900 },
-  ...(existsSync(statePath) ? { storageState: statePath } : {}),
-});
-const page = context.pages()[0] ?? await context.newPage();
-await page.goto(startUrl, { waitUntil: 'domcontentloaded' }).catch(error => log(`initial navigation deferred: ${error.message}`));
-
-let saving = false;
-async function saveState() {
-  if (saving) return;
-  saving = true;
-  try {
-    await context.storageState({ path: statePath });
-    log(`profile saved to ${statePath}`);
-  } catch (error) {
-    log(`profile save failed: ${error.message}`);
-  } finally {
-    saving = false;
-  }
-}
-
-// Cookies rotate while a session is live; a periodic save keeps the volume current without a
-// write per request, and the shutdown save covers an orderly stop.
-const timer = setInterval(saveState, Number(env.XHS_SAVE_INTERVAL_MS ?? 60000));
-timer.unref?.();
+// No context is created here on purpose: Playwright scopes contexts to the client that made them,
+// so anything opened in this process would be invisible to the reader. The browser window appears
+// when the search core opens its own context, and that is the window the VNC viewer signs into.
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
-    clearInterval(timer);
-    await saveState();
-    await browser.close().catch(() => undefined);
     await server.close().catch(() => undefined);
     process.exit(0);
   });
 }
 
-log(`browser ready on ${startUrl}`);
+log(`browser server ready; waiting for a client to open a page`);

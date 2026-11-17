@@ -1,6 +1,7 @@
 // patchright-core is a patched Playwright: same protocol and API, with the CDP leaks closed.
 // Both sides of the connection must share a major.minor, so the browser image pins the same version.
 import { chromium, type Browser, type Page } from 'patchright-core';
+import { existsSync } from 'node:fs';
 import { SearchError } from '../transport.js';
 
 /**
@@ -16,6 +17,11 @@ export interface BrowserOptions {
   /** Page the browser is asked to open when it is not on the site yet. */
   siteUrl: string;
   timeoutMs: number;
+  /**
+   * Where the signed-in session is kept. The login itself happens in that browser over VNC; this
+   * file only lets a fresh connection start already signed in.
+   */
+  statePath?: string;
 }
 
 const SITE_HOST = 'xiaohongshu.com';
@@ -23,6 +29,8 @@ const SITE_HOST = 'xiaohongshu.com';
 export class XhsBrowser {
   private browser: Browser | undefined;
   private page: Page | undefined;
+  private savedAt = 0;
+  private context: Awaited<ReturnType<Browser['newContext']>> | undefined;
 
   constructor(private readonly options: BrowserOptions) {}
 
@@ -43,10 +51,22 @@ export class XhsBrowser {
   async target(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.ensureOnSite(this.page);
     const browser = await this.connect();
-    const context = browser.contexts().find(candidate => candidate.pages().every(page => !page.isClosed())) ?? await browser.newContext({ locale: 'zh-CN' });
+    // Contexts belong to the client that created them, so this process owns the only one: it is
+    // also the window the VNC viewer sees. A saved session is loaded here, if one exists.
+    const statePath = this.options.statePath;
+    const saved = statePath && existsSync(statePath) ? statePath : undefined;
+    const context = browser.contexts().find(candidate => candidate.pages().every(page => !page.isClosed()))
+      // viewport: null keeps the browser window at its real size instead of emulating one, which is
+      // what makes the window visible on the container's display for the one-time sign-in.
+      ?? await browser.newContext({ locale: 'zh-CN', viewport: null, ...(saved ? { storageState: saved } : {}) });
     const existing = context.pages().find(page => !page.isClosed());
     this.page = existing ?? await context.newPage();
-    return this.ensureOnSite(this.page);
+    this.context = context;
+    const ready = await this.ensureOnSite(this.page);
+    // Launching a browser server suppresses Chrome's startup window, so the tab has to ask for the
+    // window: without this the page runs, but the display the VNC viewer looks at stays empty.
+    await ready.bringToFront().catch(() => undefined);
+    return ready;
   }
 
   private async ensureOnSite(page: Page): Promise<Page> {
@@ -62,19 +82,36 @@ export class XhsBrowser {
   async evaluate<T>(script: string): Promise<T> {
     const page = await this.target();
     try {
+      // Playwright treats a string argument as an expression and never calls it, so the generated
+      // source becomes a function here and is serialised to the page like any other page function.
+      const pageFunction = new Function(`return (${script});`)() as () => Promise<T>;
       // The site's own client lives in the main world, so this call opts out of patchright's
       // isolated-context default; isolation would hide the very runtime we need to reach.
-      return await page.evaluate(script, undefined, {}, false) as T;
+      return await page.evaluate(pageFunction, undefined, {}, false) as T;
     } catch (error) {
       throw new SearchError('protocol', `The Xiaohongshu page refused to run the read: ${message(error)}`);
     }
   }
 
+  /**
+   * Persist the session so the next process starts signed in. Writing on every read would be
+   * wasteful, so it happens at most once a minute and only after a call actually succeeded.
+   */
+  async persist(): Promise<void> {
+    const statePath = this.options.statePath;
+    if (!statePath || !this.context) return;
+    if (Date.now() - this.savedAt < 60_000) return;
+    this.savedAt = Date.now();
+    await this.context.storageState({ path: statePath }).catch(() => undefined);
+  }
+
   async close(): Promise<void> {
     // Only the connection is dropped; the user's browser keeps running with whatever page state it had.
+    await this.persist();
     await this.browser?.close().catch(() => undefined);
     this.browser = undefined;
     this.page = undefined;
+    this.context = undefined;
   }
 }
 

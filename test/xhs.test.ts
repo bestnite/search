@@ -13,8 +13,10 @@ interface Call { script: string }
 function fakeBrowser(answers: unknown[]) {
   const calls: Call[] = [];
   let closed = false;
+  let persisted = 0;
   const browser = {
     async target() { return null; },
+    async persist() { persisted += 1; },
     async evaluate(script: string) {
       calls.push({ script });
       if (answers.length === 0) throw new Error('no more answers');
@@ -25,7 +27,7 @@ function fakeBrowser(answers: unknown[]) {
     async close() { closed = true; },
     get isClosed() { return closed; },
   };
-  return { browser, calls, closed: () => closed };
+  return { browser, calls, closed: () => closed, persisted: () => persisted };
 }
 
 const ready = { ok: true, guest: false, signedIn: true };
@@ -52,9 +54,10 @@ test('a search becomes citeable sources and drops the note token', async () => {
 });
 
 test('every read checks the page first and closes only the connection', async () => {
-  const { browser, calls, closed } = fakeBrowser([ready, { ok: true, items: [] }]);
+  const { browser, calls, closed, persisted } = fakeBrowser([ready, { ok: true, items: [] }]);
   await readXhsSearchNotes({ query: 'q', limit: 3 }, ctx(browser));
   assert.match(calls[0]!.script, /webpackChunkxhs_pc_web/);
+  assert.equal(persisted(), 1, 'the session is saved before the connection is dropped');
   assert.equal(closed(), true);
 });
 

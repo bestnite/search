@@ -28,6 +28,7 @@ websockify --web /usr/share/novnc "$XHS_VNC_PORT" "127.0.0.1:$XHS_RFB_PORT" &
 novnc_pid=$!
 
 # 3) The browser, then the token proxy in front of it.
+rm -f "${XHS_ENDPOINT_FILE:-/tmp/xhs-endpoint}"
 node /opt/xhs-bridge/launcher.mjs &
 launcher_pid=$!
 node /opt/xhs-bridge/ws-proxy.mjs &
