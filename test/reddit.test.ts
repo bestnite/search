@@ -6,6 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { REDDIT_USER_AGENT } from '../src/reddit/auth.js';
 import { SearchError } from '../src/transport.js';
 import {
   ANDROID_CLIENT_ID,
@@ -626,4 +627,18 @@ test('no failure message carries a token, a client secret, a password or an upst
       assert.ok(!error.message.includes(leak), `error leaked ${leak}: ${error.message}`);
     }
   }
+});
+
+test('the OAuth client identifies itself with version and project, the anonymous path does not', async () => {
+  assert.match(REDDIT_USER_AGENT, /^dsh-search\/\S+ \(Reddit read-only client; \+https:\/\/git\.nite07\.com\/nite\/dsh-search\)$/);
+  const calls: Array<Record<string, string>> = [];
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push((init?.headers ?? {}) as Record<string, string>);
+    const url = String(input);
+    if (url.includes('access-token/loid')) return new Response(JSON.stringify({ access_token: 'anon-token', expires_in: 3600 }), { status: 200 });
+    return new Response(JSON.stringify({ data: { search: { general: { posts: { edges: [] } } } } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  await searchReddit({ query: 'q', maxResults: 5 }, { mode: 'anonymous', credentials: {}, signal: new AbortController().signal, timeoutMs: 3000, fetch: fetcher });
+  assert.ok(calls.length > 0);
+  for (const headers of calls) assert.notEqual(headers['User-Agent'], REDDIT_USER_AGENT, 'anonymous requests must keep the Android client identity');
 });

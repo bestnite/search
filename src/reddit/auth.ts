@@ -14,6 +14,7 @@
 
 import { SearchError } from '../transport.js';
 import { getProcessDevice, type AndroidDevice } from './device.js';
+import { PROJECT_URL, VERSION } from '../version.js';
 
 /** Application-only (anonymous) token endpoint of the official Android client. */
 export const ANONYMOUS_TOKEN_URL = 'https://www.reddit.com/auth/v2/oauth/access-token/loid';
@@ -24,8 +25,9 @@ export const ANONYMOUS_TOKEN_BODY = JSON.stringify({ scopes: ['*', 'email', 'pii
 /** Refresh this long before the reported expiry. */
 export const TOKEN_REFRESH_MARGIN_MS = 120_000;
 /** Reddit wants a descriptive agent on oauth calls; the Android UA is only used for anonymous ones. */
-// No version in the agent string: it would drift from package.json on every bump.
-export const REDDIT_USER_AGENT = 'dsh-search (Reddit read-only client)';
+// The OAuth path identifies this client as itself; Reddit expects a descriptive agent
+// string there. The anonymous path impersonates the Android client and never uses this.
+export const REDDIT_USER_AGENT = `dsh-search/${VERSION} (Reddit read-only client; +${PROJECT_URL})`;
 /** Upper bound for a single 429 back-off in the retry layer. */
 export const MAX_RETRY_WAIT_MS = 60_000;
 
