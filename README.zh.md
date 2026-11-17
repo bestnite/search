@@ -30,6 +30,7 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 - 无需账号即可用的免费档：Keenable、Exa、You.com、AnySearch、Parallel、Reddit
 - 本机自建 SearXNG 也支持，不需要密钥
 - 带「**已实测**」标记的，表示本插件真实调用成功过
+- X 有两种模式：官方 API（按读取帖数计费，取十条约 $0.05）与自带账号会话（不花钱，但 X 一改请求签名就会失效）
 
 各家的额度、单价、来源链接和核实日期见 [docs/BACKENDS.md](docs/BACKENDS.md)。
 

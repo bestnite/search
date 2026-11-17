@@ -30,6 +30,7 @@ Each backend is filed under a cost tier for the selected access mode: free, free
 - Free anonymous tiers that work without any account: Keenable, Exa, You.com, AnySearch, Parallel, Reddit.
 - Local SearXNG is supported and needs no key.
 - A **Live-tested** badge means this plugin completed a real call to that backend.
+- X has two modes: the official API (pay per post read, about $0.05 for ten posts) and your own browser session (no fee, but it breaks whenever X changes its request signing).
 
 Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
 

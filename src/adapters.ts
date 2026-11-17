@@ -4,6 +4,7 @@ import { callMcp } from './mcp.js';
 import { languageFor, regionFor } from './locale-map.js';
 import { searchTencent } from './tencent.js';
 import { searchReddit, type RedditCredentials } from './reddit/index.js';
+import { searchX, type XCredentials } from './x/index.js';
 type Row=Record<string,unknown>;
 const obj=(v:unknown):Row=>v&&typeof v==='object'&&!Array.isArray(v)?v as Row:{};
 const array=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
@@ -16,6 +17,15 @@ function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',da
 export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Promise<AdapterResult>{
   const b=i.backend;const o=b.options;const c=i.config;const headers:Record<string,string>={'Content-Type':'application/json'};
   if(id==='tencent-wsa')return searchTencent(i,t);
+  if(id==='x'){
+    let credentials:XCredentials={};
+    try{const parsed=JSON.parse(i.key??'');if(parsed&&typeof parsed==='object')credentials=parsed as XCredentials;}catch{throw new SearchError('configuration','X credentials must be a JSON object.');}
+    if(b.mode!=='bearer'&&b.mode!=='session')throw new SearchError('configuration','X supports only the bearer and session access modes.');
+    // The X adapters own their HTTP calls, so reserve the attempt budget here.
+    await t.beforeAttempt();t.onAttempt();
+    const postsPerSearch=Number(o.postsPerSearch??0);
+    return {sources:await searchX({query:i.query,maxResults:i.maxResults},{mode:b.mode,credentials,signal:t.signal,timeoutMs:b.timeoutMs,postsPerSearch:postsPerSearch>0?postsPerSearch:undefined,fetch:t.fetch})};
+  }
   if(id==='reddit'){
     let credentials:RedditCredentials={};
     if(b.mode==='oauth'){try{const parsed=JSON.parse(i.key??'');if(!parsed||typeof parsed!=='object')throw 0;credentials=parsed as RedditCredentials;}catch{throw new SearchError('configuration','Reddit OAuth credentials must be JSON with clientId and clientSecret.');}if(!credentials.clientId||!credentials.clientSecret)throw new SearchError('configuration','Reddit OAuth credentials require clientId and clientSecret.');}

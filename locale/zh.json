@@ -223,5 +223,8 @@
   "tierCount": "共 {{total}} 家",
   "tierEnabled": "启用 {{enabled}}",
   "tierFiltered": "筛选后 {{shown}}",
-  "choice.oauth": "OAuth 授权"
+  "choice.oauth": "OAuth 授权",
+  "tier.account": "自带账号 · 不产生费用",
+  "choice.bearer": "API Bearer 令牌",
+  "choice.session": "浏览器会话 Cookie"
 }

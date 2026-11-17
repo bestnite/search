@@ -282,3 +282,21 @@ The two modes never fall back to each other: a mode with no usable credential or
 `reddit_thread` is a separate tool rather than a search backend: a discussion is not a search result. It returns the post plus a nested comment tree, capped by depth (default 3), top-level count (default 100) and a character budget (20,000), and states when it truncated. Comment text is untrusted user content and is labelled as such in the tool description.
 
 Source of the anonymous path: the `bestnite/reddit-readonly-mcp` implementation, which documents the 403 change and the persisted-operation hashes.
+
+## X / Twitter (added 2026-11-17)
+
+Two access modes, chosen explicitly; neither falls back to the other.
+
+| Access mode | Credential | Transport | Cost |
+| --- | --- | --- | --- |
+| `bearer` | `{bearerToken}` — an app-only bearer token from the X developer console | `api.x.com/2/tweets/search/recent` | Pay per post read, about $0.005 each; the `postsPerSearch` option (default 10) bounds it |
+| `session` | `{authToken, ct0}` — the cookies of a signed-in X browser session | `x.com/i/api/graphql/<queryId>/SearchTimeline` with `x-client-transaction-id` signing | No fee; bounded by the account's own rate limits |
+
+Facts that shape the design:
+
+- The official endpoint rejects `max_results` below 10 and above 100, so the request is always clamped into that window and the caller's `postsPerSearch` cap is applied again to the returned rows. Asking for 3 posts still reads 10 and still costs 10.
+- Recent search only covers roughly the last 7 days. There is no archive access on this tier.
+- `session` mode reproduces the signed GraphQL call the web app makes: it discovers the query id table from the main bundle and builds a transaction id per request. It is expected to break when X changes either, so that failure is reported as a protocol error whose message says the adapter needs a maintainer update, and it is never retried beyond the documented refresh-then-rebuild attempts.
+- Both modes surface credentials only as field names in error messages; tokens, cookies and upstream response bodies never appear in output.
+
+The behaviour contract for both modes is covered by unit tests with mocked fetch. **Neither mode has been exercised against the live service**: no bearer token and no X cookies were supplied. The `session` parsing paths that depend on X's current layout are listed as assumptions in the port notes.

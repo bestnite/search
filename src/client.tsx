@@ -224,7 +224,7 @@ export function createClient(React: any) {
                 <div className="ns-field"><label htmlFor="ns-backend-search">{t('searchBackends')}</label><input id="ns-backend-search" type="search" value={backendQuery} onChange={(event: any) => setBackendQuery(event.target.value)} placeholder={t('searchBackendsPlaceholder')} /></div>
                 <div className="ns-field"><label htmlFor="ns-backend-filter">{t('filterBackends')}</label><select id="ns-backend-filter" value={backendFilter} onChange={(event: any) => setBackendFilter(event.target.value)}>{['all', 'enabled', 'configured'].map(value => <option key={value} value={value}>{t(`filter.${value}`)}</option>)}</select></div>
               </div>
-              {(['free', 'allowance', 'trial', 'paid', 'self-hosted', 'unverified'] as const).map(tier => {
+              {(['free', 'allowance', 'trial', 'paid', 'account', 'self-hosted', 'unverified'] as const).map(tier => {
                 const inTier = definitions.filter(def => tierOf(def) === tier);
                 const members = inTier.filter(matches);
                 const enabledInTier = inTier.filter(def => draft.backends[def.id]?.enabled).length;

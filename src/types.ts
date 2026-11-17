@@ -1,5 +1,5 @@
-export type AccessMode = 'anonymous' | 'key' | 'oauth';
-export type CostTier = 'free' | 'allowance' | 'trial' | 'paid' | 'self-hosted' | 'unverified';
+export type AccessMode = 'anonymous' | 'key' | 'oauth' | 'bearer' | 'session';
+export type CostTier = 'free' | 'allowance' | 'trial' | 'paid' | 'self-hosted' | 'account' | 'unverified';
 export type Localized = { en: string; zh: string };
 export interface OptionField {
   key: string; type: 'string' | 'number' | 'boolean' | 'select'; label: Localized; help: Localized;
