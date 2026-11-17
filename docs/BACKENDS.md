@@ -322,7 +322,12 @@ Choosing a different access mode used to lock the credential field until the con
 | --- | --- |
 | `mode` | `single` or `parallel` for this call; omitted means the configured mode |
 | `backends` | Subset of the enabled backends; anything disabled or unknown is named in the result |
+| `allBackends` | Every enabled backend, before exclusions; cheaper to write than listing ids |
+| `exclude` | Backends to leave out, applied to `allBackends` or to the `backends` list |
 | `backend` | Single backend id; ignored with a note in single mode, where the configured backend wins, and in parallel mode |
+| `compact` | Return `url`, `title` and `publishedAt` only, dropping snippets — the largest lever on result size |
 | `maxResults` | Result bound for this call, 1–50 |
+
+A blacklist would otherwise pick up backends that get enabled later, so any call that used `allBackends`, `exclude` or a filtered list reports the effective set: `Backends used in this call: …`. Exclusions naming a backend that is not enabled are reported as ignored rather than silently matching nothing.
 
 Overrides never mutate saved configuration and are never cached, so a narrowed call cannot be served from a cache entry produced under a different strategy.

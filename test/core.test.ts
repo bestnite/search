@@ -51,3 +51,18 @@ test('every mode that needs a credential tells the UI what to paste',async()=>{c
   if(shaped.has(def.id))assert.ok(mode.credentialShape,`${def.id}/${mode.mode} must declare the credential shape`);
   if(mode.credentialShape)assert.ok(mode.credentialShape.en&&mode.credentialShape.zh,`${def.id}/${mode.mode} shape needs both languages`);
  }});
+
+test('allBackends plus an exclusion names the set that actually ran',async()=>{const c=defaultConfig();for(const id of['keenable','exa','searxng'])c.backends[id]!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>new Response('boom',{status:500})));
+ const r=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:'all',exclude:['exa','ghost']});
+ assert.deepEqual(r.outcomes.map(outcome=>outcome.backend).sort(),['keenable','searxng']);
+ assert.match(r.content,/Ignored exclusions for backends that are not enabled: ghost\./);
+ assert.match(r.content,/Backends used in this call: .*(keenable|searxng)/);
+ const none=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',exclude:['exa']});
+ assert.equal(none.outcomes.length,2);
+ const mismatch=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:['keenable'],exclude:['nope']});
+ assert.match(mismatch.content,/Ignored exclusions for backends that are not enabled: nope\./);});
+test('compact returns links without snippets',async()=>{const c=defaultConfig();c.backends.searxng!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;c.cache.enabled=false;const rows=[1,2].map(index=>({title:`T${index}`,url:`https://example.org/${index}`,content:'x'.repeat(400)}));const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:rows})));
+ const full=await e.search({query:'hello'},undefined,undefined,{mode:'parallel'});
+ assert.ok(full.sources[0]!.snippet,);const compact=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',compact:true});
+ assert.equal(compact.sources.length,2);assert.equal(compact.sources[0]!.snippet,undefined);assert.equal(compact.sources[0]!.summary,undefined);assert.ok(compact.sources[0]!.url);assert.ok(compact.sources[0]!.title);
+ assert.ok(JSON.stringify(compact.sources).length*2<JSON.stringify(full.sources).length*2);});

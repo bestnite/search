@@ -27,18 +27,33 @@ export class SearchEngine {
       if(onlyBackend)return [onlyBackend];
       const mode=overrides?.mode??c.mode;
       if(mode==='single'){
-        if(overrides?.backend||overrides?.backends?.length)notes.push('Note: single mode ignores the requested backend selection; the configured single backend was used.');
+        if(overrides?.backend||overrides?.backends==='all'||overrides?.backends?.length||overrides?.exclude?.length)notes.push('Note: single mode ignores the requested backend selection; the configured single backend was used.');
         return [c.singleBackend];
       }
-      if(overrides?.backend)notes.push('Note: parallel mode ignores a single backend argument; pass backends instead.');
+      if(overrides?.backend)notes.push('Note: parallel mode ignores a single backend argument; pass backends or exclude instead.');
       const enabled=enabledIds();
-      if(!overrides?.backends?.length)return enabled;
-      const wanted=[...new Set(overrides.backends.map(value=>String(value).trim()).filter(Boolean))];
-      const usable=wanted.filter(id=>enabled.includes(id));
-      const rejected=wanted.filter(id=>!enabled.includes(id));
+      const requested=overrides?.backends;
+      const rejected:string[]=[];
+      let base:string[];
+      if(requested===undefined||requested==='all')base=[...enabled];
+      else {
+        const wanted=[...new Set(requested.map(value=>String(value).trim()).filter(Boolean))];
+        base=wanted.filter(id=>enabled.includes(id));
+        rejected.push(...wanted.filter(id=>!enabled.includes(id)));
+      }
+      const excluded=[...new Set((overrides?.exclude??[]).map(value=>String(value).trim()).filter(Boolean))];
+      if(excluded.length){
+        const removed=base.filter(id=>excluded.includes(id));
+        base=base.filter(id=>!excluded.includes(id));
+        const unknown=excluded.filter(id=>!enabled.includes(id));
+        if(unknown.length)notes.push(`Ignored exclusions for backends that are not enabled: ${unknown.join(', ')}.`);
+        if(!removed.length&&!unknown.length)notes.push('Note: the exclusion matched no backend in this call.');
+      }
       if(rejected.length)notes.push(`Ignored backends that are not enabled: ${rejected.join(', ')}.`);
-      if(!usable.length)notes.push('None of the requested backends are enabled. Ask the user which backends to enable, or omit the selection to use every enabled backend.');
-      return usable;
+      if(!base.length)notes.push('None of the requested backends are enabled. Ask the user which backends to enable, or omit the selection to use every enabled backend.');
+      // A blacklist silently admits backends enabled later, so name the set that actually ran.
+      else if(requested==='all'||excluded.length||rejected.length)notes.push(`Backends used in this call: ${base.join(', ')}.`);
+      return base;
     };
     const ids=resolveIds();
     const cacheKey=JSON.stringify([revision(c),input.query,max,ids]);
@@ -55,7 +70,9 @@ export class SearchEngine {
       if(existing)existing.score+=1/(60+rank+1);else merged.set(key,{source,score:1/(60+rank+1),order:order++});
     }
     const ranked=[...merged.values()].sort((a,b)=>c.fusion==='rrf'?b.score-a.score||a.order-b.order:a.order-b.order);
-    const sources=ranked.slice(0,max).map(x=>x.source);
+    const rankedSources=ranked.slice(0,max).map(x=>x.source);
+    // Compact drops snippets: the caller asked for links, not text to read.
+    const sources=overrides?.compact?rankedSources.map(source=>({url:source.url,...(source.title?{title:source.title}:{}),...(source.publishedAt?{publishedAt:source.publishedAt}:{})})):rankedSources;
     const failed=outcomes.filter(o=>!o.ok);const report:string[]=[...notes];
     if(!ids.length)report.push('Search failed: no backend is enabled. Ask the user to configure and enable a search backend.');
     else if(!success.length)report.push('Search failed: every selected backend failed. This is not a successful search with no matches.');
