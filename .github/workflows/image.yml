@@ -3,9 +3,9 @@ name: image
 # The browser image is the only artifact here, and its version tracks the Patchright driver inside it,
 # so it has its own tag line: `browser-v1.64.3` publishes 1.64.3, 1.64, 1 and latest.
 #
-# It runs on the self-hosted runner, in a job image that carries podman and speaks to the host's
-# rootless socket. That rules out the docker/* actions — no node and no docker daemon in the image —
-# so the steps are ordinary shell over podman.
+# The build runs in host mode: the image store and podman belong to the machine, so the job runs on
+# that machine rather than inside a container that would need its own socket and daemon. Ordinary
+# workflows keep using the ubuntu-latest job image; only this one asks for the host.
 on:
   push:
     tags:
@@ -43,9 +43,9 @@ env:
 
 jobs:
   build:
-    runs-on: podman
+    runs-on: build-host
     steps:
-      # No node in this job image, so no actions/checkout: git is enough.
+      # A host job is a plain shell on the machine: git and podman are already there.
       - name: Check out the commit
         env:
           TOKEN: ${{ github.token }}
