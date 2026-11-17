@@ -72,3 +72,16 @@ test('the agent switch is a validated boolean that defaults to on',async()=>{con
 test('a failed backend never leaves undefined keys in tool-visible output',async()=>{const c=config();c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>{throw new Error('ECONNRESET');}));const r=await e.search({query:'hello'});
  const roundTrip=JSON.parse(JSON.stringify(r));assert.deepEqual(roundTrip,r,'the result must survive a JSON round trip unchanged');
  assert.equal('status' in r.outcomes[0]!.error! ,false,'an absent status must not be an undefined property');});
+
+test('credentialed modes other than key also receive the stored credential',async()=>{
+ const c=defaultConfig();c.backends.x!.enabled=true;c.backends.x!.mode='session';c.retry.enabled=false;
+ let resolved=0;
+ const missing=new SearchEngine(c,async()=>{resolved++;return undefined;},mock(()=>Response.json({})));
+ const failed=(await missing.search({query:'hello'})).outcomes[0]!;
+ assert.equal(failed.error!.kind,'configuration');
+ assert.ok(failed.error!.message.includes('needs a stored credential'),failed.error!.message);
+ const present=new SearchEngine(c,async()=>{resolved++;return JSON.stringify({authToken:'a',ct0:'b'});},mock(()=>Response.json({})));
+ const outcome=(await present.search({query:'hello'})).outcomes[0]!;
+ assert.equal(resolved,2);
+ assert.ok(!(outcome.error?.message??'').includes('needs a stored credential'));
+});

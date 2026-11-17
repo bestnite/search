@@ -92,8 +92,11 @@ export class SearchEngine {
       if(d.status==='unverified')throw new SearchError('unverified','Backend protocol is not verified.');
       if(signal.aborted)throw abortError(signal);
       const circuit=this.failures.get(id);if(this.config.breaker.enabled&&circuit&&circuit.until>Date.now())throw new SearchError('circuit-open','Backend circuit is open; no call or fallback was sent.');
-      const key=b.mode==='key'?await this.resolveKey(b.credentialRef):undefined;
-      if(b.mode==='key'&&!key)throw new SearchError('configuration','API-key mode selected but credential is missing. Ask the user to set the credential.');
+      // Every mode except anonymous needs a credential, including session and OAuth modes whose
+      // credential is a JSON document rather than a bare key.
+      const needsCredential=b.mode!=='anonymous';
+      const key=needsCredential?await this.resolveKey(b.credentialRef):undefined;
+      if(needsCredential&&!key)throw new SearchError('configuration',b.mode==='key'?'API-key mode selected but credential is missing. Ask the user to set the credential.':`The ${b.mode} mode selected for this backend needs a stored credential. Ask the user to set it.`);
       for(const [field,active]of [['language',!!this.config.language],['region',!!this.config.region],['recency',this.config.recency!=='any'],['safeSearch',this.config.safeSearch]]as const)if(active&&!d.capabilities.includes(field))warnings.push(`${field} is unsupported by this backend and was not applied upstream.`);
       if(id==='deepseek'&&query.length>128)throw new SearchError('configuration','DeepSeek search query must not exceed 128 characters.');
       const response=await runAdapter(id,{query,maxResults,config:this.config,backend:b,key,signal},{signal,retry:this.config.retry,attemptTimeoutMs:b.timeoutMs,fetch:this.fetcher,onAttempt:()=>{attempts++;},beforeAttempt:async()=>{
