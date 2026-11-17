@@ -77,8 +77,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # A pull request from a fork has no secrets, and an empty namespace makes an invalid image
+          # name before the publish decision is ever reached, so the namespace has a default.
           images: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME || 'nite07' }}/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
             type=match,pattern=browser-v(\d+\.\d+\.\d+),group=1
