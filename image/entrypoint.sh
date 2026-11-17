@@ -10,6 +10,11 @@ mkdir -p /profile
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
 
 # 1) Virtual display, then a window manager so a browser window is actually drawable.
+# A restart of the same container keeps /tmp, so a stale lock from the previous run would make
+# Xvfb refuse to start and send the container into a restart loop.
+display_number="${DISPLAY#:}"
+display_number="${display_number%%.*}"
+rm -f "/tmp/.X${display_number}-lock" "/tmp/.X11-unix/X${display_number}"
 Xvfb "$DISPLAY" -screen 0 1440x900x24 -nolisten tcp &
 xvfb_pid=$!
 for _ in $(seq 1 50); do xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && break; sleep 0.1; done
@@ -61,7 +66,10 @@ cat >&2 <<BANNER
 BANNER
 
 # Any component dying is the container's failure; stop the rest instead of serving a half stack.
-cleanup() { kill "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid" 2>/dev/null || true; }
+cleanup() {
+  kill "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid" 2>/dev/null || true
+  rm -f "/tmp/.X${display_number}-lock" "/tmp/.X11-unix/X${display_number}" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 wait -n "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid"

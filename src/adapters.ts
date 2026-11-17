@@ -13,7 +13,10 @@ const string=(v:unknown):string|undefined=>typeof v==='string'?v:undefined;
 function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',date:'published_at'}):Source[]{
   if(!Array.isArray(rows))throw new SearchError('protocol','Expected a results array from provider.');
   return rows.flatMap(v=>{const r=obj(v);const url=string(r[keys.url]);if(!url)return [];try{const u=new URL(url);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)return [];}catch{return [];}
-    return [{url,title:string(r[keys.title]),snippet:string(r[keys.snippet]),publishedAt:string(r[keys.date])}];});
+    // Every field is optional, and an explicit undefined is not valid JSON: the tool layer refuses
+    // such a value outright, so absent fields are simply left out.
+    const title=string(r[keys.title]);const snippet=string(r[keys.snippet]);const date=string(r[keys.date]);
+    return [{url,...(title?{title}:{}),...(snippet?{snippet}:{}),...(date?{publishedAt:date}:{})}];});
 }
 export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Promise<AdapterResult>{
   const b=i.backend;const o=b.options;const c=i.config;const headers:Record<string,string>={'Content-Type':'application/json'};

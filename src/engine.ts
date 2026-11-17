@@ -4,6 +4,24 @@ import { runAdapter } from './adapters.js';
 import { abortError, SearchError } from './transport.js';
 import type { BackendOutcome, SearchConfig, SearchInput, SearchOverrides, SearchResult, Source } from './types.js';
 export function revision(config:SearchConfig):string{return createHash('sha256').update(JSON.stringify(config)).digest('hex');}
+/**
+ * A result crosses a JSON boundary before any host or tool sees it, and an explicit undefined does
+ * not survive that crossing. Adapters are meant to omit absent fields, but one gap there breaks a
+ * whole tool call, so the boundary enforces it once for every caller.
+ */
+function lossless<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(item => lossless(item)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (item === undefined) continue;
+      out[key] = lossless(item);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 export class SearchEngine {
   private cache=new Map<string,{expires:number;result:SearchResult}>();
   private history:BackendOutcome[]=[];
@@ -85,7 +103,7 @@ export class SearchEngine {
     if(c.diagnostics.enabled){const at=Date.now();this.history.push(...outcomes.map(o=>({...o,sources:[],at})));this.history=this.history.slice(-c.diagnostics.maxEntries);}
     // Failures are never cached, so a temporary failure cannot be hidden by a cache hit.
     if(!onlyBackend&&!notes.length&&c.cache.enabled&&success.length&&failed.length===0){this.cache.set(cacheKey,{expires:Date.now()+c.cache.ttlSeconds*1000,result:structuredClone(result)});while(this.cache.size>c.cache.maxEntries)this.cache.delete(this.cache.keys().next().value!);}
-    return result;
+    return lossless(result);
   }
   private async call(id:string,query:string,maxResults:number,signal:AbortSignal):Promise<BackendOutcome>{
     const started=Date.now();const d=catalog.find(x=>x.id===id);const b=this.config.backends[id];let attempts=0;const warnings:string[]=[];
