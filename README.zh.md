@@ -27,11 +27,17 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 
 每个后端按**当前选中的接入模式**归类到费用档：免费、免费额度（需密钥）、试用额度、付费用量、自托管。
 
-- 无需账号即可用的免费档：Keenable、Exa、You.com、AnySearch、Parallel
+- 无需账号即可用的免费档：Keenable、Exa、You.com、AnySearch、Parallel、Reddit
 - 本机自建 SearXNG 也支持，不需要密钥
 - 带「**已实测**」标记的，表示本插件真实调用成功过
 
 各家的额度、单价、来源链接和核实日期见 [docs/BACKENDS.md](docs/BACKENDS.md)。
+
+## 工具
+
+- `web_search` — 上面说的多后端搜索。
+- `reddit_thread` — 读某个 Reddit 帖子的完整评论树，让模型能引用真实讨论而不是猜；按深度、评论条数和字符预算截断。
+- `search_manage` — 从 agent 侧查看或修改本插件自己的设置。
 
 ## 开发
 

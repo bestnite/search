@@ -3,6 +3,7 @@ import { requestJson, requestText, SearchError, type TransportOptions } from './
 import { callMcp } from './mcp.js';
 import { languageFor, regionFor } from './locale-map.js';
 import { searchTencent } from './tencent.js';
+import { searchReddit, type RedditCredentials } from './reddit/index.js';
 type Row=Record<string,unknown>;
 const obj=(v:unknown):Row=>v&&typeof v==='object'&&!Array.isArray(v)?v as Row:{};
 const array=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
@@ -13,8 +14,16 @@ function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',da
     return [{url,title:string(r[keys.title]),snippet:string(r[keys.snippet]),publishedAt:string(r[keys.date])}];});
 }
 export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Promise<AdapterResult>{
-  if(id==='tencent-wsa')return searchTencent(i,t);
   const b=i.backend;const o=b.options;const c=i.config;const headers:Record<string,string>={'Content-Type':'application/json'};
+  if(id==='tencent-wsa')return searchTencent(i,t);
+  if(id==='reddit'){
+    let credentials:RedditCredentials={};
+    if(b.mode==='oauth'){try{const parsed=JSON.parse(i.key??'');if(!parsed||typeof parsed!=='object')throw 0;credentials=parsed as RedditCredentials;}catch{throw new SearchError('configuration','Reddit OAuth credentials must be JSON with clientId and clientSecret.');}if(!credentials.clientId||!credentials.clientSecret)throw new SearchError('configuration','Reddit OAuth credentials require clientId and clientSecret.');}
+    // This adapter owns its HTTP calls (token flow + GraphQL), so reserve the attempt budget here.
+    await t.beforeAttempt();t.onAttempt();
+    return {sources:await searchReddit({query:i.query,maxResults:i.maxResults,sort:String(o.sort||'relevance'),time:String(o.time||'all'),subreddit:String(o.subreddit||'')||undefined},{mode:b.mode==='oauth'?'oauth':'anonymous',credentials,signal:t.signal,timeoutMs:b.timeoutMs,fetch:t.fetch})};
+  }
+
   const key=b.mode==='key'?i.key:undefined;
   const json=(body:unknown,h:Record<string,string>=headers)=>requestJson(b.endpoint,{method:'POST',headers:h,body:JSON.stringify(body)},t);
   const get=(params:Record<string,unknown>,h:Record<string,string>=headers)=>{const url=new URL(b.endpoint);for(const[k,v]of Object.entries(params))if(v!==undefined&&v!=='')url.searchParams.set(k,String(v));return requestJson(url.href,{headers:h},t);};

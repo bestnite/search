@@ -222,5 +222,6 @@
   "activateSelf": "Use this plugin for web search",
   "tierCount": "{{total}} total",
   "tierEnabled": "{{enabled}} on",
-  "tierFiltered": "{{shown}} after filter"
+  "tierFiltered": "{{shown}} after filter",
+  "choice.oauth": "OAuth"
 }

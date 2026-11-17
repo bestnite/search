@@ -267,3 +267,18 @@ Remaining documented-only entries: every keyed backend (no credential supplied h
 ## Retired entries
 
 **Serper** was the only candidate whose contract could not be established from public official documentation (the playground is login-gated), so it was removed from the shipped catalogue on 2026-11-17 by user decision. Its config rows are pruned on load, not rejected; no other backend inherits its credential. The pricing facts above stay in this audit because the platform itself still exists.
+
+## Reddit (added 2026-11-17)
+
+Reddit needs two different paths, because its public REST endpoints changed:
+
+| Access mode | Credential | Transport | Notes |
+| --- | --- | --- | --- |
+| `oauth` | `{clientId, clientSecret}` or those plus `{username, password}` | `oauth.reddit.com` REST | Official API. `client_credentials` reads public data; adding a username and password switches to the script grant. Roughly 100 queries/minute per client for non-commercial use. |
+| `anonymous` | none | Reddit's Android app endpoint (`gql-fed.reddit.com`, persisted operations) | Since 2026-10 the public REST `/search` and `/comments` answer 403 to anonymous tokens, so this mode uses the same anonymous application-only token the Android client obtains. No published quota. |
+
+The two modes never fall back to each other: a mode with no usable credential or a rejected token reports an authentication failure naming the mode, and the message says to switch modes rather than doing it silently.
+
+`reddit_thread` is a separate tool rather than a search backend: a discussion is not a search result. It returns the post plus a nested comment tree, capped by depth (default 3), top-level count (default 100) and a character budget (20,000), and states when it truncated. Comment text is untrusted user content and is labelled as such in the tool description.
+
+Source of the anonymous path: the `bestnite/reddit-readonly-mcp` implementation, which documents the 403 change and the persisted-operation hashes.

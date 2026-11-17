@@ -222,5 +222,6 @@
   "activateSelf": "设为网页搜索来源",
   "tierCount": "共 {{total}} 家",
   "tierEnabled": "启用 {{enabled}}",
-  "tierFiltered": "筛选后 {{shown}}"
+  "tierFiltered": "筛选后 {{shown}}",
+  "choice.oauth": "OAuth 授权"
 }

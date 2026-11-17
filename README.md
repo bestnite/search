@@ -27,11 +27,17 @@ The **Test & diagnostics** tab runs one explicit search against a saved backend 
 
 Each backend is filed under a cost tier for the selected access mode: free, free allowance (key required), trial credits, paid usage, or self-hosted.
 
-- Free anonymous tiers that work without any account: Keenable, Exa, You.com, AnySearch, Parallel.
+- Free anonymous tiers that work without any account: Keenable, Exa, You.com, AnySearch, Parallel, Reddit.
 - Local SearXNG is supported and needs no key.
 - A **Live-tested** badge means this plugin completed a real call to that backend.
 
 Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
+
+## Tools
+
+- `web_search` — the backend fan-out described above.
+- `reddit_thread` — read one Reddit post with its comment tree, so a model can quote the discussion instead of guessing. Capped by depth, comment count and character budget.
+- `search_manage` — inspect or change this plugin's settings from the agent side.
 
 ## Development
 

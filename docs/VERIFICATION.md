@@ -71,3 +71,14 @@ Live check with canonical `language=zh-Hans`, `region=CN` and retry/cache disabl
 So an unsupported canonical value is never forwarded as a guess, and a supported one reaches the backend in its own spelling. Saved values are validated against the fixed lists, so a backend-specific spelling can no longer be typed in by hand.
 
 The settings snapshot also reports the provider the web seam currently selects. When it is not this plugin, the page states which provider is in effect and offers a one-click switch; the built-in providers stay registered and are simply never selected while `searchProvider: nite-search` is pinned.
+
+## Reddit (2026-11-17, live)
+
+Anonymous mode was exercised against the real endpoints, with retry and cache disabled:
+
+| Call | Result |
+| --- | --- |
+| `searchReddit` "claude code vs codex" | 3 posts returned from r/OpenaiCodex, r/ClaudeCode, r/codex with working permalinks |
+| `fetchRedditThread` on the first permalink | post title resolved, 13 top-level comments parsed, `truncated: true` at the 4,000-character test budget |
+
+This confirms the anonymous token flow (Android client id + device headers), the persisted-operation hashes for `SearchPosts` and `PostComments`, the `/by_id` metadata call, and the comment tree shaping. The `oauth` mode is contract-tested only: no client id/secret was supplied, so no live OAuth call was made. Assumptions that remain unverified are listed in the port notes: the OAuth Listing field shapes, and whether the anonymous path keeps working if Reddit closes `/by_id` to those tokens.
