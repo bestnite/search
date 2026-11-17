@@ -5,6 +5,7 @@
 # Endpoint and token: podman logs xhs-browser
 #
 # Values come from this directory's .env file (compose reads it for interpolation) or from the shell.
+# Copy env.example to .env and edit it; that file is not committed.
 services:
   xhs-browser:
     build: .

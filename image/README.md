@@ -22,7 +22,11 @@ podman logs xhs-browser      # prints the endpoint and the bearer token
 ```
 
 Compose takes the password, token and published ports from the shell or from a `.env` file beside
-`compose.yaml`:
+`compose.yaml`. `env.example` lists every variable with its default:
+
+```sh
+cp env.example .env && chmod 600 .env   # then edit it
+```
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
