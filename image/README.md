@@ -49,7 +49,21 @@ The container keeps a sign-in window open on its display, so there is nothing to
 After that the session is reused on every start. Nothing in the search core can sign in, and no
 credential ever leaves the container.
 
-If the window ever closes, restart the container: the keeper reopens it.
+If the window ever closes, restart the unit: the keeper reopens it.
+
+Run it as a quadlet so systemd owns the lifecycle:
+
+```sh
+podman build -t xhs-playwright ~/dev/search-core/image
+cp image/xhs-browser.container ~/.config/containers/systemd/
+printf 'XHS_VNC_PASSWORD=<eight chars or fewer>\n' > ~/.config/dsh-search/xhs/vnc.env
+chmod 600 ~/.config/dsh-search/xhs/vnc.env
+systemctl --user daemon-reload && systemctl --user start xhs-browser
+```
+
+A plain `podman restart` is not enough in rootless mode: the published ports are re-established by
+the unit's start, and a bare restart can leave a specific published address unbound while the
+container itself is healthy.
 
 ## Publishing it beyond loopback
 

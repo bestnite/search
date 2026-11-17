@@ -10,12 +10,11 @@ After=network-online.target
 [Container]
 Image=localhost/xhs-playwright:latest
 ContainerName=xhs-browser
-AutoUpdate=registry
 
 # Playwright endpoint (token required) and the noVNC surface used to sign in.
 # Replace 127.0.0.1 with a reachable address when the browser must be used from another machine.
-PublishPort=127.0.0.1:3030:3000
-PublishPort=127.0.0.1:6080:6080
+PublishPort=100.64.0.10:3030:3000
+PublishPort=100.64.0.10:6080:6080
 
 # A host directory keeps the session where the search core can read it.
 Volume=%h/.config/dsh-search/xhs:/profile:Z
@@ -25,8 +24,8 @@ Environment=XHS_WS_PATH=/xhs
 # Leave these empty to generate values on first start: the token lands in the profile volume.
 Environment=XHS_WS_TOKEN=
 # Set a password before exposing 6080 beyond loopback.
-# Set a password whenever the VNC port is not loopback.
-Environment=XHS_VNC_PASSWORD=
+# Secrets live outside the repository: this file is not committed with a password in it.
+EnvironmentFile=%h/.config/dsh-search/xhs/vnc.env
 
 [Service]
 Restart=always
