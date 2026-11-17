@@ -1,184 +1,127 @@
-// SearchTimeline payload -> the plugin's Source shape.
-//
-// Ported from bestnite/x-mcp src/x/parse.ts, restricted to the search path (no timelines, users,
-// trends or conversations). The three shapes below are preserved rather than tidied because they
-// are exactly what moved in the past:
-//   - a tweet may be wrapped in TweetWithVisibilityResults;
-//   - a long post keeps its body in note_tweet, not legacy.full_text;
-//   - screen_name/name/verification moved from legacy.* into core.* (both are read, core first).
-//
-// The field paths here are the reverse-engineered surface: X can rename any of them, which shows up
-// as an empty result set or a missing author, never as an HTTP error.
-
-import { SearchError } from '../transport.js';
 import type { Source } from '../types.js';
 
-export interface AuthorSummary {
-  id: string;
-  username: string;
-  name: string;
-  verified: boolean;
-}
+/**
+ * Shapes below follow X's 2026 search response: the timeline arrives as `instructions[]`,
+ * each carrying `entries[]`, and a tweet can sit directly on an entry or inside a module's
+ * `items[]`. Fields moved into `core`/`note_tweet` over time, so every read has a fallback.
+ */
+type Node = Record<string, unknown>;
 
-export interface Tweet {
+const node = (value: unknown): Node => (value && typeof value === 'object' && !Array.isArray(value) ? value as Node : {});
+const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const str = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
+const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+
+export const TITLE_EXCERPT_CHARS = 90;
+export const SNIPPET_MAX_CHARS = 400;
+
+export interface ParsedTweet {
   id: string;
-  url: string;
+  handle?: string;
   text: string;
   createdAt?: string;
-  author?: AuthorSummary;
-  metrics: { likes: number; retweets: number; replies: number; quotes: number };
+  likes: number;
+  reposts: number;
+  replies: number;
 }
 
-export interface TweetPage {
-  tweets: Tweet[];
-  nextCursor?: string;
+/**
+ * Find the tweet inside an entry without assuming the nesting. X has moved it between
+ * `content.itemContent`, `content.content` and module `items[]` across releases, so the
+ * search is structural and bounded rather than a fixed path.
+ */
+function tweetFromEntry(entry: Node): Node | undefined {
+  const queue: unknown[] = [entry];
+  for (let step = 0; step < 24 && queue.length > 0; step += 1) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    const value = current as Node;
+    const results = value.tweet_results;
+    if (results && typeof results === 'object') {
+      const result = node(results).result;
+      if (result && typeof result === 'object') return node(result);
+    }
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') queue.push(child);
+    }
+  }
+  return undefined;
 }
 
-// The payload is deeply nested and versioned; readers narrow at the point of use, like upstream.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Node = any;
-
-/** Author handle is optional: without it the permalink falls back to the /i/web form. */
-function tweetUrl(username: string | undefined, id: string): string {
-  return username ? `https://x.com/${username}/status/${id}` : `https://x.com/i/web/status/${id}`;
+function unwrap(result: Node): Node {
+  // Tweets hidden behind a visibility wrapper keep the real payload one level down.
+  return result.__typename === 'TweetWithVisibilityResults' ? node(result.tweet) : result;
 }
 
-/** X's "Wed Oct 10 20:19:24 +0000 2018" -> ISO 8601. */
-export function toIsoDate(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || !raw) return undefined;
+function author(nodeValue: Node): string | undefined {
+  const user = node(node(node(nodeValue.core).user_results).result);
+  return str(node(user.core).screen_name) ?? str(node(user.legacy).screen_name);
+}
+
+function body(nodeValue: Node): string {
+  // 2026 shape: the body moved to `details.full_text`; long posts still use note_tweet.
+  const note = node(node(nodeValue.note_tweet).note_tweet_results).result;
+  return str(node(note).text)
+    ?? str(node(nodeValue.details).full_text)
+    ?? str(node(nodeValue.legacy).full_text)
+    ?? str(nodeValue.text)
+    ?? '';
+}
+
+function createdAt(nodeValue: Node): string | undefined {
+  const millis = node(nodeValue.details).created_at_ms;
+  if (typeof millis === 'number' && Number.isFinite(millis)) return new Date(millis).toISOString();
+  const raw = str(node(nodeValue.details).created_at) ?? str(node(nodeValue.legacy).created_at) ?? str(nodeValue.created_at);
+  if (!raw) return undefined;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
-function verified(user: Node): boolean {
-  const verification = user?.verification ?? {};
-  const legacy = user?.legacy ?? {};
-  const verifiedType: string | undefined = verification.verified_type;
-  return (
-    Boolean(verification.verified) ||
-    Boolean(legacy.verified) ||
-    Boolean(verifiedType && verifiedType !== 'None')
-  );
-}
-
-/**
- * User object reduced to what a search result needs. X's 2026 layout keeps counts and the handle in
- * top-level objects; the legacy layout keeps them in legacy.*. Both are read.
- */
-export function parseUserResult(result: Node): AuthorSummary | null {
-  const user = result?.__typename === 'UserWithVisibilityResults' ? result.user : result;
-  if (!user || typeof user.rest_id !== 'string') return null;
-
-  const core = user.core ?? {};
-  const legacy = user.legacy ?? {};
-  const username: string | undefined = core.screen_name ?? legacy.screen_name;
-  if (!username) return null;
-
+export function parseTweet(result: Node): ParsedTweet | undefined {
+  const tweet = unwrap(result);
+  const id = str(tweet.rest_id) ?? str(tweet.id_str);
+  const text = body(tweet);
+  if (!id) return undefined;
+  const legacy = node(tweet.legacy);
+  const counts = node(tweet.counts);
   return {
-    id: user.rest_id,
-    username,
-    name: core.name ?? legacy.name ?? username,
-    verified: verified(user),
-  };
-}
-
-function parseAuthor(result: Node): AuthorSummary | undefined {
-  return parseUserResult(result?.core?.user_results?.result) ?? undefined;
-}
-
-export function parseTweetResult(input: Node): Tweet | null {
-  if (!input) return null;
-  // Visibility wrapper.
-  const result = input.__typename === 'TweetWithVisibilityResults' ? input.tweet : input;
-  if (!result || typeof result.rest_id !== 'string') return null;
-
-  const legacy = result.legacy ?? {};
-  // Long posts keep the body here; legacy.full_text is truncated for them.
-  const noteText: string | undefined = result.note_tweet?.note_tweet_results?.result?.text;
-  const text: string = noteText ?? legacy.full_text ?? '';
-
-  const author = parseAuthor(result);
-  return {
-    id: result.rest_id,
-    url: tweetUrl(author?.username, result.rest_id),
+    id,
+    ...(author(tweet) ? { handle: author(tweet) } : {}),
     text,
-    createdAt: toIsoDate(legacy.created_at),
-    author,
-    metrics: {
-      likes: Number(legacy.favorite_count ?? 0),
-      retweets: Number(legacy.retweet_count ?? 0),
-      replies: Number(legacy.reply_count ?? 0),
-      quotes: Number(legacy.quote_count ?? 0),
-    },
+    ...(createdAt(tweet) ? { createdAt: createdAt(tweet) } : {}),
+    likes: num(counts.favorite_count ?? legacy.favorite_count),
+    reposts: num(counts.retweet_count ?? legacy.retweet_count),
+    replies: num(counts.reply_count ?? legacy.reply_count),
   };
 }
 
-/** Walk timeline instructions, collecting tweets and the bottom cursor. */
-export function parseTimelineInstructions(instructions: Node): TweetPage {
-  const tweets: Tweet[] = [];
-  let nextCursor: string | undefined;
-
-  for (const instruction of instructions ?? []) {
-    for (const entry of instruction?.entries ?? []) {
-      const entryId: string = entry?.entryId ?? '';
-
-      if (entryId.startsWith('cursor-bottom') || entryId.startsWith('cursor-showMore')) {
-        const value = entry?.content?.value;
-        if (typeof value === 'string' && value) nextCursor = value;
-        continue;
-      }
-
-      // A single tweet entry.
-      const single =
-        entry?.content?.itemContent?.tweet_results?.result ??
-        entry?.content?.item?.itemContent?.tweet_results?.result;
-      if (single) {
-        const tweet = parseTweetResult(single);
-        if (tweet) tweets.push(tweet);
-        continue;
-      }
-
-      // A module entry holding several tweets (promoted clusters, conversations).
-      for (const item of entry?.content?.items ?? []) {
-        const tweet = parseTweetResult(item?.item?.itemContent?.tweet_results?.result);
-        if (tweet) tweets.push(tweet);
-      }
+/** Walk the timeline instructions and pull every tweet that has a body worth quoting. */
+export function parseInstructions(data: Node, limit: number): ParsedTweet[] {
+  const timeline = node(node(node(data.data).search_by_raw_query).search_timeline).timeline;
+  const tweets: ParsedTweet[] = [];
+  for (const instruction of list(node(timeline).instructions)) {
+    for (const entry of list(node(instruction).entries)) {
+      const result = tweetFromEntry(node(entry));
+      if (!result) continue;
+      const parsed = parseTweet(result);
+      if (!parsed || parsed.text.trim() === '') continue;
+      tweets.push(parsed);
+      if (tweets.length >= limit) return tweets;
     }
   }
-
-  return { tweets, nextCursor };
+  return tweets;
 }
 
-/** Extract the tweets of a SearchTimeline response body. */
-export function parseSearchInstructions(data: Node): Tweet[] {
-  const instructions = data?.search_by_raw_query?.search_timeline?.timeline?.instructions;
-  if (!Array.isArray(instructions)) {
-    throw new SearchError(
-      'protocol',
-      'X returned no search timeline for this query; the SearchTimeline response shape may have changed.',
-    );
-  }
-  return parseTimelineInstructions(instructions).tweets;
-}
-
-/** Title excerpt length: enough to identify the post, short enough for a result list. */
-const TITLE_EXCERPT_CHARS = 90;
-/** Snippet is a preview, not the archive; the permalink carries the full text. */
-const SNIPPET_MAX_CHARS = 400;
-
-/** One tweet as a search result: permalink, handle + preview, single-line body, ISO timestamp. */
-export function toSource(tweet: Tweet): Source {
+export function toSource(tweet: ParsedTweet): Source {
   const text = tweet.text.replace(/\s+/g, ' ').trim();
-  const handle = tweet.author?.username;
   const source: Source = {
-    url: tweet.url,
-    title: `${handle ? `@${handle}` : 'X post'}: ${text.slice(0, TITLE_EXCERPT_CHARS)}`,
+    url: `https://x.com/${tweet.handle ?? 'i/web'}/status/${tweet.id}`,
+    title: `${tweet.handle ? `@${tweet.handle}` : 'X post'}: ${text.slice(0, TITLE_EXCERPT_CHARS)}`,
+    snippet: text.slice(0, SNIPPET_MAX_CHARS),
   };
-  if (text !== '') source.snippet = text.slice(0, SNIPPET_MAX_CHARS);
-  const { likes, retweets, replies } = tweet.metrics;
-  if (likes + retweets + replies > 0) {
-    source.summary = `${String(likes)} likes, ${String(retweets)} reposts, ${String(replies)} replies`;
+  if (tweet.likes + tweet.reposts + tweet.replies > 0) {
+    source.summary = `${tweet.likes} likes, ${tweet.reposts} reposts, ${tweet.replies} replies`;
   }
-  if (tweet.createdAt !== undefined) source.publishedAt = tweet.createdAt;
+  if (tweet.createdAt) source.publishedAt = tweet.createdAt;
   return source;
 }

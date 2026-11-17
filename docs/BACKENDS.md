@@ -300,7 +300,9 @@ Facts that shape the design:
 
 - The official endpoint rejects `max_results` below 10 and above 100, so the request is always clamped into that window and the caller's `postsPerSearch` cap is applied again to the returned rows. Asking for 3 posts still reads 10 and still costs 10.
 - Recent search only covers roughly the last 7 days. There is no archive access on this tier.
-- `session` mode reproduces the signed GraphQL call the web app makes: it discovers the query id table from the main bundle and builds a transaction id per request. It is expected to break when X changes either, so that failure is reported as a protocol error whose message says the adapter needs a maintainer update, and it is never retried beyond the documented refresh-then-rebuild attempts.
+- `session` mode follows the front end X actually serves now. Since 2026-11 the web app is `x-web`, which runs search server-side and streams the operation into the search page as `{id, name: SearchByRawQuery, variables: {…}}`. The adapter reads that pair out of the document, then calls `GET /i/api/graphql/<queryId>/SearchByRawQuery?variables=…` with the cookies, the public bearer and `x-csrf-token`. No transaction-id signing is involved any more, and none of the old `responsive-web` bundle crawling survives.
+- The variable template is reused verbatim because it carries X's `__relay_internal__pv__*` switches; sending only `features` answers `422 GRAPHQL_VALIDATION_FAILED`. The query id changes with each deploy, so it is cached for ten minutes and rediscovered once on a 404 before the call is reported as broken.
+- The tweet shape moved too: the body is `details.full_text` (long posts still use `note_tweet`), the timestamp is `details.created_at_ms`, and engagement counts sit under `counts`. Fields are located structurally rather than by a fixed path, because X moves them between releases.
 - Both modes surface credentials only as field names in error messages; tokens, cookies and upstream response bodies never appear in output.
 
 The behaviour contract for both modes is covered by unit tests with mocked fetch. **Neither mode has been exercised against the live service**: no bearer token and no X cookies were supplied. The `session` parsing paths that depend on X's current layout are listed as assumptions in the port notes.
@@ -337,3 +339,9 @@ A blacklist would otherwise pick up backends that get enabled later, so any call
 Overrides never mutate saved configuration and are never cached, so a narrowed call cannot be served from a cache entry produced under a different strategy.
 
 The tool itself is switchable: with `tools.webSearchPlus` off the plugin does not register it, so the agent cannot call it rather than calling it and being refused. The switch lives on the Search behaviour tab and defaults to on.
+
+### X session search verification (2026-11-17, live)
+
+With a real signed-in session, the adapter returned 8 posts for `deepseek harness`, each with a working `x.com/<handle>/status/<id>` link, a snippet and an ISO timestamp, in one page read plus one GraphQL read. Two failure modes were reproduced deliberately: rejected cookies answer `authentication` (the page comes back signed out), and a page without the embedded operation answers `protocol` naming `SearchByRawQuery` and the maintainer action.
+
+The reverse-engineering that this replaced — the `x-client-transaction-id` generator and the `responsive-web` operations crawler — is gone; it was ~660 lines plus a signing test suite that no longer matched the live service.
