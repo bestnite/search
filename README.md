@@ -36,7 +36,6 @@ The list is grouped by the cheapest path a backend offers, so anything with a fr
 | **Trial credits** | Serpex | One-off trial credits, then paid |
 | **Paid** | Mojeek, Anthropic, OpenAI, DeepSeek, Tencent WSA | Billed per use; check the price before enabling |
 
-- A **Live-tested** badge means this plugin completed a real call to that backend.
 - Every backend is **disabled by default**; nothing is enabled automatically.
 - Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
 

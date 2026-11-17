@@ -208,7 +208,6 @@
   "failure.budget": "Local budget exhausted",
   "failure.circuit-open": "Circuit open",
   "failure.unverified": "Unverified backend",
-  "liveVerified": "Live-tested",
   "tabsLabel": "Search settings sections",
   "tab.behavior": "Search behavior",
   "tab.reliability": "Reliability",

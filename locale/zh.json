@@ -208,7 +208,6 @@
   "failure.budget": "本地额度耗尽",
   "failure.circuit-open": "熔断中",
   "failure.unverified": "后端未核实",
-  "liveVerified": "已实测",
   "tabsLabel": "搜索设置分区",
   "tab.behavior": "搜索行为",
   "tab.reliability": "稳定性",

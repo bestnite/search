@@ -36,7 +36,6 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 | **试用额度** | Serpex | 一次性试用额度，用完转付费 |
 | **付费** | Mojeek、Anthropic、OpenAI、DeepSeek、腾讯 WSA | 按量收费，开之前先看单价 |
 
-- 带「**已实测**」标记的后端，表示本插件真实调用成功过
 - 默认**全部关闭**，一个都不会自动启用
 - 各家的具体额度、单价、来源链接和核实日期见 [docs/BACKENDS.md](docs/BACKENDS.md)
 
