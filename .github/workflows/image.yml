@@ -1,0 +1,119 @@
+name: image
+
+# The browser image is the only thing here that ships as an artifact, and its version tracks the
+# Patchright driver inside it, so it gets its own tag line: `xhs-v1.64.3` publishes 1.64.3, 1.64,
+# 1.64.3-<sha> and latest. A manual run rebuilds the current commit and tags it with the short SHA,
+# which is what a re-publish looks like without inventing a version number.
+on:
+  push:
+    tags:
+      - 'xhs-v*'
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Publish to Docker Hub and GHCR. Uncheck to only build.'
+        type: boolean
+        default: true
+      tag:
+        description: 'Extra tag to publish (empty for none).'
+        type: string
+        default: ''
+      platforms:
+        description: 'Platforms to build.'
+        type: choice
+        options:
+          - linux/amd64
+          - linux/amd64,linux/arm64
+        default: linux/amd64
+  pull_request:
+    paths:
+      - 'image/**'
+      - '.github/workflows/image.yml'
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: xhs-playwright
+  # One place decides whether this run publishes: a pull request never does, and a manual run says so
+  # itself. Everything downstream reads this instead of re-deriving the condition.
+  PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image bakes Google Chrome and the Node driver at build time, so a published tag is a
+      # fixed pair of versions: no runtime download can drift from the driver in the same image.
+      - name: Set up QEMU
+        if: contains(inputs.platforms || 'linux/amd64', 'arm64')
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=match,pattern=xhs-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=xhs-v(\d+\.\d+),group=1
+            type=match,pattern=xhs-v(\d+),group=1
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/xhs-v') }}
+            type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+          labels: |
+            org.opencontainers.image.title=Xiaohongshu browser for @nite07/search-core
+            org.opencontainers.image.description=Patchright-driven Google Chrome with a token-protected Playwright endpoint and a VNC surface for the one-time sign-in
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          file: image/Dockerfile
+          platforms: ${{ inputs.platforms || 'linux/amd64' }}
+          # A pull request proves the image still builds; only a tag or a manual run publishes.
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ env.IMAGE_NAME }}"
+            echo ""
+            echo "Platforms: \`${{ inputs.platforms || 'linux/amd64' }}\`"
+            echo "Pushed: ${{ env.PUBLISH }}"
+            echo ""
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

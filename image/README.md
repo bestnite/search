@@ -43,6 +43,32 @@ A named volume keeps the login with the container. Use a bind mount instead when
 runs on the same host and must read the session file: replace the volume line with
 `- /path/to/data:/profile:Z`.
 
+## Publishing the image
+
+`.github/workflows/image.yml` builds and pushes two copies of the same image:
+
+- `docker.io/<DOCKERHUB_USERNAME>/xhs-playwright`
+- `ghcr.io/<owner>/xhs-playwright`
+
+Two secrets are needed in the repository settings: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (an
+access token with read/write scope, not the account password). GHCR uses the workflow's own
+`GITHUB_TOKEN`, so it needs no extra secret.
+
+| Trigger | What it does |
+| --- | --- |
+| Push a tag `xhs-v<version>` | Publishes `<version>`, `<major>.<minor>`, `<major>` and `latest`. The version should match the Patchright driver inside the image, so `xhs-v1.64.3` means "this image carries driver 1.64.3". |
+| Manual run | Rebuilds the current commit and publishes it as `latest` plus `sha-<short>`, optionally with an extra tag and optionally for `linux/arm64` as well. Untick "publish" to only build. |
+| Pull request touching `image/` | Builds without publishing, so a broken Dockerfile fails the pull request instead of the release. |
+
+```sh
+git tag -a xhs-v1.64.3 -m "image: patchright 1.64.3"
+git push origin xhs-v1.64.3
+```
+
+Bump `ARG PATCHRIGHT_VERSION` and `image/package.json` together before tagging: the driver in the
+image and the client in the search core must be the same major.minor, or the Playwright server
+refuses the connection.
+
 ## Sign in once
 
 The container keeps a sign-in window open on its display, so there is nothing to start by hand:
