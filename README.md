@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Multi-backend web search for DeepSeek Harness: 21 search providers you turn on one by one, each with an explicit access mode and a visible cost tier.
+Multi-backend web search for DeepSeek Harness: 23 search providers you turn on one by one, each with an explicit access mode and a visible cost tier.
 
 ## Install
 
@@ -25,7 +25,7 @@ The **Test & diagnostics** tab runs one explicit search against a saved backend 
 
 ## Backends and cost
 
-Each backend is filed under a cost tier for the selected access mode: free, free allowance (key required), trial credits, paid usage, or self-hosted.
+The list is grouped by the cheapest path a backend offers, so anything with a free option sorts first, then cost-free-but-account-bound, then self-hosted, then free allowances, trial credits and paid. Each row states every access mode with its own tier and highlights the selected one.
 
 - Free anonymous tiers that work without any account: Keenable, Exa, You.com, AnySearch, Parallel, Reddit.
 - Local SearXNG is supported and needs no key.
