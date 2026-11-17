@@ -121,15 +121,18 @@ export class OperationsRegistry {
 
   /** Home page -> main.js. Both reads need the cookie, or the answer is the login wall. */
   private async fetchMainBundle(transport: XTransport): Promise<string> {
-    const html = await this.fetchText(HOME_URL, transport, 'x.com/home');
+    const home = await this.fetchDocument(HOME_URL, transport, 'x.com/home');
+    const html = home.text;
     const bundleUrl = [...new Set([...html.matchAll(MAIN_BUNDLE_RE)].map((m) => m[0]))][0];
     if (bundleUrl === undefined) {
       // A signed-out X serves a different front end (x-web/entry-client-logged-out-*), and that is
       // about the session, not about this adapter, so the two cases must not share one message.
       if (html.includes('entry-client-logged-out') || /\/x-web\//.test(html)) {
+        // Status and final URL separate "these cookies are rejected" from "the request never reached
+        // a signed-in context"; both end up on the signed-out page otherwise.
         throw new SearchError(
           'authentication',
-          'x.com answered with the signed-out page, so the stored auth_token and ct0 are no longer a live session. Sign in to X in a browser and copy both cookies again.',
+          `x.com answered with the signed-out page (HTTP ${home.status}, landed on ${home.url}), so the stored auth_token and ct0 are not an accepted session. Copy both cookies again from a browser that shows a signed-in timeline.`,
         );
       }
       throw new SearchError(
@@ -141,6 +144,10 @@ export class OperationsRegistry {
   }
 
   private async fetchText(url: string, transport: XTransport, what: string): Promise<string> {
+    return (await this.fetchDocument(url, transport, what)).text;
+  }
+
+  private async fetchDocument(url: string, transport: XTransport, what: string): Promise<{ text: string; status: number; url: string }> {
     let response: Response;
     try {
       response = await transport.fetchImpl(url, {
@@ -160,7 +167,7 @@ export class OperationsRegistry {
       throw httpFailure(response.status, what);
     }
     try {
-      return await response.text();
+      return { text: await response.text(), status: response.status, url: response.url || url };
     } catch (error) {
       throw mapThrown(error, transport.signal, transport.timeoutMs, what);
     }

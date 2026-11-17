@@ -454,6 +454,6 @@ test('a signed-out home page is reported as an expired session, not a layout cha
   resetXSessionState();
   await assert.rejects(
     searchXSession({ query: 'q', maxResults: 5 }, { credentials: { authToken: 'a', ct0: 'b' }, signal: new AbortController().signal, timeoutMs: 3000, fetch: fetcher }),
-    (error: unknown) => error instanceof SearchError && error.kind === 'authentication' && /signed-out page/.test(error.message),
+    (error: unknown) => error instanceof SearchError && error.kind === 'authentication' && /signed-out page/.test(error.message) && /HTTP 200/.test(error.message),
   );
 });
