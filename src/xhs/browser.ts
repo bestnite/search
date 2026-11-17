@@ -1,4 +1,6 @@
-import { chromium, type Browser, type Page } from 'playwright-core';
+// patchright-core is a patched Playwright: same protocol and API, with the CDP leaks closed.
+// Both sides of the connection must share a major.minor, so the browser image pins the same version.
+import { chromium, type Browser, type Page } from 'patchright-core';
 import { SearchError } from '../transport.js';
 
 /**
@@ -60,7 +62,9 @@ export class XhsBrowser {
   async evaluate<T>(script: string): Promise<T> {
     const page = await this.target();
     try {
-      return await page.evaluate(script) as T;
+      // The site's own client lives in the main world, so this call opts out of patchright's
+      // isolated-context default; isolation would hide the very runtime we need to reach.
+      return await page.evaluate(script, undefined, {}, false) as T;
     } catch (error) {
       throw new SearchError('protocol', `The Xiaohongshu page refused to run the read: ${message(error)}`);
     }

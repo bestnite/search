@@ -1,5 +1,5 @@
-# One browser for Xiaohongshu reads: stealth Chromium, virtual display, VNC, token-protected
-# Playwright endpoint. The profile volume holds the login, so it survives a restart.
+# One browser for Xiaohongshu reads: Patchright-driven Google Chrome, virtual display, VNC, and a
+# token-protected Playwright endpoint. The profile volume holds the login, so it survives a restart.
 services:
   xhs-browser:
     build: .

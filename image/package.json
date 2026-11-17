@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "description": "Runtime dependencies for the Xiaohongshu browser container.",
-  "dependencies": { "playwright-core": "1.65.1" }
+  "dependencies": { "patchright": "1.64.3" }
 }

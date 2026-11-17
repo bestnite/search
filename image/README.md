@@ -8,8 +8,8 @@ page's client. This image is that browser, packaged so nothing has to be assembl
 
 | Piece | Why |
 | --- | --- |
-| CloakBrowser stealth Chromium | A real Chromium with source-level fingerprint patches, so the site sees a normal browser. Chosen over automation-flagged builds and over remote debugging, which leaks automation to the page. |
-| Playwright server (`wsPath=/xhs`) | The endpoint another process attaches to. Fixed path, so the URL survives a restart. |
+| Patchright + Google Chrome | Patchright is a Playwright fork that closes the CDP leaks detection systems look for (it avoids `Runtime.enable`, disables `Console.enable`, drops `--enable-automation`). It drives a real Google Chrome, the build its authors recommend. Chosen over remote debugging, which leaks automation to the page, and over licensed stealth builds, which need a key. |
+| Playwright server (`wsPath=/xhs`) | The endpoint another process attaches to. Fixed path, so the URL survives a restart. Chrome is baked into the image, so a restart never waits on a download. |
 | Token proxy on `:3000` | Playwright has no authentication beyond an unguessable path; a fixed path is guessable, so the proxy requires `Authorization: Bearer <token>` and forwards only authorised upgrades. |
 | Xvfb + x11vnc + noVNC on `:6080` | You sign in to Xiaohongshu once, by QR code, in a real window. Works on a headless server. |
 | `/profile` volume | Holds `state.json` (cookies) and `ws-token`, so both the login and the endpoint token survive a restart. |
@@ -64,9 +64,18 @@ anyone who can reach the endpoint and holds the token can drive the browser as y
 
 ## Version pinning
 
-`playwright-core` inside this image and inside `@nite07/search-core` must share a major.minor —
+`patchright` here and `patchright-core` in `@nite07/search-core` must share a major.minor —
 Playwright's protocol requires it, and a mismatch answers `428 Precondition Required`. Both are
-pinned to `1.65.1`; bump them together.
+pinned to `1.64.3`; bump them together, and rebuild the image in the same commit.
+
+## One honest limitation
+
+Patchright's stealth rests on executing page JavaScript in an isolated execution context, where
+detection cannot see it. Xiaohongshu reads cannot use that: this backend needs the page's own
+webpack runtime, which lives in the main world, so the read calls pass
+`isolatedContext: false`. Stealth still covers navigation, the browser's command-line surface and
+the protocol handshake — but the evaluate calls themselves are not hidden. Reads only, no clicking
+or typing, which is why that trade is acceptable here.
 
 ## Operations
 

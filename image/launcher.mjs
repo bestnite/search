@@ -7,8 +7,8 @@
  * ws-proxy.mjs. Launching through `connect()` right here keeps one long-lived context alive, which
  * is what the VNC viewer signs into and what the search core later reuses.
  */
-import { chromium } from 'playwright-core';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { chromium } from 'patchright';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const env = process.env;
@@ -16,7 +16,9 @@ const internalPort = Number(env.XHS_INTERNAL_PORT ?? 3001);
 const wsPath = env.XHS_WS_PATH ?? '/xhs';
 const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
 const statePath = join(profileDir, 'state.json');
-const executablePath = readFileSync('/opt/xhs-bridge/chromium-path', 'utf8').trim();
+// Patchright already adjusts Playwright's launch arguments (no --enable-automation, and
+// --disable-blink-features=AutomationControlled is added), so only the container needs a say.
+const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage'];
 // Headful by default: the display is virtual, and the VNC viewer needs a real window to sign in.
 const headless = env.XHS_HEADLESS === 'true';
 const startUrl = env.XHS_START_URL ?? 'https://www.xiaohongshu.com/explore';
@@ -25,10 +27,11 @@ mkdirSync(profileDir, { recursive: true });
 const log = message => process.stderr.write(`[launcher] ${message}\n`);
 
 const server = await chromium.launchServer({
-  executablePath,
+  // Real Google Chrome, the build Patchright recommends; the image installs it at build time.
+  channel: 'chrome',
   headless,
   wsPath,
-  args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-dev-shm-usage'],
+  args: launchArgs,
 });
 log(`server ${server.wsEndpoint()}`);
 

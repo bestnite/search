@@ -64,13 +64,14 @@ config.backends.xiaohongshu!.endpoint = 'ws://127.0.0.1:3000/xhs';
 // the credential reference resolves to the bearer token printed by the container
 ```
 
-The repository ships [`image/`](./image/README.md): a container with a stealth Chromium, a VNC
-surface to sign in once, a token-protected Playwright endpoint and a profile volume. Login and
+The repository ships [`image/`](./image/README.md): a container with Patchright-driven Google
+Chrome, a VNC surface to sign in once, a token-protected Playwright endpoint and a profile volume. Login and
 profile management stay with whoever owns that browser — this library only attaches, and only reads.
 
-`playwright-core` is a direct dependency and both sides must share a major.minor; Playwright's
-protocol refuses to connect otherwise. Reads available: `searchXhs`, `fetchXhsNote`,
-`fetchXhsComments`.
+`patchright-core` is a direct dependency: a patched Playwright that closes the CDP leaks detection
+systems probe for. Both sides of the connection must share a major.minor, so the browser image pins
+the same version; Playwright's protocol refuses a mismatch with `428 Precondition Required`. Reads
+available: `searchXhs`, `fetchXhsNote`, `fetchXhsComments`.
 
 X is read the way the site itself reads it: the operations the web app embeds in a page (search and
 per-post conversation) are mined from that document, then called directly with the cookies. No
