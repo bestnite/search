@@ -31,9 +31,9 @@ const searchBody = (count: number) => ({
   meta: { result_count: count },
 });
 
-const ctx = (fetcher: typeof fetch, mode: 'bearer' | 'session' = 'bearer', extra: Record<string, unknown> = {}) => ({
+const ctx = (fetcher: typeof fetch, mode: 'key' | 'session' = 'key', extra: Record<string, unknown> = {}) => ({
   mode,
-  credentials: mode === 'bearer' ? { bearerToken: 'secret-bearer' } : { authToken: 'secret-auth', ct0: 'secret-ct0' },
+  credentials: mode === 'key' ? { bearerToken: 'secret-bearer' } : { authToken: 'secret-auth', ct0: 'secret-ct0' },
   signal: new AbortController().signal,
   timeoutMs: 5000,
   fetch: fetcher,
@@ -62,17 +62,17 @@ test('the request is never sized outside the API bounds', async () => {
   assert.equal(small.calls[0]!.url.searchParams.get('max_results'), String(API_MIN_RESULTS));
 
   const huge = mockFetch(() => ({ body: searchBody(1) }));
-  await searchX({ query: 'q', maxResults: 500 }, ctx(huge.fetcher, 'bearer', { postsPerSearch: 500 }));
+  await searchX({ query: 'q', maxResults: 500 }, ctx(huge.fetcher, 'key', { postsPerSearch: 500 }));
   assert.equal(huge.calls[0]!.url.searchParams.get('max_results'), String(API_MAX_RESULTS));
 
   const capped = mockFetch(() => ({ body: searchBody(1) }));
-  await searchX({ query: 'q', maxResults: 100 }, ctx(capped.fetcher, 'bearer', { postsPerSearch: 20 }));
+  await searchX({ query: 'q', maxResults: 100 }, ctx(capped.fetcher, 'key', { postsPerSearch: 20 }));
   assert.equal(capped.calls[0]!.url.searchParams.get('max_results'), '20');
 });
 
 test('the posts-per-search cap truncates what the caller gets back', async () => {
   const { fetcher } = mockFetch(() => ({ body: searchBody(10) }));
-  const sources = await searchX({ query: 'q', maxResults: 10 }, ctx(fetcher, 'bearer', { postsPerSearch: 4 }));
+  const sources = await searchX({ query: 'q', maxResults: 10 }, ctx(fetcher, 'key', { postsPerSearch: 4 }));
   assert.equal(sources.length, 4);
 });
 
@@ -96,7 +96,7 @@ test('unknown payloads fail as protocol errors instead of returning nothing', as
 
 test('a missing credential fails before any request is sent', async () => {
   const { fetcher, calls } = mockFetch(() => ({ body: searchBody(1) }));
-  await assert.rejects(searchX({ query: 'q', maxResults: 10 }, { mode: 'bearer', credentials: {}, signal: new AbortController().signal, timeoutMs: 1000, fetch: fetcher }),
+  await assert.rejects(searchX({ query: 'q', maxResults: 10 }, { mode: 'key', credentials: {}, signal: new AbortController().signal, timeoutMs: 1000, fetch: fetcher }),
     (error: unknown) => error instanceof SearchError && error.kind === 'configuration');
   await assert.rejects(searchX({ query: 'q', maxResults: 10 }, { mode: 'session', credentials: { authToken: 'only-one' }, signal: new AbortController().signal, timeoutMs: 1000, fetch: fetcher }),
     (error: unknown) => error instanceof SearchError && error.kind === 'configuration');

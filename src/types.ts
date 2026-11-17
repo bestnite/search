@@ -1,4 +1,4 @@
-export type AccessMode = 'anonymous' | 'key' | 'oauth' | 'bearer' | 'session';
+export type AccessMode = 'anonymous' | 'key' | 'oauth' | 'session';
 export type CostTier = 'free' | 'allowance' | 'trial' | 'paid' | 'self-hosted' | 'account' | 'unverified';
 export type Localized = { en: string; zh: string };
 export interface OptionField {

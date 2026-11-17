@@ -20,11 +20,11 @@ export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Pr
   if(id==='x'){
     let credentials:XCredentials={};
     try{const parsed=JSON.parse(i.key??'');if(parsed&&typeof parsed==='object')credentials=parsed as XCredentials;}catch{throw new SearchError('configuration','X credentials must be a JSON object.');}
-    if(b.mode!=='bearer'&&b.mode!=='session')throw new SearchError('configuration','X supports only the bearer and session access modes.');
+    if(b.mode!=='key'&&b.mode!=='session')throw new SearchError('configuration','X supports only the key and session access modes.');
     // The X adapters own their HTTP calls, so reserve the attempt budget here.
     await t.beforeAttempt();t.onAttempt();
     const postsPerSearch=Number(o.postsPerSearch??0);
-    return {sources:await searchX({query:i.query,maxResults:i.maxResults},{mode:b.mode,credentials,signal:t.signal,timeoutMs:b.timeoutMs,postsPerSearch:postsPerSearch>0?postsPerSearch:undefined,fetch:t.fetch})};
+    return {sources:await searchX({query:i.query,maxResults:i.maxResults},{mode:b.mode==='key'?'key':'session',credentials,signal:t.signal,timeoutMs:b.timeoutMs,postsPerSearch:postsPerSearch>0?postsPerSearch:undefined,fetch:t.fetch})};
   }
   if(id==='reddit'){
     let credentials:RedditCredentials={};

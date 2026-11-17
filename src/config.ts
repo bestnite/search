@@ -61,6 +61,8 @@ export function parseConfig(value:unknown):SearchConfig{
     const raw=structuredClone(value) as any;
     for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
     for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
+    // X's key mode shipped briefly as "bearer"; treat the old name as the same mode.
+    if(raw.backends.x?.mode==='bearer')raw.backends.x.mode='key';
     value=raw;
   }
   const issues=validateConfig(value);

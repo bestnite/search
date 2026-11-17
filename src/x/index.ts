@@ -8,7 +8,7 @@ export type { SessionCredential };
 export interface XCredentials { bearerToken?: string; authToken?: string; ct0?: string; lang?: string }
 
 export interface XContext {
-  mode: 'bearer' | 'session';
+  mode: 'key' | 'session';
   credentials: XCredentials;
   signal: AbortSignal;
   timeoutMs: number;
@@ -22,9 +22,9 @@ export interface XContext {
  * credential fails loudly instead of quietly trying the other path.
  */
 export async function searchX(input: { query: string; maxResults: number }, ctx: XContext): Promise<Source[]> {
-  if (ctx.mode === 'bearer') {
+  if (ctx.mode === 'key') {
     const token = ctx.credentials.bearerToken;
-    if (!token) throw new SearchError('configuration', 'X bearer mode needs a bearerToken. Store the app-only bearer token as a credential.');
+    if (!token) throw new SearchError('configuration', 'X key mode needs a bearerToken. Store the app-only bearer token as a credential.');
     return searchXOfficial(input, { bearerToken: token, signal: ctx.signal, timeoutMs: ctx.timeoutMs, postsPerSearch: ctx.postsPerSearch, fetch: ctx.fetch });
   }
   const { authToken, ct0, lang } = ctx.credentials;

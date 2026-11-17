@@ -41,7 +41,7 @@ test('header containers of every shape are handled', async () => {
 
 test('the official X request identifies itself, the impersonating paths do not', async () => {
   const { fetcher, seen } = capture();
-  await searchX({ query: 'q', maxResults: 10 }, { mode: 'bearer', credentials: { bearerToken: 't' }, signal: new AbortController().signal, timeoutMs: 1000, fetch: fetcher });
+  await searchX({ query: 'q', maxResults: 10 }, { mode: 'key', credentials: { bearerToken: 't' }, signal: new AbortController().signal, timeoutMs: 1000, fetch: fetcher });
   assert.equal(seen[0]!['User-Agent'], APP_USER_AGENT);
 });
 

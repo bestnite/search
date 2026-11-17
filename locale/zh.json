@@ -221,7 +221,6 @@
   "activateSelf": "设为网页搜索来源",
   "choice.oauth": "OAuth 授权",
   "tier.account": "自带账号",
-  "choice.bearer": "API Bearer 令牌",
   "choice.session": "浏览器会话 Cookie",
   "colorLegend": "绿色＝免费/自带账号/自托管，黄色＝免费额度，红色＝试用或付费。由便宜到贵排序。"
 }
