@@ -17,14 +17,16 @@ export interface ImageAttachment {
 export async function attachImages(
   text: string,
   urls: readonly string[],
-  options: { limit?: number; signal: AbortSignal },
+  options: { signal: AbortSignal },
 ): Promise<ImageAttachment> {
-  const images = await materialiseImages(urls, { limit: options.limit ?? 4, signal: options.signal });
+  const images = await materialiseImages(urls, { signal: options.signal });
   if (!images.length) return { text, images };
   const ready = images.filter(image => image.path);
-  const lines = ['', `## Images (${ready.length} of ${images.length})`];
-  for (const image of ready) lines.push(`- ${image.path} (${image.bytes ?? 0} bytes, ${image.contentType ?? 'image'})`);
-  for (const image of images.filter(item => !item.path)) lines.push(`- not downloaded: ${image.url} (${image.error ?? 'unknown reason'})`);
-  if (ready.length) lines.push('', 'Open these paths with read_image to see what the pictures show.');
+  const lines = ['', `## Images (${images.length})`];
+  for (const image of images) {
+    // Every link is listed whether or not it reached disk, so the reader can choose what to open.
+    lines.push(image.path ? `- ${image.path} — ${image.url}` : `- ${image.url} (not on disk: ${image.error ?? 'unknown reason'})`);
+  }
+  if (ready.length) lines.push('', 'Open a downloaded path with read_image to see what that picture shows; you choose which ones matter.');
   return { text: `${text}\n${lines.join('\n')}`, images };
 }
