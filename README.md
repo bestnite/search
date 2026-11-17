@@ -45,3 +45,7 @@ Design notes: [docs/PLAN.md](docs/PLAN.md). Verification status: [docs/VERIFICAT
 ## License
 
 MIT.
+
+## Friends
+
+- [LINUX DO](https://linux.do) — the community where this plugin's backend survey started.
