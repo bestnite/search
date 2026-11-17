@@ -214,7 +214,6 @@
   "tab.reliability": "Reliability",
   "tab.diagnostics": "Test & diagnostics",
   "tab.backends": "Backends",
-  "behaviorHint": "Backends live under the Backends tab, last in this panel.",
   "testQueryPlaceholder": "What should this backend look for?",
   "saveBeforeTest": "Save your changes before testing.",
   "notSpecified": "Not specified",

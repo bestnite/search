@@ -214,7 +214,6 @@
   "tab.reliability": "稳定性",
   "tab.diagnostics": "试搜与诊断",
   "tab.backends": "搜索后端",
-  "behaviorHint": "后端列表放在最后一个「搜索后端」标签页。",
   "testQueryPlaceholder": "想让这个后端搜什么？",
   "saveBeforeTest": "请先保存更改再试搜。",
   "notSpecified": "不指定",
