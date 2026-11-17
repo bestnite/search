@@ -111,3 +111,14 @@ test('network failures and cancellation map to network and timeout', async () =>
   const slow = (async () => { throw new Error('aborted'); }) as unknown as typeof fetch;
   await assert.rejects(searchX({ query: 'q', maxResults: 10 }, { ...ctx(slow), signal: controller.signal }), (error: unknown) => error instanceof SearchError && error.kind === 'timeout');
 });
+
+test('credentials are accepted as JSON or as a pasted cookie header', async () => {
+  const { parseXCredentials } = await import('../src/x/index.js');
+  assert.deepEqual(parseXCredentials('{"authToken":"a","ct0":"b"}'), { authToken: 'a', ct0: 'b' });
+  assert.deepEqual(parseXCredentials('auth_token=abc123; ct0=def456; lang=en'), { authToken: 'abc123', ct0: 'def456' });
+  assert.deepEqual(parseXCredentials('ct0=def456; auth_token=abc123'), { authToken: 'abc123', ct0: 'def456' });
+  assert.throws(() => parseXCredentials('just-a-token'), (error: unknown) => error instanceof SearchError && error.kind === 'configuration' && /cookie header/.test(error.message));
+  assert.deepEqual(parseXCredentials('{"ct0":"b"}'), { ct0: 'b' }, 'shape validation happens where the mode is known');
+  await assert.rejects(searchX({ query: 'q', maxResults: 10 }, { mode: 'session', credentials: { ct0: 'b' }, signal: new AbortController().signal, timeoutMs: 1000 }),
+    (error: unknown) => error instanceof SearchError && error.kind === 'configuration');
+});

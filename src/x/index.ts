@@ -21,6 +21,29 @@ export interface XContext {
  * Dispatch on the configured mode and never across modes: a missing or rejected
  * credential fails loudly instead of quietly trying the other path.
  */
+/**
+ * Accept the two shapes people actually paste: a JSON document, or the raw cookie
+ * header copied from DevTools. Anything else is a configuration error that names
+ * both accepted forms instead of blaming the parser.
+ */
+export function parseXCredentials(raw: string | undefined): XCredentials {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return {};
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as XCredentials;
+    } catch {
+      // fall through to the cookie-header form below
+    }
+  }
+  const cookie = (name: string): string | undefined => new RegExp(`(?:^|[;\\s])${name}=([^;\\s]+)`).exec(trimmed)?.[1];
+  const authToken = cookie('auth_token');
+  const ct0 = cookie('ct0');
+  if (authToken && ct0) return { authToken, ct0 };
+  throw new SearchError('configuration', 'The stored X credential is neither valid JSON nor a cookie header. Use {"authToken":"…","ct0":"…"} or paste auth_token=…; ct0=… from the browser.');
+}
+
 export async function searchX(input: { query: string; maxResults: number }, ctx: XContext): Promise<Source[]> {
   if (ctx.mode === 'key') {
     const token = ctx.credentials.bearerToken;
