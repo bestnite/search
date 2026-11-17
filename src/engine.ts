@@ -41,7 +41,7 @@ export class SearchEngine {
     if(failed.length)report.push('IMPORTANT: Inform the user of the following backend failures. No backend, access-mode, endpoint, or credential fallback was attempted.');
     for(const o of outcomes){if(!o.ok)report.push(`[${o.backend}; mode=${o.mode}; attempts=${o.attempts}] FAILED ${o.error!.kind}${o.error!.status?` HTTP ${o.error!.status}`:''}: ${o.error!.message}`);for(const w of o.warnings)report.push(`[${o.backend}] ${w}`);}
     const result:SearchResult={sources,content:report.join('\n'),truncated:ranked.length>max,outcomes,cached:false};
-    if(c.diagnostics.enabled){this.history.push(...outcomes.map(o=>({...o,sources:[]})));this.history=this.history.slice(-c.diagnostics.maxEntries);}
+    if(c.diagnostics.enabled){const at=Date.now();this.history.push(...outcomes.map(o=>({...o,sources:[],at})));this.history=this.history.slice(-c.diagnostics.maxEntries);}
     // Failures are never cached, so a temporary failure cannot be hidden by a cache hit.
     if(!onlyBackend&&c.cache.enabled&&success.length&&failed.length===0){this.cache.set(cacheKey,{expires:Date.now()+c.cache.ttlSeconds*1000,result:structuredClone(result)});while(this.cache.size>c.cache.maxEntries)this.cache.delete(this.cache.keys().next().value!);}
     return result;

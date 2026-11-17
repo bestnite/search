@@ -39,7 +39,7 @@ export interface AdapterResult { sources: Source[]; content?: string; warnings?:
 export type FailureKind = 'configuration' | 'authentication' | 'quota' | 'rate-limit' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'budget' | 'circuit-open' | 'unverified';
 export interface BackendOutcome {
   backend: string; mode: AccessMode; ok: boolean; attempts: number; durationMs: number;
-  sources: Source[]; warnings: string[]; error?: { kind: FailureKind; message: string; status?: number };
+  sources: Source[]; warnings: string[]; error?: { kind: FailureKind; message: string; status?: number }; at?: number;
 }
 export interface SearchResult {
   sources: Source[]; content: string; truncated: boolean; outcomes: BackendOutcome[]; cached: boolean;

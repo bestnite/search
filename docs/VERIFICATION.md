@@ -45,3 +45,11 @@ Keyed backends (Tavily, Brave, DeepSeek, Zhihu, Baidu, Doubao, Linkup, Serper, S
 - Rendered Settings page visuals, light/dark parity, keyboard flow and error-summary focus in the live page. The automation browser could not authenticate to `https://dsh.nite07.com/` (`ERR_INVALID_AUTH_CREDENTIALS`), and `/connect?token=…` returned 401 from this shell. The route itself answers 401 rather than 404 unauthenticated, and the slot occupant is registered, but no screenshot or manual pass exists.
 - Save-through-UI round trip (the same Host operation is covered by tests and by the tool path).
 - MCP anonymous quota behaviour under sustained load; HTML discovery (DuckDuckGo) layout changes; supplier-internal routing.
+
+## UX pass (2026-11-17, same day)
+
+Applied P0+P1 fixes: conditional field visibility (single-backend selector only in single mode; retry/breaker/cache/diagnostics dependants follow their switch; anonymous mode hides the credential surface; unverified backends are read-only), a pre-flight blocker banner (no backend enabled / single mode pointing at a disabled backend / key mode without a stored credential), structured trial-search results with failure reasons, diagnostics with time, reason and message, backend search/filter/count toolbar, collapsed-card cost chips and credential dot, nested advanced options, sticky save bar, inline confirmations instead of `window.confirm`, range-aware field errors, and a checkbox group for retry statuses.
+
+`npm run check` now covers 31 tests, including `visible()` and `blockersOf()` semantics (hidden values are preserved, not reset). Rebuilt and reloaded via one authorized `dsh-web` restart; `web_search` still answers through `nite-search` afterwards and the settings entry stays registered.
+
+Still unverified after this pass: the rendered page itself. The automation browser is rejected by the deployment edge (`ERR_INVALID_AUTH_CREDENTIALS`) for both the token URL and `/connect`, so there is no screenshot or manual keyboard pass. Visual, light/dark and focus behaviour rest on code review only.
