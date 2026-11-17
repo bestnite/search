@@ -10,7 +10,7 @@ const WEBP = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 
 
 /** A fetch that answers by URL, so each test states what the network does. */
 const responder = (routes: Record<string, Response | (() => Response)>): typeof fetch =>
-  (async input => {
+  (async (input: RequestInfo | URL) => {
     const url = String(input);
     const route = routes[url];
     if (!route) throw new Error(`unexpected url ${url}`);
@@ -90,4 +90,19 @@ test('Reddit pictures are found in a direct link, a gallery and the preview', ()
   assert.deepEqual(preview.images, ['https://preview.redd.it/c.jpg?x=1&y=2']);
   const none = restPost({ id: 'd', title: 't', permalink: '/r/x/d', author: 'u', score: 1, url: 'https://example.org' });
   assert.deepEqual(none.images, []);
+});
+
+test('every link is reported, including the ones a budget left alone', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'media-'));
+  const chunk = new Response(new Uint8Array(600), { headers: { 'content-type': 'image/png' } });
+  const images = await materialiseImages(
+    ['https://img.example/1.png', 'https://img.example/2.png', 'https://img.example/3.png'],
+    { dir, totalBytes: 1300, fetch: responder({
+      'https://img.example/1.png': chunk, 'https://img.example/2.png': chunk, 'https://img.example/3.png': chunk,
+    }) },
+  );
+  assert.equal(images.length, 3, 'no link disappears because of a budget');
+  assert.ok(images[0]!.path && images[1]!.path);
+  assert.equal(images[2]!.path, undefined);
+  assert.match(images[2]!.error!, /budget for one call is used up/);
 });
