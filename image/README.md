@@ -17,15 +17,25 @@ page's client. This image is that browser, packaged so nothing has to be assembl
 ## Run it
 
 ```sh
-docker build -t xhs-playwright .
-docker run -d --name xhs-browser \
+podman build -t xhs-playwright .
+podman run -d --name xhs-browser \
   -p 127.0.0.1:3000:3000 -p 127.0.0.1:6080:6080 \
   -v xhs-profile:/profile --shm-size=1gb \
   xhs-playwright
-docker logs xhs-browser      # prints the endpoint and the bearer token
+podman logs xhs-browser      # prints the endpoint and the bearer token
 ```
 
-Or `docker compose up -d` with the included `compose.yaml`.
+On a systemd host, the included `xhs-browser.container` quadlet is the better fit:
+
+```sh
+mkdir -p ~/.config/containers/systemd
+cp xhs-browser.container ~/.config/containers/systemd/
+podman volume create xhs-profile      # only if it does not exist yet
+systemctl --user daemon-reload && systemctl --user start xhs-browser
+journalctl --user -u xhs-browser -n 50 | grep -E 'endpoint|token'
+```
+
+`podman-compose up -d` with `compose.yaml` also works.
 
 ## Sign in once
 
@@ -43,7 +53,7 @@ Backend `xiaohongshu`, then:
 | Field | Value |
 | --- | --- |
 | Endpoint | `ws://127.0.0.1:3000/xhs` |
-| Credential | the bearer token from `docker logs xhs-browser` |
+| Credential | the bearer token from `podman logs xhs-browser` |
 
 Environment equivalents for hosts without a settings page: `XHS_WS_ENDPOINT`, `XHS_WS_TOKEN`.
 
@@ -60,7 +70,7 @@ pinned to `1.65.1`; bump them together.
 
 ## Operations
 
-- **Browser crashed or the page is stuck**: `docker restart xhs-browser`. The profile survives.
+- **Browser crashed or the page is stuck**: `systemctl --user restart xhs-browser`, or `podman restart xhs-browser`. The profile survives.
 - **Signed out of Xiaohongshu**: sign in again over VNC; the next save updates the volume.
 - **Token rotated**: delete `/profile/ws-token` (or set `XHS_WS_TOKEN`) and restart; update the core's credential.
 - **Wiped volume**: both the login and the token are gone; sign in again and copy the new token.

@@ -1,0 +1,34 @@
+# Quadlet for the Xiaohongshu browser. Install into ~/.config/containers/systemd/,
+# then: systemctl --user daemon-reload && systemctl --user start xhs-browser
+#
+# Build the image first:  podman build -t xhs-playwright ~/dev/search-core/image
+# The profile volume holds the login and the endpoint token.
+[Unit]
+Description=Xiaohongshu browser for search-core (Playwright endpoint, VNC login)
+After=network-online.target
+
+[Container]
+Image=localhost/xhs-playwright:latest
+ContainerName=xhs-browser
+AutoUpdate=registry
+
+# Playwright endpoint (token required) and the noVNC surface for the one-time login.
+# Both stay on loopback: the bearer token is the only access control.
+PublishPort=127.0.0.1:3000:3000
+PublishPort=127.0.0.1:6080:6080
+
+Volume=xhs-profile:/profile:Z
+ShmSize=1g
+
+Environment=XHS_WS_PATH=/xhs
+# Leave these empty to generate values on first start: the token lands in the profile volume.
+Environment=XHS_WS_TOKEN=
+# Set a password before exposing 6080 beyond loopback.
+Environment=XHS_VNC_PASSWORD=
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
