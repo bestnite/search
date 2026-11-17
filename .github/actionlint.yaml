@@ -1,0 +1,4 @@
+# actionlint only knows the hosted runner labels; this repository runs on a self-hosted one.
+self-hosted-runner:
+  labels:
+    - podman

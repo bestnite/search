@@ -1,9 +1,11 @@
 name: image
 
-# The browser image is the only thing here that ships as an artifact, and its version tracks the
-# Patchright driver inside it, so it gets its own tag line: `browser-v1.64.3` publishes 1.64.3, 1.64,
-# 1.64.3-<sha> and latest. A manual run rebuilds the current commit and tags it with the short SHA,
-# which is what a re-publish looks like without inventing a version number.
+# The browser image is the only artifact here, and its version tracks the Patchright driver inside it,
+# so it has its own tag line: `browser-v1.64.3` publishes 1.64.3, 1.64, 1 and latest.
+#
+# It runs on the self-hosted runner, in a job image that carries podman and speaks to the host's
+# rootless socket. That rules out the docker/* actions — no node and no docker daemon in the image —
+# so the steps are ordinary shell over podman.
 on:
   push:
     tags:
@@ -11,19 +13,19 @@ on:
   workflow_dispatch:
     inputs:
       push:
-        description: 'Publish to Docker Hub and GHCR. Uncheck to only build.'
+        description: 'Publish the image. Uncheck to only build.'
         type: boolean
         default: true
       tag:
         description: 'Extra tag to publish (empty for none).'
         type: string
         default: ''
-      platforms:
-        description: 'Platforms to build.'
+      platform:
+        description: 'Target platform. arm64 needs qemu binfmt registered on the runner host.'
         type: choice
         options:
           - linux/amd64
-          - linux/amd64,linux/arm64
+          - linux/arm64
         default: linux/amd64
   pull_request:
     paths:
@@ -36,90 +38,105 @@ concurrency:
 
 env:
   IMAGE_NAME: search-browser
-  # One place decides whether this run publishes: a pull request never does, and a manual run says so
-  # itself. Everything downstream reads this instead of re-deriving the condition.
+  # One place decides whether this run publishes; everything downstream reads it.
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
 
 jobs:
   build:
-    # Gitea reads .github/workflows too, and this repository is mirrored there. The job needs
-    # docker/buildx and registry secrets that only the GitHub side has, so anywhere else it is
-    # skipped rather than failed.
-    if: github.server_url == 'https://github.com'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    runs-on: podman
     steps:
-      - uses: actions/checkout@v4
+      # No node in this job image, so no actions/checkout: git is enough.
+      - name: Check out the commit
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git init -q .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git -c "http.extraheader=Authorization: token ${TOKEN}" fetch -q --depth 1 origin "${GITHUB_SHA}"
+          git checkout -q FETCH_HEAD
+          echo "checked out $(git rev-parse --short HEAD) for ${GITHUB_REF_NAME}"
 
-      # The image bakes Google Chrome and the Node driver at build time, so a published tag is a
-      # fixed pair of versions: no runtime download can drift from the driver in the same image.
-      - name: Set up QEMU
-        if: contains(inputs.platforms || 'linux/amd64', 'arm64')
-        uses: docker/setup-qemu-action@v3
+      - name: Work out the tags
+        id: tags
+        run: |
+          set -eu
+          platform="${{ inputs.platform || 'linux/amd64' }}"
+          case "${GITHUB_REF_NAME}" in
+            browser-v*)
+              version="${GITHUB_REF_NAME#browser-v}"
+              major="$(echo "$version" | cut -d. -f1)"
+              minor="$(echo "$version" | cut -d. -f1-2)"
+              tags="${version} ${minor} ${major} latest"
+              ;;
+            *)
+              tags="latest sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+              ;;
+          esac
+          if [ -n "${{ inputs.tag }}" ]; then tags="${tags} ${{ inputs.tag }}"; fi
+          # One tag per line: the publish step reads them back the same way.
+          printf 'platform=%s\n' "$platform" >> "$GITHUB_OUTPUT"
+          printf 'tags<<TAGS\n%s\nTAGS\n' "$tags" >> "$GITHUB_OUTPUT"
+          echo "platform: $platform"
+          echo "tags: $tags"
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Build
+        env:
+          PLATFORM: ${{ steps.tags.outputs.platform }}
+        run: |
+          set -eu
+          podman build \
+            --platform "${PLATFORM}" \
+            --label "org.opencontainers.image.title=Search browser for @nite07/search-core" \
+            --label "org.opencontainers.image.description=Patchright-driven Google Chrome behind a token-protected Playwright endpoint, with a VNC window for the sign-in" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            -t "${IMAGE_NAME}:build" \
+            image/
+          podman image inspect "${IMAGE_NAME}:build" --format 'built {{.Id}} ({{.Size}} bytes) for {{.Architecture}}'
 
-      - name: Log in to Docker Hub
+      - name: Publish
         if: env.PUBLISH == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to GHCR
-        if: env.PUBLISH == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive tags and labels
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          # A pull request from a fork has no secrets, and an empty namespace makes an invalid image
-          # name before the publish decision is ever reached, so the namespace has a default.
-          images: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME || 'nite07' }}/${{ env.IMAGE_NAME }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=match,pattern=browser-v(\d+\.\d+\.\d+),group=1
-            type=match,pattern=browser-v(\d+\.\d+),group=1
-            type=match,pattern=browser-v(\d+),group=1
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/browser-v') }}
-            type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-          labels: |
-            org.opencontainers.image.title=Search browser for @nite07/search-core
-            org.opencontainers.image.description=Patchright-driven Google Chrome with a token-protected Playwright endpoint and a VNC surface for the one-time sign-in
-            org.opencontainers.image.licenses=MIT
-
-      - name: Build and publish
-        uses: docker/build-push-action@v6
-        with:
-          context: image
-          file: image/Dockerfile
-          platforms: ${{ inputs.platforms || 'linux/amd64' }}
-          # A pull request proves the image still builds; only a tag or a manual run publishes.
-          push: ${{ env.PUBLISH == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "::error::DOCKERHUB_USERNAME and DOCKERHUB_TOKEN must be set on this repository."
+            exit 1
+          fi
+          targets="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          # GHCR is optional: it needs a GitHub token that can write packages, which a Gitea runner
+          # has no way to mint on its own.
+          if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
+            targets="${targets} ghcr.io/${GHCR_USERNAME}/${IMAGE_NAME}"
+          else
+            echo "no GHCR secrets: publishing to Docker Hub only"
+          fi
+          echo "${DOCKERHUB_TOKEN}" | podman login -u "${DOCKERHUB_USERNAME}" --password-stdin docker.io
+          if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
+            echo "${GHCR_TOKEN}" | podman login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
+          fi
+          for target in $targets; do
+            echo "$TAGS" | while read -r tag; do
+              [ -n "$tag" ] || continue
+              podman tag "${IMAGE_NAME}:build" "${target}:${tag}"
+              podman push "${target}:${tag}"
+              echo "pushed ${target}:${tag}"
+            done
+          done
 
       - name: Summary
+        if: always()
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          PLATFORM: ${{ steps.tags.outputs.platform }}
         run: |
-          {
-            echo "### ${{ env.IMAGE_NAME }}"
-            echo ""
-            echo "Platforms: \`${{ inputs.platforms || 'linux/amd64' }}\`"
-            echo "Pushed: ${{ env.PUBLISH }}"
-            echo ""
-            echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "image: ${IMAGE_NAME}"
+          echo "platform: ${PLATFORM}"
+          echo "publish: ${PUBLISH}"
+          echo "tags: $(echo "$TAGS" | tr '\n' ' ')"
