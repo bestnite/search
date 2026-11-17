@@ -53,3 +53,7 @@ Applied P0+P1 fixes: conditional field visibility (single-backend selector only 
 `npm run check` now covers 31 tests, including `visible()` and `blockersOf()` semantics (hidden values are preserved, not reset). Rebuilt and reloaded via one authorized `dsh-web` restart; `web_search` still answers through `nite-search` afterwards and the settings entry stays registered.
 
 Still unverified after this pass: the rendered page itself. The automation browser is rejected by the deployment edge (`ERR_INVALID_AUTH_CREDENTIALS`) for both the token URL and `/connect`, so there is no screenshot or manual keyboard pass. Visual, light/dark and focus behaviour rest on code review only.
+
+## Tier correction (2026-11-17, same day)
+
+Exa, AnySearch and Parallel anonymous modes had been filed under "unavailable · unverified API" because their free quotas carry no published number. That conflated cost with evidence. All three, plus Keenable, You.com and the local SearXNG instance, completed three consecutive real searches each in this deployment; Exa's keyless MCP is an official free tier per its own documentation ("No API key is needed to try search and fetch, at a free rate limit"). Cost tier and verification evidence are now separate fields. DuckDuckGo stays documented-only: it answered with a challenge on this network, and no bypass was attempted.
