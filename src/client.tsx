@@ -193,6 +193,8 @@ export function createClient(React: any) {
           const selected = def.modes.find(mode => mode.mode === backend?.mode)?.tier;
           return (backend?.enabled ? 0 : 2) + (selected === 'free' ? 0 : 1);
         };
+        // One flat list, cheapest first; the chip colour already explains why a backend sits where it does.
+        const ranked = definitions.slice().sort((left, right) => tierRank(bestTier(left)) - tierRank(bestTier(right)) || readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
 
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
@@ -229,16 +231,12 @@ export function createClient(React: any) {
           {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
             <section className="ns-backends" id="sec-backends" tabIndex={-1} aria-labelledby="sec-backends-title">
               <h3 id="sec-backends-title">{t('backends')} <span className="ns-muted">{tr('enabledSummary', { enabled: enabledCount, total: definitions.length })}</span></h3>
-              <p className="ns-muted">{t('backendIntro')}</p>
+              <p className="ns-muted">{t('backendIntro')} {t('colorLegend')}</p>
               <div className="ns-toolbar">
                 <div className="ns-field"><label htmlFor="ns-backend-search">{t('searchBackends')}</label><input id="ns-backend-search" type="search" value={backendQuery} onChange={(event: any) => setBackendQuery(event.target.value)} placeholder={t('searchBackendsPlaceholder')} /></div>
                 <div className="ns-field"><label htmlFor="ns-backend-filter">{t('filterBackends')}</label><select id="ns-backend-filter" value={backendFilter} onChange={(event: any) => setBackendFilter(event.target.value)}>{['all', 'enabled', 'configured'].map(value => <option key={value} value={value}>{t(`filter.${value}`)}</option>)}</select></div>
               </div>
-              {TIER_ORDER.map(tier => {
-                const inTier = definitions.filter(def => bestTier(def) === tier);
-                const members = inTier.filter(matches).slice().sort((left, right) => readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
-                const enabledInTier = inTier.filter(def => draft.backends[def.id]?.enabled).length;
-                return members.length ? <div className="ns-tier" key={tier}><h4>{t(tier === 'free' ? 'group.free' : `tier.${tier}`)} <span className="ns-muted">{tr('tierCount', { total: inTier.length })} · {tr('tierEnabled', { enabled: enabledInTier })}{members.length < inTier.length ? ` · ${tr('tierFiltered', { shown: members.length })}` : ''}</span></h4>{members.map(def => {
+              {ranked.filter(matches).map(def => {
                   const backend = draft.backends[def.id]; if (!backend) return null;
                   const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous';
                   return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => <span key={item.mode} className={`ns-chip ${item.mode === backend.mode ? 'is-on' : ''} ${item.tier === 'unverified' ? 'ns-chip--off' : tierRisk(item.tier)}`} aria-current={item.mode === backend.mode ? 'true' : undefined} title={t(`choice.${item.mode}`)}>{t(`choice.${item.mode}`)} · {t(`tier.${item.tier}`)}</span>)}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
@@ -252,7 +250,6 @@ export function createClient(React: any) {
                       <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot.counters[def.id]?.day ?? t('noData')}</span></p>
                     </div>
                   </details>;
-                })}</div> : null;
               })}
               {!definitions.some(matches) && <p className="ns-muted">{t('noMatch')}</p>}
             </section>

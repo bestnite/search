@@ -219,12 +219,9 @@
   "activeTitle": "当前未启用本插件作为搜索源",
   "activeOther": "内置搜索当前选择的是「{{provider}}」。在选中本插件之前，搜索仍会走它。",
   "activateSelf": "设为网页搜索来源",
-  "tierCount": "共 {{total}} 家",
-  "tierEnabled": "启用 {{enabled}}",
-  "tierFiltered": "筛选后 {{shown}}",
   "choice.oauth": "OAuth 授权",
   "tier.account": "自带账号",
   "choice.bearer": "API Bearer 令牌",
   "choice.session": "浏览器会话 Cookie",
-  "group.free": "有完全免费的用法"
+  "colorLegend": "绿色＝免费/自带账号/自托管，黄色＝免费额度，红色＝试用或付费。由便宜到贵排序。"
 }

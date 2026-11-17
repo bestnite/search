@@ -219,12 +219,9 @@
   "activeTitle": "This plugin is not the active search provider",
   "activeOther": "The web seam currently selects “{{provider}}”. Searches keep going there until this plugin is selected.",
   "activateSelf": "Use this plugin for web search",
-  "tierCount": "{{total}} total",
-  "tierEnabled": "{{enabled}} on",
-  "tierFiltered": "{{shown}} after filter",
   "choice.oauth": "OAuth",
   "tier.account": "Own account",
   "choice.bearer": "API bearer token",
   "choice.session": "Browser session cookies",
-  "group.free": "Free path available"
+  "colorLegend": "Green: free path, own account or self-hosted. Yellow: free allowance. Red: trial credits or paid. Sorted cheapest first."
 }
