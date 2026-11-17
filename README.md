@@ -18,21 +18,27 @@ Then make it the search source: open **Settings → Web search**. If the page sa
 ## Quick start
 
 1. Open **Settings → Web search**.
-2. In the **Backends** tab, pick the providers you want, choose **anonymous** or **API key** for each, and check the cost line before enabling.
+2. In the **Backends** tab, pick the providers you want, choose the access mode for each, and check the cost line before enabling.
 3. Press **Save settings**. Every backend starts disabled, so nothing is called until you save.
 
 The **Test & diagnostics** tab runs one explicit search against a saved backend and shows the exact request outcome.
 
 ## Backends and cost
 
-The list is grouped by the cheapest path a backend offers, so anything with a free option sorts first, then cost-free-but-account-bound, then self-hosted, then free allowances, trial credits and paid. Each row states every access mode with its own tier and highlights the selected one.
+The list is grouped by the cheapest path a backend offers, so anything with a free option always leads. Each row carries a chip per access mode with that mode's own tier, and the selected one is highlighted.
 
-- Free anonymous tiers that work without any account: Keenable, Exa, You.com, AnySearch, Parallel, Reddit.
-- Local SearXNG is supported and needs no key.
+| Group | Backends | Notes |
+| --- | --- | --- |
+| **Free path available** | Keenable, AnySearch, Exa, Parallel, You.com, DuckDuckGo, Reddit | No signup, no key, works immediately |
+| **Own account** | X | Your own X browser cookies: no fee, but it breaks when X changes its request signing |
+| **Self-hosted** | SearXNG, open-websearch | You run the service and set your own limits |
+| **Free allowance** | Linkup, Tavily, Brave, Zhihu (web and site), Baidu, Doubao | Sign up for a key, free within the quota |
+| **Trial credits** | Serpex | One-off trial credits, then paid |
+| **Paid** | Mojeek, Anthropic, OpenAI, DeepSeek, Tencent WSA | Billed per use; check the price before enabling |
+
 - A **Live-tested** badge means this plugin completed a real call to that backend.
-- X has two modes: the official API (pay per post read, about $0.05 for ten posts) and your own browser session (no fee, but it breaks whenever X changes its request signing).
-
-Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
+- Every backend is **disabled by default**; nothing is enabled automatically.
+- Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
 
 ## Tools
 
