@@ -140,3 +140,18 @@ test('the shared browser token wins over a backend-level one, which stays a lega
     assert.deepEqual(seen,['SHARED','BACKEND',''],'a browser read without a token is not blocked');
   }finally{browserBackends.xiaohongshu=original;}
 });
+
+test('a saved row stops using the generated per-backend reference and points at the shared browser',async()=>{
+  const {legacyCredentialRef,parseConfig}=await import('../src/config.js');
+  assert.equal(legacyCredentialRef('xiaohongshu'),'DSH_SEARCH_XIAOHONGSHU_KEY');
+  const saved=structuredClone(defaultConfig()) as any;
+  saved.backends.xiaohongshu.enabled=true;saved.backends.xiaohongshu.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';
+  assert.equal(parseConfig(saved).backends.xiaohongshu!.credentialRef,'','the generated name is dropped on load');
+  // A reference the operator chose is respected, and a backend that also reads over HTTP keeps its own.
+  const chosen=structuredClone(defaultConfig()) as any;
+  chosen.backends.xiaohongshu.credentialRef='MY_OWN_TOKEN_REF';
+  assert.equal(parseConfig(chosen).backends.xiaohongshu!.credentialRef,'MY_OWN_TOKEN_REF');
+  const http=structuredClone(defaultConfig()) as any;
+  http.backends.keenable.credentialRef='DSH_SEARCH_KEENABLE_KEY';
+  assert.equal(parseConfig(http).backends.keenable!.credentialRef,'DSH_SEARCH_KEENABLE_KEY');
+});

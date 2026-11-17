@@ -1,6 +1,13 @@
 import { catalog } from './catalog.js';
 import { LANGUAGES, REGIONS } from './locale-map.js';
 import type { ConfigIssue, SearchConfig } from './types.js';
+/**
+ * The reference name a release before the shared browser block generated for a backend's own
+ * credential. It is kept only so a saved row can be recognised and migrated; nothing writes it now.
+ */
+export function legacyCredentialRef(id: string): string {
+  return `DSH_SEARCH_${id.replaceAll('-', '_').toUpperCase()}_KEY`;
+}
 export function defaultConfig(): SearchConfig {
   return {
     mode:'parallel', singleBackend:'keenable', maxResults:8, concurrency:4, overallTimeoutMs:30000,
@@ -10,7 +17,7 @@ export function defaultConfig(): SearchConfig {
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false},
     // A backend that only ever reads through the shared browser owns no credential of its own: the
     // endpoint token belongs to the browser, so the reference stays empty instead of borrowing a key name.
-    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:d.modes.some(m=>m.mode!=='browser')?`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`:'',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
+    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:d.modes.some(m=>m.mode!=='browser')?legacyCredentialRef(d.id):'',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
   };
 }
 export function validateConfig(value: unknown): ConfigIssue[] {
@@ -79,6 +86,14 @@ export function parseConfig(value:unknown):SearchConfig{
     const raw=structuredClone(value) as any;
     for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
     for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
+    // A browser-only backend used to be given a credential reference of its own, named after the
+    // backend. The token belongs to the browser, so that generated name is dropped and the endpoint
+    // token is expected under the shared browser reference; a reference the user chose is left alone.
+    for(const d of catalog){
+      if(!d.modes.every(m=>m.mode==='browser'))continue;
+      const row=raw.backends[d.id];
+      if(row&&row.credentialRef===legacyCredentialRef(d.id))row.credentialRef='';
+    }
     value=raw;
   }
   const issues=validateConfig(value);
