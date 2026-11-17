@@ -226,5 +226,7 @@
   "credentialRefRequired": "请先填一个凭证引用名。",
   "credentialReadOnly": "这个凭证引用是只读的：它的值由其它来源提供，插件无法覆盖。换一个引用名试试，例如 DSH_SEARCH_X_SESSION。",
   "credentialPlainKey": "直接填密钥字符串。",
-  "credentialShapeLabel": "凭证格式"
+  "credentialShapeLabel": "凭证格式",
+  "field.tools.webSearchPlus": "允许使用 web_search_plus",
+  "help.tools.webSearchPlus": "关闭后这个工具不会注册，agent 只能用配置里的固定策略搜索。"
 }

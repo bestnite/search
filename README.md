@@ -42,7 +42,7 @@ The list is grouped by the cheapest path a backend offers, so anything with a fr
 ## Tools
 
 - `web_search` — the backend fan-out described above.
-- `web_search_plus` — search with a strategy for this call only: `mode` (single or parallel), `backends` (a subset of the enabled ones), `allBackends` + `exclude` (everything except a few, cheaper to write than listing ids), `compact` (links and titles only, no snippets, which is the biggest lever on result size) and `maxResults`. Saved configuration is untouched, a backend that is not enabled is reported rather than silently dropped, and the result names the backends that actually ran.
+- `web_search_plus` — search with a strategy for this call only: (can be switched off in settings, which stops registering it) `mode` (single or parallel), `backends` (a subset of the enabled ones), `allBackends` + `exclude` (everything except a few, cheaper to write than listing ids), `compact` (links and titles only, no snippets, which is the biggest lever on result size) and `maxResults`. Saved configuration is untouched, a backend that is not enabled is reported rather than silently dropped, and the result names the backends that actually ran.
 - `reddit_thread` — read one Reddit post with its comment tree, so a model can quote the discussion instead of guessing. Capped by depth, comment count and character budget.
 - `search_manage` — inspect or change this plugin's settings from the agent side.
 

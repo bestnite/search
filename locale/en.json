@@ -226,5 +226,7 @@
   "credentialRefRequired": "Set a credential reference name first.",
   "credentialReadOnly": "This reference is read-only: another source supplies its value, so the plugin cannot overwrite it. Pick a different reference name, such as DSH_SEARCH_X_SESSION.",
   "credentialPlainKey": "Paste the key itself.",
-  "credentialShapeLabel": "Credential format"
+  "credentialShapeLabel": "Credential format",
+  "field.tools.webSearchPlus": "Allow web_search_plus",
+  "help.tools.webSearchPlus": "Off hides the tool entirely: the agent then searches only through the configured strategy."
 }

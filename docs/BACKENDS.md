@@ -331,3 +331,5 @@ Choosing a different access mode used to lock the credential field until the con
 A blacklist would otherwise pick up backends that get enabled later, so any call that used `allBackends`, `exclude` or a filtered list reports the effective set: `Backends used in this call: …`. Exclusions naming a backend that is not enabled are reported as ignored rather than silently matching nothing.
 
 Overrides never mutate saved configuration and are never cached, so a narrowed call cannot be served from a cache entry produced under a different strategy.
+
+The tool itself is switchable: with `tools.webSearchPlus` off the plugin does not register it, so the agent cannot call it rather than calling it and being refused. The switch lives on the Search behaviour tab and defaults to on.

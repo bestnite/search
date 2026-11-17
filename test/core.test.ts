@@ -66,3 +66,5 @@ test('compact returns links without snippets',async()=>{const c=defaultConfig();
  assert.ok(full.sources[0]!.snippet,);const compact=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',compact:true});
  assert.equal(compact.sources.length,2);assert.equal(compact.sources[0]!.snippet,undefined);assert.equal(compact.sources[0]!.summary,undefined);assert.ok(compact.sources[0]!.url);assert.ok(compact.sources[0]!.title);
  assert.ok(JSON.stringify(compact.sources).length*2<JSON.stringify(full.sources).length*2);});
+
+test('the agent switch is a validated boolean that defaults to on',async()=>{const c=defaultConfig();assert.equal(c.tools.webSearchPlus,true);const off=structuredClone(c)as any;off.tools.webSearchPlus=false;assert.deepEqual(validateConfig(off),[]);const bogus=structuredClone(c)as any;bogus.tools.webSearchPlus='yes';assert.ok(validateConfig(bogus).some(issue=>issue.path==='tools.webSearchPlus'));const unknown=structuredClone(c)as any;unknown.tools.somethingElse=true;assert.ok(validateConfig(unknown).some(issue=>issue.path==='tools.somethingElse'));});

@@ -42,7 +42,7 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 ## 工具
 
 - `web_search` — 上面说的多后端搜索。
-- `web_search_plus` — 按本次调用指定搜索策略：`mode`（单后端/并行）、`backends`（从已启用里挑子集）、`allBackends` + `exclude`（全用但排掉几家，比列 id 省字符）、`compact`（只回标题和链接，丢掉摘要，省结果 token）、`maxResults`。只影响这一次调用，不改配置；没启用的后端会被明确告知而不是被悄悄忽略，实际用了哪些也会回显。
+- `web_search_plus` — 按本次调用指定搜索策略：（可在设置里关闭：关闭后不注册该工具）`mode`（单后端/并行）、`backends`（从已启用里挑子集）、`allBackends` + `exclude`（全用但排掉几家，比列 id 省字符）、`compact`（只回标题和链接，丢掉摘要，省结果 token）、`maxResults`。只影响这一次调用，不改配置；没启用的后端会被明确告知而不是被悄悄忽略，实际用了哪些也会回显。
 - `reddit_thread` — 读某个 Reddit 帖子的完整评论树，让模型能引用真实讨论而不是猜；按深度、评论条数和字符预算截断。
 - `search_manage` — 从 agent 侧查看或修改本插件自己的设置。
 
