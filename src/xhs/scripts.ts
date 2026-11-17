@@ -6,6 +6,7 @@
  */
 
 const PRELUDE = `
+const str=(v)=>(typeof v==='string'?v:'');
 const status=(e)=>(e&&e.response&&e.response.status)||0;
 const fail=(code,message)=>({ok:false,code,message:String(message===undefined?'':message).slice(0,300)});
 let captured=null;
@@ -30,7 +31,6 @@ if(!client||typeof client.get!=='function'||typeof client.post!=='function'){ret
 
 const wrap = (body: string): string => `async () => {\n${PRELUDE}\ntry{${body}}catch(e){return {ok:false,code:'CALL_FAILED',status:status(e),message:String((e&&e.message)||e).slice(0,300)};}\n}`;
 
-const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 const literal = (value: unknown): string => JSON.stringify(value);
 
 /** Identity probe: is the runtime usable, and is the session signed in? */
@@ -52,13 +52,13 @@ for(const item of list){
   const card=item.noteCard||{};const user=card.user||{};const stats=card.interactInfo||{};
   items.push({
     id:String(item.id||''),
-    title:${text.name}(card.displayTitle||card.title),
-    author:${text.name}(user.nickname||user.nickName),
-    authorId:${text.name}(user.userId),
+    title:str(card.displayTitle||card.title),
+    author:str(user.nickname||user.nickName),
+    authorId:str(user.userId),
     likes:stats.likedCount||'0',
     url:'https://www.xiaohongshu.com/explore/'+String(item.id||''),
-    cover:${text.name}(card.cover&&(card.cover.urlDefault||card.cover.url)),
-    xsecToken:${text.name}(item.xsecToken)
+    cover:str(card.cover&&(card.cover.urlDefault||card.cover.url)),
+    xsecToken:str(item.xsecToken)
   });
   if(items.length>=${input.limit}){break;}
 }
@@ -79,16 +79,16 @@ if(!card){return {ok:false,code:'EMPTY','message':'the feed came back without a 
 const user=card.user||{};const stats=card.interactInfo||{};
 return {ok:true,note:{
   id:${literal(input.id)},
-  title:${text.name}(card.title||card.displayTitle),
-  desc:${text.name}(card.desc),
-  author:${text.name}(user.nickname||user.nickName),
-  authorId:${text.name}(user.userId),
+  title:str(card.title||card.displayTitle),
+  desc:str(card.desc),
+  author:str(user.nickname||user.nickName),
+  authorId:str(user.userId),
   likes:stats.likedCount||'0',
   collects:stats.collectedCount||'0',
   comments:stats.commentCount||'0',
   shares:stats.sharedCount||'0',
-  publishedAt:${text.name}(card.time||card.lastUpdateTime),
-  tags:(card.tagList||[]).map(function(t){return ${text.name}(t&&t.name);}).filter(Boolean).slice(0,20),
+  publishedAt:str(card.time||card.lastUpdateTime),
+  tags:(card.tagList||[]).map(function(t){return str(t&&t.name);}).filter(Boolean).slice(0,20),
   images:(card.imageList||[]).length,
   url:'https://www.xiaohongshu.com/explore/'+${literal(input.id)}
 }};`);
@@ -106,16 +106,16 @@ for(const c of list){
   const u=c.userInfo||{};
   out.push({
     id:String(c.id||''),
-    author:${text.name}(u.nickname||u.nickName),
-    content:${text.name}(c.content),
+    author:str(u.nickname||u.nickName),
+    content:str(c.content),
     likes:c.likeCount||'0',
     replies:c.subCommentCount||'0',
-    ipLocation:${text.name}(c.ipLocation),
+    ipLocation:str(c.ipLocation),
     liked:!!c.liked
   });
   if(out.length>=${input.limit}){break;}
 }
-return {ok:true,comments:out,hasMore:!!(page&&page.hasMore),cursor:${text.name}(page&&page.cursor)};`);
+return {ok:true,comments:out,hasMore:!!(page&&page.hasMore),cursor:str(page&&page.cursor)};`);
 }
 
 /** Set the session cookies inside the page, then prove they work before reporting success. */

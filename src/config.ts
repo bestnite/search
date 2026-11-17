@@ -10,6 +10,25 @@ export function defaultConfig(): SearchConfig {
     backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
   };
 }
+/** Loopback, RFC1918, CGNAT (which includes tailnets) and unique-local IPv6 are treated as local. */
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) return true;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+  if (host.startsWith('fc') || host.startsWith('fd')) return true;
+  if (host.startsWith('fe80:')) return true;
+  return false;
+}
+
 export function validateConfig(value: unknown): ConfigIssue[] {
   const issues: ConfigIssue[]=[];
   const fail=(path:string,message:string)=>issues.push({path,message});
@@ -46,7 +65,7 @@ export function validateConfig(value: unknown): ConfigIssue[] {
     if(b.enabled&&d.status==='unverified')fail(`${p}.enabled`,'Backend protocol is not verified.');
     if(b.endpoint){try{
       const url=new URL(b.endpoint);if(url.username||url.password||url.hash||url.search)throw 0;
-      const local=url.hostname==='localhost'||url.hostname==='127.0.0.1'||url.hostname==='[::1]';
+      const local=isPrivateHost(url.hostname);
       // A browser backend points at a Playwright server, whose endpoint is a WebSocket URL.
       const schemes=url.protocol==='ws:'||url.protocol==='wss:'?['ws:','wss:']:['http:','https:'];
       if(!schemes.includes(url.protocol))throw 0;

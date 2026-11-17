@@ -80,9 +80,13 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
   const upstream = connect(target.port, target.host, () => {
+    // The Playwright server validates the upgrade against its own address: an Origin or Host that
+    // names the public endpoint would be refused with 403, so both are rewritten for the upstream.
+    const dropped = new Set(['authorization', 'origin', 'host']);
     const headers = Object.entries(request.headers)
-      .filter(([name]) => name.toLowerCase() !== 'authorization')
+      .filter(([name]) => !dropped.has(name.toLowerCase()))
       .map(([name, value]) => `${name}: ${Array.isArray(value) ? value.join(', ') : value}`);
+    headers.push(`host: ${target.host.includes(':') ? `[${target.host}]` : target.host}:${target.port}`);
     // Forward to the announced path, keeping the query string the client sent.
     const [path] = [request.url ?? '/'];
     const question = path.indexOf('?');

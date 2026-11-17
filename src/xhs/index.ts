@@ -69,6 +69,22 @@ interface PageAnswer { ok?: boolean; code?: string; message?: string; status?: n
  */
 const connections = new Map<string, XhsBrowser>();
 
+/**
+ * Search results carry the per-note token that detail and comment reads require, but a Source must
+ * not expose it. Keeping it here is what lets a caller read a note it just saw in a search.
+ */
+const noteTokens = new Map<string, string>();
+const TOKEN_CACHE_LIMIT = 500;
+
+function rememberToken(id: string, token: string | undefined): void {
+  if (!token) return;
+  noteTokens.set(id, token);
+  if (noteTokens.size > TOKEN_CACHE_LIMIT) {
+    const oldest = noteTokens.keys().next();
+    if (!oldest.done) noteTokens.delete(oldest.value);
+  }
+}
+
 const browserFor = (ctx: XhsContext): Pick<XhsBrowser, 'evaluate' | 'target' | 'persist' | 'close'> => {
   if (ctx.browser) return ctx.browser;
   const key = `${ctx.wsEndpoint}|${ctx.token ?? ''}`;
@@ -135,6 +151,7 @@ export async function readXhsSearchNotes(input: { query: string; limit: number; 
     const answer = unwrapAnswer<{ items: XhsNoteSummary[] }>(
       await browser.evaluate(searchScript({ query: input.query, limit: input.limit, page: 1, sort: input.sort ?? 'general' })),
     );
+    for (const item of answer.items) rememberToken(item.id, (item as { xsecToken?: string }).xsecToken);
     return answer.items;
   } finally {
     await browser.persist().catch(() => undefined);
@@ -152,10 +169,10 @@ export async function searchXhs(input: { query: string; maxResults: number; sort
   }));
 }
 
-/** A note's detail. Share links carry the token in the query string, which is where it comes from. */
+/** A note's detail. The token comes from the argument, the share link, or an earlier search. */
 export async function fetchXhsNote(input: { url?: string; id?: string; token?: string }, ctx: XhsContext): Promise<XhsNote> {
   guard(ctx);
-  const { id, token } = resolveTarget(input);
+  const { id, token } = resolveTarget({ ...input, token: input.token ?? noteTokens.get(trimNoteId(input)) });
   const browser = browserFor(ctx);
   try {
     await unwrapAnswer(await browser.evaluate(healthScript()));
@@ -169,7 +186,7 @@ export async function fetchXhsNote(input: { url?: string; id?: string; token?: s
 
 export async function fetchXhsComments(input: { url?: string; id?: string; token?: string; limit?: number; cursor?: string }, ctx: XhsContext): Promise<{ comments: XhsComment[]; hasMore: boolean; cursor?: string }> {
   guard(ctx);
-  const { id, token } = resolveTarget(input);
+  const { id, token } = resolveTarget({ ...input, token: input.token ?? noteTokens.get(trimNoteId(input)) });
   const browser = browserFor(ctx);
   try {
     await unwrapAnswer(await browser.evaluate(healthScript()));
@@ -180,6 +197,13 @@ export async function fetchXhsComments(input: { url?: string; id?: string; token
     await browser.persist().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
+}
+
+/** Best-effort id from whatever the caller passed, used only to look up a remembered token. */
+function trimNoteId(input: { url?: string; id?: string }): string {
+  const raw = (input.url ?? input.id ?? '').trim();
+  const match = /\/(?:explore|discovery\/item)\/([0-9a-zA-Z]+)/.exec(raw);
+  return match?.[1] ?? raw;
 }
 
 /** Accept a share link, a bare id, or an explicit token. Share links embed xsec_token. */
@@ -199,6 +223,6 @@ export function resolveTarget(input: { url?: string; id?: string; token?: string
     }
   }
   if (id === '') throw new SearchError('configuration', `Could not read a note id from "${raw}".`);
-  if (token === '') throw new SearchError('configuration', 'A note read needs its xsec_token. Use the share link, which carries it, or pass the token explicitly.');
+  if (token === '') throw new SearchError('configuration', 'A note read needs its xsec_token. Search for the note first, use its share link, or pass the token explicitly.');
   return { id, token };
 }
