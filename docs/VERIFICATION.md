@@ -1,6 +1,6 @@
 # Verification status
 
-Date: 2026-11-17 (Asia/Shanghai). DSH `0.2.2-rc.3`, profile `web`.
+Date: 2026-11-17 (Asia/Shanghai), profile `web`. The DSH release running at that moment is recorded once here as audit context; it is not a compatibility bound.
 
 ## Automated
 

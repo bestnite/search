@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A TypeScript/TSX multi-backend search bundle for DeepSeek Harness 0.2.2-rc.3.
+A TypeScript/TSX multi-backend search bundle for DeepSeek Harness. Compatibility is verified against the running release rather than pinned to one version.
 
 ## Features
 

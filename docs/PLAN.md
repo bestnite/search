@@ -8,7 +8,7 @@ Build an independent DSH bundle replacing the currently installed search plugin 
 
 Verified environment during planning:
 
-- DSH: `0.2.2-rc.3`.
+- Audited against the installed DSH release at the time of writing; this plugin is not pinned to it.
 - Existing search bundle: `@240xu/dsh-websearch` `2.8.8`, provider ID `unified`.
 - Search extension: `ctx.web.registerSearchProvider()`.
 - Settings extension: Client `settings.section`.

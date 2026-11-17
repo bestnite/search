@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向 DeepSeek Harness 0.2.2-rc.3 的多后端搜索插件，用 TypeScript / TSX 写成。
+面向 DeepSeek Harness 的多后端搜索插件，用 TypeScript / TSX 写成。兼容性以实际运行的版本为准，不绑定某个具体版本。
 
 ## 功能
 
