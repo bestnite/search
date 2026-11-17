@@ -24,7 +24,8 @@ export const ANONYMOUS_TOKEN_BODY = JSON.stringify({ scopes: ['*', 'email', 'pii
 /** Refresh this long before the reported expiry. */
 export const TOKEN_REFRESH_MARGIN_MS = 120_000;
 /** Reddit wants a descriptive agent on oauth calls; the Android UA is only used for anonymous ones. */
-export const REDDIT_USER_AGENT = 'dsh-search/0.1.2 (Reddit read-only client)';
+// No version in the agent string: it would drift from package.json on every bump.
+export const REDDIT_USER_AGENT = 'dsh-search (Reddit read-only client)';
 /** Upper bound for a single 429 back-off in the retry layer. */
 export const MAX_RETRY_WAIT_MS = 60_000;
 

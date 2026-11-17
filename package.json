@@ -1,6 +1,6 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.3.0",
+  "version": "0.1.3",
   "description": "Explicit-mode multi-backend search with transparent costs and complete Web settings for DSH",
   "license": "MIT",
   "repository": {
