@@ -10,6 +10,7 @@
 .ns-chip--ok{border-color:var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary)}
 .ns-chip--warn{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary)}
 .ns-chip--risk{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.ns-chip.is-on{background:color-mix(in oklab,var(--dsw-alias-brand-primary) 12%,transparent);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .ns-chip--off{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-state-idle-primary)}
 .ns-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .ns-dot.is-on{background:var(--dsw-alias-state-success-primary)}

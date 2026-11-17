@@ -52,10 +52,10 @@
   "notVerified": "Not verified",
   "noData": "No data",
   "attemptsToday": "Attempts today",
-  "tier.free": "Free · no key",
-  "tier.allowance": "Free allowance · key required",
+  "tier.free": "Free",
+  "tier.allowance": "Free allowance",
   "tier.trial": "Trial credits",
-  "tier.paid": "Paid usage",
+  "tier.paid": "Paid",
   "tier.self-hosted": "Self-hosted",
   "tier.unverified": "Contract unverified · cannot enable",
   "credentialTitle": "Credential storage",
@@ -224,7 +224,8 @@
   "tierEnabled": "{{enabled}} on",
   "tierFiltered": "{{shown}} after filter",
   "choice.oauth": "OAuth",
-  "tier.account": "Your own account · no fee",
+  "tier.account": "Own account",
   "choice.bearer": "API bearer token",
-  "choice.session": "Browser session cookies"
+  "choice.session": "Browser session cookies",
+  "group.free": "Free path available"
 }

@@ -182,7 +182,17 @@ export function createClient(React: any) {
           if (backendFilter === 'configured' && !snapshot?.credentials[def.id]?.configured) return false;
           return true;
         };
-        const tierOf = (def: BackendDefinition) => def.status === 'unverified' ? 'unverified' : def.modes.find(mode => mode.mode === draft.backends[def.id]?.mode)?.tier || 'unverified';
+        // Group by the cheapest path a backend offers, not by the mode currently selected:
+        // a backend with a free option belongs in the free group even while a paid mode is chosen.
+        // Cheapest first: no credentials, then no money (own account, own server), then quota-bound free tiers, then spend.
+        const TIER_ORDER = ['free', 'account', 'self-hosted', 'allowance', 'trial', 'paid', 'unverified'] as const;
+        const tierRank = (tier: string) => { const index = (TIER_ORDER as readonly string[]).indexOf(tier); return index < 0 ? TIER_ORDER.length : index; };
+        const bestTier = (def: BackendDefinition) => def.status === 'unverified' ? 'unverified' : def.modes.reduce((best, mode) => tierRank(mode.tier) < tierRank(best) ? mode.tier : best, def.modes[0]?.tier || 'unverified');
+        const readyRank = (def: BackendDefinition) => {
+          const backend = draft.backends[def.id];
+          const selected = def.modes.find(mode => mode.mode === backend?.mode)?.tier;
+          return (backend?.enabled ? 0 : 2) + (selected === 'free' ? 0 : 1);
+        };
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
 
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
@@ -224,14 +234,14 @@ export function createClient(React: any) {
                 <div className="ns-field"><label htmlFor="ns-backend-search">{t('searchBackends')}</label><input id="ns-backend-search" type="search" value={backendQuery} onChange={(event: any) => setBackendQuery(event.target.value)} placeholder={t('searchBackendsPlaceholder')} /></div>
                 <div className="ns-field"><label htmlFor="ns-backend-filter">{t('filterBackends')}</label><select id="ns-backend-filter" value={backendFilter} onChange={(event: any) => setBackendFilter(event.target.value)}>{['all', 'enabled', 'configured'].map(value => <option key={value} value={value}>{t(`filter.${value}`)}</option>)}</select></div>
               </div>
-              {(['free', 'allowance', 'trial', 'paid', 'account', 'self-hosted', 'unverified'] as const).map(tier => {
-                const inTier = definitions.filter(def => tierOf(def) === tier);
-                const members = inTier.filter(matches);
+              {TIER_ORDER.map(tier => {
+                const inTier = definitions.filter(def => bestTier(def) === tier);
+                const members = inTier.filter(matches).slice().sort((left, right) => readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
                 const enabledInTier = inTier.filter(def => draft.backends[def.id]?.enabled).length;
-                return members.length ? <div className="ns-tier" key={tier}><h4>{t(`tier.${tier}`)} <span className="ns-muted">{tr('tierCount', { total: inTier.length })} · {tr('tierEnabled', { enabled: enabledInTier })}{members.length < inTier.length ? ` · ${tr('tierFiltered', { shown: members.length })}` : ''}</span></h4>{members.map(def => {
+                return members.length ? <div className="ns-tier" key={tier}><h4>{t(tier === 'free' ? 'group.free' : `tier.${tier}`)} <span className="ns-muted">{tr('tierCount', { total: inTier.length })} · {tr('tierEnabled', { enabled: enabledInTier })}{members.length < inTier.length ? ` · ${tr('tierFiltered', { shown: members.length })}` : ''}</span></h4>{members.map(def => {
                   const backend = draft.backends[def.id]; if (!backend) return null;
                   const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous';
-                  return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips"><span className={`ns-chip ${locked ? 'ns-chip--off' : tierRisk(tier)}`}>{locked ? t('unverified') : t(`tier.${tier}`)}</span><span className="ns-chip">{t(`choice.${backend.mode}`)}</span>{def.evidence === 'live' && <span className="ns-chip ns-chip--ok">{t('liveVerified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
+                  return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => <span key={item.mode} className={`ns-chip ${item.mode === backend.mode ? 'is-on' : ''} ${item.tier === 'unverified' ? 'ns-chip--off' : tierRisk(item.tier)}`}>{t(`choice.${item.mode}`)} · {t(`tier.${item.tier}`)}</span>)}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}{def.evidence === 'live' && <span className="ns-chip ns-chip--ok">{t('liveVerified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
                     <div className="ns-backend-body">
                       {locked && <p className="ns-warning">{t('unverifiedHelp')}</p>}
                       <p className="ns-quota">{mode?.limits[lang]} <a href={mode?.pricingUrl || def.docs} target="_blank" rel="noreferrer">{t('source')}</a> · {t('verifiedAt')} {def.verifiedAt || t('notVerified')}</p>
