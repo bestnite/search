@@ -446,3 +446,14 @@ test('the ported signer produces the documented 70-byte, 94-character transactio
   assert.deepEqual(again, payload);
   assert.notEqual(signer.generateTransactionId('GET', path, now), transactionId);
 });
+
+test('a signed-out home page is reported as an expired session, not a layout change', async () => {
+  const loggedOut = '<html><head><script src="https://abs.twimg.com/x-web/x-web/entry-client-logged-out-abc.js"></script></head></html>';
+  const fetcher = (async () => new Response(loggedOut, { status: 200 })) as unknown as typeof fetch;
+  const { searchXSession, resetXSessionState } = await import('../src/x/session.js');
+  resetXSessionState();
+  await assert.rejects(
+    searchXSession({ query: 'q', maxResults: 5 }, { credentials: { authToken: 'a', ct0: 'b' }, signal: new AbortController().signal, timeoutMs: 3000, fetch: fetcher }),
+    (error: unknown) => error instanceof SearchError && error.kind === 'authentication' && /signed-out page/.test(error.message),
+  );
+});

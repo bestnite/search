@@ -124,6 +124,14 @@ export class OperationsRegistry {
     const html = await this.fetchText(HOME_URL, transport, 'x.com/home');
     const bundleUrl = [...new Set([...html.matchAll(MAIN_BUNDLE_RE)].map((m) => m[0]))][0];
     if (bundleUrl === undefined) {
+      // A signed-out X serves a different front end (x-web/entry-client-logged-out-*), and that is
+      // about the session, not about this adapter, so the two cases must not share one message.
+      if (html.includes('entry-client-logged-out') || /\/x-web\//.test(html)) {
+        throw new SearchError(
+          'authentication',
+          'x.com answered with the signed-out page, so the stored auth_token and ct0 are no longer a live session. Sign in to X in a browser and copy both cookies again.',
+        );
+      }
       throw new SearchError(
         'protocol',
         `Could not find main.js in the x.com home page; the page layout changed. ${MAINTAINER_ACTION}`,
