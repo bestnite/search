@@ -57,3 +57,17 @@ Still unverified after this pass: the rendered page itself. The automation brows
 ## Tier correction (2026-11-17, same day)
 
 Exa, AnySearch and Parallel anonymous modes had been filed under "unavailable · unverified API" because their free quotas carry no published number. That conflated cost with evidence. All three, plus Keenable, You.com and the local SearXNG instance, completed three consecutive real searches each in this deployment; Exa's keyless MCP is an official free tier per its own documentation ("No API key is needed to try search and fetch, at a free rate limit"). Cost tier and verification evidence are now separate fields. DuckDuckGo stays documented-only: it answered with a challenge on this network, and no bypass was attempted.
+
+## Language/region and provider visibility (2026-11-17, after restart)
+
+Live check with canonical `language=zh-Hans`, `region=CN` and retry/cache disabled:
+
+| Backend | Outcome | Disclosed |
+| --- | --- | --- |
+| Keenable | 2 sources | language and region unsupported, not applied upstream |
+| SearXNG | 26 sources (capped locally) | language applied as `zh-CN`; region unsupported |
+| You.com | 2 sources | both applied in upper-case form |
+
+So an unsupported canonical value is never forwarded as a guess, and a supported one reaches the backend in its own spelling. Saved values are validated against the fixed lists, so a backend-specific spelling can no longer be typed in by hand.
+
+The settings snapshot also reports the provider the web seam currently selects. When it is not this plugin, the page states which provider is in effect and offers a one-click switch; the built-in providers stay registered and are simply never selected while `searchProvider: nite-search` is pinned.
