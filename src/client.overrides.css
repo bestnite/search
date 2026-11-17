@@ -55,3 +55,8 @@
 .ns-test-actions small{color:var(--dsw-alias-label-secondary)}
 @media (max-width:720px){.ns-tabs{gap:2px}.ns-tab{padding:6px 10px}}
 .ns-header{margin-bottom:8px}
+
+.ns-backend-body{padding:0 20px 20px}
+.ns-backend-body .ns-muted{font-size:12.5px;line-height:1.6;margin:10px 0}
+.ns-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.ns-meta strong{font-weight:600;color:var(--dsw-alias-label-primary)}
