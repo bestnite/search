@@ -53,10 +53,12 @@ configuration.
 
 ## Backends
 
-23 entries across four access modes: anonymous tiers, free allowances, trial credits, paid APIs, and
-two session-cookie backends (X, Reddit) that use the account you already have. `catalog` carries the
-mode list, cost tier, quota note and options for each one. Reddit threads are available through
-`fetchRedditThread`, X searches through `searchX`, and X conversations through `fetchXThread`.
+24 entries across five access modes: anonymous tiers, free allowances, trial credits, paid APIs, two
+session-cookie backends (X, Reddit) that use the account you already have, and one browser backend
+(Xiaohongshu) that drives a browser you host. `catalog` carries the mode list, cost tier, quota note
+and options for each one. Reddit threads are available through `fetchRedditThread`, X searches
+through `searchX`, X conversations through `fetchXThread`, and Xiaohongshu notes through
+`fetchXhsNote` and `fetchXhsComments`.
 
 ### Xiaohongshu
 
