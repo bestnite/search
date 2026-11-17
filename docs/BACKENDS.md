@@ -309,3 +309,7 @@ Every request this plugin sends carries `dsh-search/<version> (+project url)` as
 - X session mode sends the web client's browser headers for the signing handshake and the GraphQL call.
 
 Tests assert both the default and the exemptions, including header containers of every shape (`Headers`, tuple arrays, plain objects).
+
+## Credential editing does not require a save
+
+Choosing a different access mode used to lock the credential field until the configuration was saved, because the write was validated against the saved reference. The editor now sends the reference it currently shows, validated as an environment-style name, so a mode switch followed by a credential entry works without an intermediate save. Only a reference the provider reports as unwritable stays locked, and the field says why.

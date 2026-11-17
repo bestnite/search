@@ -54,8 +54,11 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(args?.action==='clear-cache'){engine.clearCache();return {cleared:true};}
     if(args?.action==='clear-diagnostics'){engine.clearDiagnostics();return {cleared:true};}
     if(args?.action==='credential'){
-      const b=config.backends[args.backendId];if(!b||args.ref!==b.credentialRef)throw new Error('Save the backend credential reference before editing its value.');
-      if(args.remove===true)await ctx.credentials.unset(credentialRef(b.credentialRef));else {if(typeof args.value!=='string'||!args.value.trim()||args.value.length>16384)throw new Error('A nonempty credential is required.');await ctx.credentials.set(credentialRef(b.credentialRef),args.value);}
+      const b=config.backends[args.backendId];if(!b)throw new Error('Unknown backend id.');
+      // The reference may be the one the editor currently shows rather than the saved one: choosing a
+      // different access mode should not force a save before a credential can be entered.
+      const target=String(args.ref??b.credentialRef??'');if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(target))throw new Error('The credential reference must be an environment-style name.');
+      if(args.remove===true)await ctx.credentials.unset(credentialRef(target));else {if(typeof args.value!=='string'||!args.value.trim()||args.value.length>16384)throw new Error('A nonempty credential is required.');await ctx.credentials.set(credentialRef(target),args.value);}
       engine.clearCache();return {saved:true};
     }
     throw new Error('Unsupported search management action.');
@@ -103,6 +106,6 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(thread.truncated)lines.push('','[Comment text was truncated to fit the output budget.]');
     return {text:lines.join('\n'),post:thread.post,truncated:thread.truncated};
   }}));
-  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},ref:{type:'string'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
+  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},ref:{type:'string',description:'Credential reference to write; defaults to the saved one for that backend.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
 }
 export { defaultConfig, validateConfig };

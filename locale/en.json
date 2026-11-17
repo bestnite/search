@@ -66,7 +66,6 @@
   "replaceCredential": "Replace credential",
   "deleteCredential": "Delete credential",
   "deleteCredentialConfirm": "Delete this saved credential? This cannot be undone.",
-  "saveBeforeCredential": "Save the configuration before changing credentials.",
   "credentialSaved": "Credential change confirmed.",
   "credentialFailed": "Credential change could not be confirmed. The input has been cleared; inspect the current state before trying again.",
   "testTitle": "Test a saved backend",

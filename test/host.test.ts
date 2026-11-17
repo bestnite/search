@@ -8,7 +8,10 @@ test('Host UI route and Agent tool share config save/read and credential operati
  const next=structuredClone(c);next.maxResults=12;await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal:new AbortController().signal});assert.deepEqual(h.stored,next);
  await assert.rejects(h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:'stale'},{signal:new AbortController().signal}),/revision conflict/);
  const ref=c.backends.keenable!.credentialRef;await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref,value:'PRIVATE_KEY'},{signal:new AbortController().signal});const after=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});assert.equal(after.credentials.keenable.configured,true);assert.ok(!JSON.stringify(after).includes('PRIVATE_KEY'));await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref,remove:true},{signal:new AbortController().signal});assert.equal(h.secrets.size,0);
- await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'OTHER_SECRET',value:'a'},{signal:new AbortController().signal}),/Save the backend/);
+ // A credential may be written under the reference the editor shows, before the configuration is saved.
+ await h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'DSH_SEARCH_KEENABLE_SESSION',value:'DRAFT_SECRET'},{signal:new AbortController().signal});assert.equal(h.secrets.get('DSH_SEARCH_KEENABLE_SESSION'),'DRAFT_SECRET');
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'keenable',ref:'not a ref',value:'a'},{signal:new AbortController().signal}),/environment-style/);
+ await assert.rejects(h.tool('search_manage')!.execute({action:'credential',backendId:'nope',ref:'X_KEY',value:'a'},{signal:new AbortController().signal}),/Unknown backend/);
 });
 test('every config scalar and array has an editable client field or generated backend option',async()=>{const {readFile}=await import('node:fs/promises');const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');const defaults=defaultConfig();
  // Paths are declared either as quoted literals in a fields()/section() array or, for backend rows, as a `${base}.x` template.

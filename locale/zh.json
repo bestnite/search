@@ -66,7 +66,6 @@
   "replaceCredential": "替换凭证",
   "deleteCredential": "删除凭证",
   "deleteCredentialConfirm": "确定删除已保存的凭证？此操作无法撤销。",
-  "saveBeforeCredential": "请先保存配置，再修改凭证。",
   "credentialSaved": "凭证更改已确认。",
   "credentialFailed": "无法确认凭证更改结果，输入内容已清空。请先核对当前状态，再决定是否重新操作。",
   "testTitle": "测试已保存的后端",

@@ -153,9 +153,9 @@ export function createClient(React: any) {
           catch { setFailed(true); setNotice('actionFailed'); } finally { setPending(''); }
         }
         async function credential(id: string, remove: boolean) {
-          if (!snapshot || dirty) return; const backend = snapshot.config.backends[id];
+          if (!snapshot) return; const reference = draft.backends[id]?.credentialRef;
           setPending(`credential-${id}`); setFailed(false); setNotice('working');
-          try { await request('credential', { backendId: id, ref: backend.credentialRef, ...(remove ? { remove: true } : { value: secrets[id] }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); await refresh(); setNotice('credentialSaved'); }
+          try { await request('credential', { backendId: id, ref: reference, ...(remove ? { remove: true } : { value: secrets[id] }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); await refresh(); setNotice('credentialSaved'); }
           catch { setSecrets((previous: Record<string, string>) => ({ ...previous, [id]: '' })); setFailed(true); setNotice('credentialFailed'); } finally { setPending(''); }
         }
         function importConfig() {
@@ -200,10 +200,10 @@ export function createClient(React: any) {
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
         const credentialDisabledReason = (id: string): string => {
         if (pending) return t('credentialPending');
-        if (dirty) return t('saveBeforeCredential');
-        const backend = draft.backends[id];
-        if (!backend?.credentialRef) return t('credentialRefRequired');
-        if (!snapshot?.credentials[id]?.writable) return t('credentialReadOnly');
+        const reference = draft.backends[id]?.credentialRef;
+        if (!reference) return t('credentialRefRequired');
+        const savedReference = snapshot?.config.backends[id]?.credentialRef;
+        if (reference === savedReference && snapshot?.credentials[id] && !snapshot.credentials[id]!.writable) return t('credentialReadOnly');
         return '';
       };
       const credentialDisabled = (id: string): boolean => credentialDisabledReason(id) !== '';
@@ -255,7 +255,7 @@ export function createClient(React: any) {
                       <div className="ns-grid">{fields([`${base}.enabled`, `${base}.mode`, `${base}.endpoint`, `${base}.credentialRef`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`], { [`${base}.enabled`]: { type: 'checkbox', disabled: locked }, [`${base}.mode`]: { choices: def.modes.map(item => item.mode), disabled: locked }, [`${base}.timeoutMs`]: { type: 'number' }, [`${base}.rateLimitPerMinute`]: { type: 'number' }, [`${base}.dailyAttemptLimit`]: { type: 'number' } }).filter(node => !(anonymous && node.key === `${base}.credentialRef`))}</div>
                       {anonymous && !locked && <p className="ns-muted">{t('anonymousNoCredential')}</p>}
                       {def.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.options.map(option => field(`${base}.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], disabled: locked, min: option.min, max: option.max }))}</div></details>}
-                      {!anonymous && !locked && <div className="ns-credential"><h5>{t('credentialTitle')}</h5><p>{t(credentialState?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p><label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label><input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={credentialDisabled(def.id)} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />{credentialDisabledReason(def.id) && <small id={`secret-${def.id}-why`} className="ns-warning">{credentialDisabledReason(def.id)}</small>}<div className="ns-actions"><button disabled={!!pending || dirty || !credentialState?.writable || !secrets[def.id]} onClick={() => credential(def.id, false)}>{t('replaceCredential')}</button><button disabled={!!pending || dirty || !credentialState?.writable || !credentialState?.configured} onClick={() => setConfirming({ kind: `delete-credential-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button></div>{confirmRow(`delete-credential-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}</div>}
+                      {!anonymous && !locked && <div className="ns-credential"><h5>{t('credentialTitle')}</h5><p>{t(credentialState?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p><label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label><input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={credentialDisabled(def.id)} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />{credentialDisabledReason(def.id) && <small id={`secret-${def.id}-why`} className="ns-warning">{credentialDisabledReason(def.id)}</small>}<div className="ns-actions"><button disabled={credentialDisabled(def.id) || !secrets[def.id]} onClick={() => credential(def.id, false)}>{t('replaceCredential')}</button><button disabled={credentialDisabled(def.id) || !credentialState?.configured} onClick={() => setConfirming({ kind: `delete-credential-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button></div>{confirmRow(`delete-credential-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}</div>}
                       <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot.counters[def.id]?.day ?? t('noData')}</span></p>
                     </div>
                   </details>;
