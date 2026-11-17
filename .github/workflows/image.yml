@@ -3,8 +3,7 @@ name: image
 # The browser image is the only artifact here, and its version tracks the Patchright driver inside it,
 # so it has its own tag line: a `browser-v1.64.3` ref publishes 1.64.3, 1.64, 1 and latest.
 #
-# This runs on GitHub's hosted runners. Gitea also reads .github/workflows, so the job is skipped
-# anywhere else instead of failing there.
+# This runs on GitHub's hosted runners, which have a docker daemon.
 on:
   push:
     tags:
@@ -46,7 +45,6 @@ permissions:
 
 jobs:
   build:
-    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the commit
