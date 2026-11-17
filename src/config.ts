@@ -1,4 +1,5 @@
 import { catalog } from './catalog.js';
+import { LANGUAGES, REGIONS } from './locale-map.js';
 import type { ConfigIssue, SearchConfig } from './types.js';
 export function defaultConfig(): SearchConfig {
   return {
@@ -33,6 +34,8 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   const c=value as unknown as SearchConfig;
   const choice=(v:string,allowed:string[],p:string)=>{if(!allowed.includes(v))fail(p,'Unsupported selection.');};
   const num=(v:number,min:number,max:number,p:string)=>{if(!Number.isInteger(v)||v<min||v>max)fail(p,`Expected an integer between ${min} and ${max}.`);};
+  if(c.language&&!(LANGUAGES as readonly string[]).includes(c.language))fail('language','Unsupported language code.');
+  if(c.region&&!(REGIONS as readonly string[]).includes(c.region))fail('region','Unsupported region code.');
   choice(c.mode,['single','parallel'],'mode');choice(c.singleBackend,catalog.map(x=>x.id),'singleBackend');choice(c.recency,['any','day','week','month','year'],'recency');choice(c.dedup,['url','url-title'],'dedup');choice(c.fusion,['rrf','ordered'],'fusion');
   num(c.maxResults,1,50,'maxResults');num(c.concurrency,1,20,'concurrency');num(c.overallTimeoutMs,1000,180000,'overallTimeoutMs');
   num(c.retry.maxRetries,0,5,'retry.maxRetries');num(c.retry.initialDelayMs,0,60000,'retry.initialDelayMs');num(c.retry.maxDelayMs,0,120000,'retry.maxDelayMs');

@@ -137,9 +137,9 @@
   "field.overallTimeoutMs": "总超时（毫秒）",
   "help.overallTimeoutMs": "包含重试在内的整次搜索时间上限。",
   "field.language": "语言",
-  "help.language": "传递给支持此参数的后端的语言代码。",
+  "help.language": "从固定列表中选择。各后端会收到自己要求的写法（Brave 用 zh-hans、Serper 用 zh-cn、SearXNG 用 zh-CN）；不支持该参数的后端会给出提示。",
   "field.region": "地区",
-  "help.region": "传递给支持此参数的后端的地区代码。",
+  "help.region": "从固定的两位地区列表中选择。只有声明支持地区的后端才会收到，并按其要求的大小写转换。",
   "field.recency": "发布时间范围",
   "help.recency": "所选 API 支持时才会应用。",
   "field.safeSearch": "安全搜索",
@@ -216,5 +216,9 @@
   "tab.backends": "搜索后端",
   "behaviorHint": "后端列表放在最后一个「搜索后端」标签页。",
   "testQueryPlaceholder": "想让这个后端搜什么？",
-  "saveBeforeTest": "请先保存更改再试搜。"
+  "saveBeforeTest": "请先保存更改再试搜。",
+  "notSpecified": "不指定",
+  "activeTitle": "当前未启用本插件作为搜索源",
+  "activeOther": "内置搜索当前选择的是「{{provider}}」。在选中本插件之前，搜索仍会走它。",
+  "activateSelf": "设为网页搜索来源"
 }

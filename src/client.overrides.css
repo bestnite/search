@@ -60,3 +60,4 @@
 .ns-backend-body .ns-muted{font-size:12.5px;line-height:1.6;margin:10px 0}
 .ns-meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .ns-meta strong{font-weight:600;color:var(--dsw-alias-label-primary)}
+.ns-blockers--info{border-color:var(--dsw-alias-border-l2)}.ns-blockers--info h3{color:var(--dsw-alias-label-primary)}

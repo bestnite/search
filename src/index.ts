@@ -31,7 +31,9 @@ export async function apply(ctx:Context,raw:SearchConfig){
   const currentRevision=revision(config);
   async function snapshot():Promise<SettingsSnapshot>{
     const credentials:SettingsSnapshot['credentials']={};for(const d of catalog){const info=await ctx.credentials.describe(credentialRef(config.backends[d.id]!.credentialRef));credentials[d.id]={configured:info.configured,writable:info.writable};}
-    return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,credentials,diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}]))};
+    let searchProvider:string|undefined;
+    try{const row=ctx.configEditor.configuration().find(item=>item.entry.options.id==='web');searchProvider=({...row?.inherited,...row?.override} as {searchProvider?:string}).searchProvider;}catch{/* Diagnostics only: never fail the page over a read. */}
+    return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,active:{...(searchProvider?{searchProvider}:{}),isSelf:searchProvider==='nite-search'},credentials,diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}]))};
   }
   async function operate(args:any,signal:AbortSignal):Promise<unknown>{
     if(args?.action==='settings')return snapshot();

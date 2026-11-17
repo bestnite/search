@@ -137,9 +137,9 @@
   "field.overallTimeoutMs": "Overall timeout (ms)",
   "help.overallTimeoutMs": "Deadline for the entire search, including retries.",
   "field.language": "Language",
-  "help.language": "Language code passed to supported backends.",
+  "help.language": "Chosen from a fixed list. Each backend receives its own spelling (Brave zh-hans, Serper zh-cn, SearXNG zh-CN); backends that ignore the field say so.",
   "field.region": "Region",
-  "help.region": "Region code passed to supported backends.",
+  "help.region": "Chosen from a fixed list of two-letter regions. Only backends that declare region support receive it, in their own format.",
   "field.recency": "Publication recency",
   "help.recency": "Applied where supported by the selected API.",
   "field.safeSearch": "Safe search",
@@ -216,5 +216,9 @@
   "tab.backends": "Backends",
   "behaviorHint": "Backends live under the Backends tab, last in this panel.",
   "testQueryPlaceholder": "What should this backend look for?",
-  "saveBeforeTest": "Save your changes before testing."
+  "saveBeforeTest": "Save your changes before testing.",
+  "notSpecified": "Not specified",
+  "activeTitle": "This plugin is not the active search provider",
+  "activeOther": "The web seam currently selects “{{provider}}”. Searches keep going there until this plugin is selected.",
+  "activateSelf": "Use this plugin for web search"
 }

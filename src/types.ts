@@ -48,6 +48,8 @@ export interface SearchResult {
 }
 export interface SettingsSnapshot {
   config: SearchConfig; defaults: SearchConfig; revision: string; catalog: BackendDefinition[];
+  /** Which provider the web seam currently selected, and whether it is this plugin. */
+  active: { searchProvider?: string; isSelf: boolean };
   credentials: Record<string, { configured: boolean; writable: boolean }>;
   diagnostics: BackendOutcome[]; counters: Record<string, { attempts: number; day: string }>;
 }
