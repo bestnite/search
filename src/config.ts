@@ -11,25 +11,6 @@ export function defaultConfig(): SearchConfig {
     backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
   };
 }
-/** Loopback, RFC1918, CGNAT (which includes tailnets) and unique-local IPv6 are treated as local. */
-export function isPrivateHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) return true;
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 10 || a === 127) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true;
-    if (a === 169 && b === 254) return true;
-    return false;
-  }
-  if (host.startsWith('fc') || host.startsWith('fd')) return true;
-  if (host.startsWith('fe80:')) return true;
-  return false;
-}
-
 export function validateConfig(value: unknown): ConfigIssue[] {
   const issues: ConfigIssue[]=[];
   const fail=(path:string,message:string)=>issues.push({path,message});
@@ -61,14 +42,16 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   num(c.retry.maxRetries,0,5,'retry.maxRetries');num(c.retry.initialDelayMs,0,60000,'retry.initialDelayMs');num(c.retry.maxDelayMs,0,120000,'retry.maxDelayMs');
   if(c.retry.initialDelayMs>c.retry.maxDelayMs)fail('retry.maxDelayMs','Maximum delay must not be shorter than initial delay.');
   num(c.cache.ttlSeconds,1,86400,'cache.ttlSeconds');num(c.cache.maxEntries,1,1000,'cache.maxEntries');num(c.breaker.threshold,1,100,'breaker.threshold');num(c.breaker.cooldownMs,1000,3600000,'breaker.cooldownMs');num(c.diagnostics.maxEntries,1,500,'diagnostics.maxEntries');
-  // A browser backend points at a Playwright server (a WebSocket URL), so both kinds share one rule.
+  // An endpoint is an HTTP URL, except for browser backends, which point at a Playwright server (a
+  // WebSocket URL); the scheme family has to match the kind, and both accept TLS. The host itself is
+  // not gated: an operator may run a search server or a browser container behind any name, including
+  // the container-runtime aliases (host.containers.internal, host.docker.internal), so plaintext is
+  // allowed wherever the operator points it.
   const checkEndpoint=(endpoint:string,path:string)=>{try{
       const url=new URL(endpoint);if(url.username||url.password||url.hash||url.search)throw 0;
-      const local=isPrivateHost(url.hostname);
       const schemes=url.protocol==='ws:'||url.protocol==='wss:'?['ws:','wss:']:['http:','https:'];
       if(!schemes.includes(url.protocol))throw 0;
-      const plain=url.protocol==='http:'||url.protocol==='ws:';if(plain&&!local)throw 0;
-    }catch{fail(path,'Use an HTTPS or WSS endpoint without credentials, query, or fragment; unencrypted HTTP and WS are allowed only on loopback or a private network.');}};
+    }catch{fail(path,'Use an HTTP(S) or WS(S) endpoint without credentials, query, or fragment.');}};
   const sharedBrowser=c.browser.endpoint;
   if(sharedBrowser)checkEndpoint(sharedBrowser,'browser.endpoint');
   if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.browser.credentialRef))fail('browser.credentialRef','Expected an environment-style credential reference.');
