@@ -33,14 +33,6 @@ Each backend is filed under a cost tier for the selected access mode: free, free
 
 Per-backend quotas, prices, sources and the date they were checked: [docs/BACKENDS.md](docs/BACKENDS.md).
 
-## Behaviour worth knowing
-
-- **Nothing switches behind your back.** No automatic key detection, no paid upgrade, no fallback to another backend or mode. Retries stay on the same provider, the same mode and the same credential.
-- **Failures are reported, not hidden.** A partial failure returns the results that worked and names what failed; a total failure says the search failed instead of pretending there were no matches.
-- **Keys live in DSH's credential store**, write-only — they are never shown on the page and never exported with the configuration.
-- **Language and region** use fixed lists; the plugin translates them into whatever each provider expects, and providers that ignore those fields say so.
-- Tencent WSA needs a JSON credential: `{"secretId":"...","secretKey":"..."}`.
-
 ## Development
 
 ```sh
