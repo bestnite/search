@@ -1,28 +1,28 @@
 #!/usr/bin/env node
 /**
- * Holds the sign-in window open.
+ * Keeps one browser window open on the container display.
  *
- * A Playwright browser server only shows a window while a client is attached, so this client stays
- * attached: Xiaohongshu opens on the container display, a person signs in over VNC whenever they
- * get to it, and the session is written to the profile volume as soon as it appears.
+ * A Playwright browser server shows a window only while a client is attached, so this client stays
+ * attached and holds a single window at a configurable address. A person signs in to whatever site
+ * needs signing in, in that window, over VNC — this process knows nothing about any particular site.
  *
- * Reads never use this connection — the search core opens its own context — so this exists purely
- * for the human step and for keeping the session fresh.
+ * Every read happens in its own connection, so nothing here is on the read path: this exists to give
+ * a human a window, and to keep the signed-in session on disk.
  */
 import { chromium } from 'patchright';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const env = process.env;
-const endpointFile = env.XHS_ENDPOINT_FILE ?? '/tmp/xhs-endpoint';
-const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
-const statePath = env.XHS_STATE_PATH ?? join(profileDir, 'state.json');
-const siteUrl = env.XHS_LOGIN_URL ?? 'https://www.xiaohongshu.com/explore';
-const token = (env.XHS_WS_TOKEN ?? '').trim();
-const intervalMs = Number(env.XHS_KEEPER_INTERVAL_MS ?? 15000);
+const endpointFile = env.BROWSER_ENDPOINT_FILE ?? '/tmp/browser-endpoint';
+const stateDir = env.BROWSER_STATE_DIR ?? '/profile';
+const statePath = env.BROWSER_STATE_PATH ?? join(stateDir, 'state.json');
+const startUrl = env.BROWSER_START_URL ?? 'about:blank';
+const token = (env.BROWSER_WS_TOKEN ?? '').trim();
+const saveIntervalMs = Number(env.BROWSER_SAVE_INTERVAL_MS ?? 60000);
 
 const log = message => { process.stderr.write(`[keeper] ${message}\n`); };
-mkdirSync(profileDir, { recursive: true });
+mkdirSync(stateDir, { recursive: true });
 
 const waitForEndpoint = async (deadline = Date.now() + 60000) => {
   while (Date.now() < deadline) {
@@ -37,60 +37,43 @@ const waitForEndpoint = async (deadline = Date.now() + 60000) => {
   throw new Error(`no endpoint in ${endpointFile}`);
 };
 
-/** Ask the site's own client whether this page is signed in. */
-const signedIn = async page => page.evaluate(async () => {
-  let captured = null;
-  try {
-    window.webpackChunkxhs_pc_web.push([['keeper_' + Date.now()], {}, req => { captured = req; }]);
-  } catch { return false; }
-  let src = '';
-  const modules = captured?.m ?? {};
-  for (const key of Object.keys(modules)) {
-    try { src = String(modules[key]); } catch { continue; }
-    if (src.includes('/api/sns/web/v1/feed') && src.includes('/api/sns/web/v2/user/me')) break;
-  }
-  const reg = /registerHttp[^]*?\}\(\w+\((\d+)\)\.([A-Za-z_$][\w$]*)\)\}/.exec(src);
-  if (!reg) return false;
-  const mod = captured(Number(reg[1]));
-  const candidate = mod?.[reg[2]];
-  const client = candidate?.get ? candidate : candidate?.default;
-  if (!client?.get) return false;
-  try {
-    const me = await client.get('/api/sns/web/v2/user/me');
-    return me?.guest === false;
-  } catch {
-    return false;
-  }
-}, undefined, {}, false);
-
 const endpoint = await waitForEndpoint();
-const browser = await chromium.connect(endpoint, { timeout: 20000, ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}) });
-const context = await browser.newContext({ locale: 'zh-CN', viewport: null, ...(existsSync(statePath) ? { storageState: statePath } : {}) });
+const browser = await chromium.connect(endpoint, {
+  timeout: 20000,
+  ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+});
+// One context for everything: the sign-in window is an ordinary browser, so cookies for every site
+// a person signed into live together and travel in one state file.
+const context = await browser.newContext({
+  locale: env.BROWSER_LOCALE ?? 'zh-CN',
+  viewport: null,
+  ...(existsSync(statePath) ? { storageState: statePath } : {}),
+});
 const page = context.pages()[0] ?? await context.newPage();
-await page.goto(siteUrl, { waitUntil: 'domcontentloaded' });
+await page.goto(startUrl, { waitUntil: 'domcontentloaded' }).catch(error => {
+  log(`could not open ${startUrl}: ${error instanceof Error ? error.message : String(error)}`);
+});
 await page.bringToFront();
-log(`sign-in window is open at ${siteUrl}; use the VNC page`);
+log(`window is open at ${page.url()}; sign in there over VNC`);
+log(`session is written to ${statePath} every ${Math.round(saveIntervalMs / 1000)}s`);
 
-let lastSaved = 0;
-const keep = async () => {
+let saving = false;
+const save = async () => {
+  if (saving) return;
+  saving = true;
   try {
-    if (page.isClosed()) return;
-    if (await signedIn(page)) {
-      if (Date.now() - lastSaved > 60000) {
-        await context.storageState({ path: statePath });
-        lastSaved = Date.now();
-        log(`session saved to ${statePath}`);
-      }
-    }
+    await context.storageState({ path: statePath });
   } catch (error) {
-    log(`check failed: ${error instanceof Error ? error.message : String(error)}`);
+    log(`could not save the session: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    saving = false;
   }
 };
 
-setInterval(() => { void keep(); }, intervalMs).unref?.();
+setInterval(() => { void save(); }, saveIntervalMs).unref?.();
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
-    await context.storageState({ path: statePath }).catch(() => undefined);
+    await save();
     await browser.close().catch(() => undefined);
     process.exit(0);
   });

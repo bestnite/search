@@ -12,14 +12,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const env = process.env;
-const publicPort = Number(env.XHS_PUBLIC_PORT ?? 3000);
-const endpointFile = env.XHS_ENDPOINT_FILE ?? '/tmp/xhs-endpoint';
-const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
+const publicPort = Number(env.BROWSER_PUBLIC_PORT ?? 3000);
+const endpointFile = env.BROWSER_ENDPOINT_FILE ?? '/tmp/browser-endpoint';
+const profileDir = env.BROWSER_STATE_DIR ?? '/profile';
 const tokenPath = join(profileDir, 'ws-token');
-const wsPath = env.XHS_WS_PATH ?? '/xhs';
+const wsPath = env.BROWSER_WS_PATH ?? '/ws';
 
 /** The token is generated once per volume, so a restart keeps it and a wiped volume rotates it. */
-export function resolveToken(dir = profileDir, provided = env.XHS_WS_TOKEN) {
+export function resolveToken(dir = profileDir, provided = env.BROWSER_WS_TOKEN) {
   if (provided && provided.trim() !== '') return provided.trim();
   const path = join(dir, 'ws-token');
   if (existsSync(path)) {
@@ -63,7 +63,7 @@ const server = createServer((request, response) => {
     return;
   }
   response.writeHead(200, { 'content-type': 'application/json' });
-  response.end(JSON.stringify({ ok: true, endpoint: `${wsPath}`, auth: 'Bearer token required', vnc: Number(env.XHS_VNC_PORT ?? 6080) }));
+  response.end(JSON.stringify({ ok: true, endpoint: `${wsPath}`, auth: 'Bearer token required', vnc: Number(env.BROWSER_VNC_PORT ?? 6080) }));
 });
 
 server.on('upgrade', (request, socket, head) => {
@@ -102,5 +102,5 @@ server.on('upgrade', (request, socket, head) => {
 server.listen(publicPort, '0.0.0.0', () => {
   process.stderr.write(`[proxy] listening on 0.0.0.0:${publicPort}, forwarding to whatever ${endpointFile} announces (path ${wsPath})\n`);
   process.stderr.write(`[proxy] bearer token: ${token}\n`);
-  process.stderr.write(`[proxy] token file: ${tokenPath} (env XHS_WS_TOKEN overrides it, and skips the file)\n`);
+  process.stderr.write(`[proxy] token file: ${tokenPath} (env BROWSER_WS_TOKEN overrides it, and skips the file)\n`);
 });

@@ -11,21 +11,21 @@ import { chromium } from 'patchright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const env = process.env;
-const internalPort = Number(env.XHS_INTERNAL_PORT ?? 3001);
-const wsPath = env.XHS_WS_PATH ?? '/xhs';
-const profileDir = env.XHS_PROFILE_DIR ?? '/profile';
+const internalPort = Number(env.BROWSER_INTERNAL_PORT ?? 3001);
+const wsPath = env.BROWSER_WS_PATH ?? '/ws';
+const profileDir = env.BROWSER_STATE_DIR ?? '/profile';
 // Patchright already adjusts Playwright's launch arguments (no --enable-automation, and
 // --disable-blink-features=AutomationControlled is added), so only the container needs a say.
 const launchArgs = [
   '--no-sandbox',
   '--disable-dev-shm-usage',
   // The window itself is what the VNC viewer signs in through, so give it a usable size.
-  `--window-size=${env.XHS_WINDOW_SIZE ?? '1440,900'}`,
+  `--window-size=${env.BROWSER_WINDOW_SIZE ?? '1440,900'}`,
 ];
 // Headful by default: the display is virtual, and the VNC viewer needs a real window to sign in.
-const headless = env.XHS_HEADLESS === 'true';
+const headless = env.BROWSER_HEADLESS === 'true';
 // launchServer picks its own port, so the endpoint is announced through a file the proxy reads.
-const endpointFile = env.XHS_ENDPOINT_FILE ?? '/tmp/xhs-endpoint';
+const endpointFile = env.BROWSER_ENDPOINT_FILE ?? '/tmp/browser-endpoint';
 
 mkdirSync(profileDir, { recursive: true });
 const log = message => process.stderr.write(`[launcher] ${message}\n`);
