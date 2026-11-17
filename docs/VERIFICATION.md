@@ -35,7 +35,7 @@ Keyed backends (Tavily, Brave, DeepSeek, Zhihu, Baidu, Doubao, Linkup, Serper, S
 
 ## Deployed state
 
-- Bundle `@nite/dsh-search` installed by Plugin Manager from the linked worktree; Host fiber active; Settings entry `nite-search` active in the live slot tree.
+- Bundle `@nite07/dsh-search` installed by Plugin Manager from the linked worktree; Host fiber active; Settings entry `nite-search` active in the live slot tree.
 - `searchProvider: nite-search`, `fetchProvider: http`.
 - Old bundle `@240xu/dsh-websearch` disabled, not removed (rollback: enable it and restore `searchProvider: unified`).
 - Enabled backends: Keenable, Exa, You.com (anonymous) and local SearXNG. Everything else disabled.

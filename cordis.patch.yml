@@ -1,4 +1,4 @@
 - insert:
     - id: nite-search
-      name: '@nite/dsh-search'
+      name: '@nite07/dsh-search'
       config: {}

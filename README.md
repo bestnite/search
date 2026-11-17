@@ -29,7 +29,7 @@ DSH peer packages must resolve from the compatible installed runtime or a compat
 
 ## Install and configure
 
-Build first, then install this directory using DSH Plugin Manager. Open Settings > Search, select each backend's access mode, review pricing, set its endpoint/options and enable only the backends you want. Save before editing credentials or running an explicit test. Credential references are environment-style identifiers; secrets are saved through DSH's credential service, not exported in configuration. Removing a stored credential can reveal an ambient environment value again.
+Install from npm (`@nite07/dsh-search`) or, when hacking on the source, build first and install this directory using DSH Plugin Manager. Open Settings > Search, select each backend's access mode, review pricing, set its endpoint/options and enable only the backends you want. Save before editing credentials or running an explicit test. Credential references are environment-style identifiers; secrets are saved through DSH's credential service, not exported in configuration. Removing a stored credential can reveal an ambient environment value again.
 
 The bundle registers provider ID `nite-search` but does **not** change the active search/fetch selection or disable another plugin automatically. Migration must explicitly select the new provider while preserving the current fetch provider. Retain the old bundle disabled for rollback. The settings page reports which provider the web seam currently selects and offers a one-click switch when it is not this plugin.
 
