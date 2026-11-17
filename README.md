@@ -4,7 +4,7 @@ A TypeScript/TSX multi-backend search bundle for DeepSeek Harness 0.2.2-rc.3.
 
 ## Features
 
-- 22 backend entries, independently enabled; explicit anonymous or key access where supported.
+- 21 backend entries, independently enabled; explicit anonymous or key access where supported.
 - No provider, credential, endpoint, or access-mode fallback.
 - Bounded configurable HTTP retries, cancellation, deadlines and Retry-After handling.
 - Cost tiers, dated quota disclosures and official references per access mode.

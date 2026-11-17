@@ -22,7 +22,8 @@ export function validateConfig(value: unknown): ConfigIssue[] {
       else if(v.some(x=>typeof x!=='string'||x.length>253||!/^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+$/.test(x)))fail(path,'Expected domain names without scheme, path, or wildcards.');
     }else if(object(exemplar)){
       if(!object(v)){fail(path,'Expected an object.');return;}
-      for(const k of Object.keys(v))if(!(k in exemplar))fail(path?`${path}.${k}`:k,'Unknown configuration field.');
+      // Retired backends may still sit in a saved row; they are pruned on load, not rejected.
+      for(const k of Object.keys(v))if(!(k in exemplar)&&path!=='backends')fail(path?`${path}.${k}`:k,'Unknown configuration field.');
       for(const [k,e]of Object.entries(exemplar))shape(v[k],e,path?`${path}.${k}`:k);
     }else if(typeof v!==typeof exemplar|| (typeof v==='number'&&!Number.isFinite(v)))fail(path,`Expected ${typeof exemplar}.`);
     else if(typeof v==='string'&&v.length>4096)fail(path,'Value is too long.');
@@ -50,4 +51,16 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   }
   return issues;
 }
-export function parseConfig(value:unknown):SearchConfig{const issues=validateConfig(value);if(issues.length)throw new Error(issues.map(x=>`${x.path}: ${x.message}`).join('\n'));return structuredClone(value) as SearchConfig;}
+export function parseConfig(value:unknown):SearchConfig{
+  const defaults=defaultConfig();
+  // Migrate the backend map before validation: drop entries this release no longer ships, add ones it now ships.
+  if(value&&typeof value==='object'&&!Array.isArray(value)&&(value as any).backends&&typeof (value as any).backends==='object'){
+    const raw=structuredClone(value) as any;
+    for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
+    for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
+    value=raw;
+  }
+  const issues=validateConfig(value);
+  if(issues.length)throw new Error(issues.map(x=>`${x.path}: ${x.message}`).join('\n'));
+  return structuredClone(value) as SearchConfig;
+}
