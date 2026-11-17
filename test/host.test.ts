@@ -54,3 +54,21 @@ test('the endpoint token is stored once on the shared browser reference',async()
  await h.tool('search_manage')!.execute({action:'credential',ref:'DSH_SEARCH_BROWSER_TOKEN',remove:true},{signal});
  assert.equal((await h.tool('search_manage')!.execute({action:'settings'},{signal})).browser.credentialConfigured,false);
 });
+
+test('a token stored under the generated per-backend reference moves to the shared browser reference',async()=>{const h=harness();const legacy='DSH_SEARCH_XIAOHONGSHU_KEY';
+ h.secrets.set(legacy,'ENDPOINT_TOKEN');
+ const saved=defaultConfig();saved.backends.xiaohongshu!.enabled=true;saved.backends.xiaohongshu!.credentialRef=legacy;saved.browser.endpoint='ws://host.containers.internal:3030/ws';
+ await apply(h.ctx,saved);
+ const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});
+ assert.equal(snapshot.browser.credentialConfigured,true,'the token now lives on the shared reference');
+ assert.equal(h.secrets.get('DSH_SEARCH_BROWSER_TOKEN'),'ENDPOINT_TOKEN');
+ assert.equal(h.secrets.has(legacy),false,'the generated reference no longer exists');
+ assert.equal(snapshot.config.backends.xiaohongshu.credentialRef,'','the row names no reference of its own');
+ assert.equal(snapshot.credentials.xiaohongshu.configured,false);
+ // A reference the operator chose is left untouched.
+ const chosen=harness();chosen.secrets.set('MY_OWN_TOKEN_REF','OTHER');
+ const custom=defaultConfig();custom.backends.xiaohongshu!.credentialRef='MY_OWN_TOKEN_REF';
+ await apply(chosen.ctx,custom);
+ assert.equal(chosen.secrets.get('MY_OWN_TOKEN_REF'),'OTHER');
+ assert.equal(chosen.secrets.has('DSH_SEARCH_BROWSER_TOKEN'),false,'nothing is copied over a chosen reference');
+});

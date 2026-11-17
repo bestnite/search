@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
-import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
+import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, legacyCredentialRef, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
 import type { RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
@@ -24,10 +24,31 @@ export const Config=schema(defaultConfig());
 interface FetchRoute {path:string;methods:('GET'|'POST')[];requestBody:'buffered';fetch:(request:Request)=>Promise<Response>}
 interface Connection {fetch:{register:(route:FetchRoute)=>()=>Promise<void>}}
 interface Tools {register:(definition:{name:string;description:string;parameters:Record<string,unknown>;output:{schema:Record<string,unknown>;render:(args:unknown,value:any)=>{type:'text';text:string}[]};execute:(args:any,exec:{signal:AbortSignal})=>Promise<unknown>})=>()=>void}
+/**
+ * Move an endpoint token that an earlier release stored under a generated per-backend reference onto
+ * the shared browser reference, which is the only name this release reads first. The old entry is
+ * removed only after the copy succeeds, and only when the shared reference holds nothing yet.
+ */
+async function migrateBrowserToken(ctx:Context,raw:SearchConfig,migrated:SearchConfig){
+  const shared=migrated.browser.credentialRef;if(!shared)return;
+  for(const d of catalog){
+    if(!d.modes.every(m=>m.mode==='browser'))continue;
+    const legacy=legacyCredentialRef(d.id);
+    const savedRow=(raw.backends as Record<string,{credentialRef?:string}>|undefined)?.[d.id];
+    if(savedRow?.credentialRef!==legacy||migrated.backends[d.id]?.credentialRef!=='')continue;
+    const stored=await ctx.credentials.resolve(credentialRef(legacy)).catch(()=>undefined);
+    if(!stored?.value)continue;
+    // Both names holding a token is not ours to resolve: keep the old entry and leave a note in the UI.
+    if((await ctx.credentials.resolve(credentialRef(shared)).catch(()=>undefined))?.value)continue;
+    await ctx.credentials.set(credentialRef(shared),stored.value);
+    await ctx.credentials.unset(credentialRef(legacy)).catch(()=>undefined);
+  }
+}
 export async function apply(ctx:Context,raw:SearchConfig){
   // The library carries the caller's name on the wire; this host is the DSH plugin.
   setUserAgent(`dsh-search/${VERSION} (+${PROJECT_URL})`);
   const config=parseConfig(raw);
+  await migrateBrowserToken(ctx,raw,config);
   const usage=await openUsage(ctx);ctx.effect(()=>()=>usage.close());
   const engine=new SearchEngine(config,async ref=>(await ctx.credentials.resolve(credentialRef(ref)))?.value,fetch,usage.reserve);
   const lifetime=new AbortController();ctx.effect(()=>()=>{lifetime.abort();engine.clearCache();engine.clearDiagnostics();});
