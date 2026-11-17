@@ -3,9 +3,10 @@ name: image
 # The browser image is the only artifact here, and its version tracks the Patchright driver inside it,
 # so it has its own tag line: `browser-v1.64.3` publishes 1.64.3, 1.64, 1 and latest.
 #
-# The job runs in the runner's Ubuntu container, and the runner carries its own docker daemon (the
-# dind image): the job talks to that daemon, so nothing here touches the machine's own container
-# engine and the build cache stays in the runner's volume.
+# The job runs in the runner's Ubuntu container: that container is the isolation boundary, with its own
+# network and filesystem. Building needs the image store, so the job gets the machine's podman socket
+# mounted and drives it through podman's own API — the docker CLI's build path over that same socket is
+# what fails on oom_score_adj, while a plain docker run over it succeeds.
 on:
   push:
     tags:
@@ -38,6 +39,8 @@ concurrency:
 
 env:
   IMAGE_NAME: search-browser
+  # The socket the job container has mounted, and the client that speaks its native API.
+  PODMAN_URL: unix:///run/podman/podman.sock
   # One place decides whether this run publishes; everything downstream reads it.
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
 
@@ -48,8 +51,13 @@ jobs:
       - name: Check out the commit
         uses: actions/checkout@v4
 
-      - name: Check the docker daemon
-        run: docker version --format 'daemon {{.Server.Version}}'
+      - name: Install the podman client
+        run: |
+          set -eu
+          # The job image ships docker but not podman; the remote client is enough to drive the socket.
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq podman-remote
+          podman-remote --url "${PODMAN_URL}" version --format 'server {{.Server.Version}}'
 
       - name: Work out the tags
         id: tags
@@ -78,7 +86,7 @@ jobs:
           PLATFORM: ${{ steps.tags.outputs.platform }}
         run: |
           set -eu
-          docker build \
+          podman-remote --url "${PODMAN_URL}" build \
             --platform "${PLATFORM}" \
             --label "org.opencontainers.image.title=Search browser for @nite07/search-core" \
             --label "org.opencontainers.image.description=Patchright-driven Google Chrome behind a token-protected Playwright endpoint, with a VNC window for the sign-in" \
@@ -86,7 +94,7 @@ jobs:
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             -t "${IMAGE_NAME}:build" \
             image/
-          docker image inspect "${IMAGE_NAME}:build" --format 'built {{.Id}} ({{.Size}} bytes) for {{.Architecture}}'
+          podman-remote --url "${PODMAN_URL}" image inspect "${IMAGE_NAME}:build" --format 'built {{.Id}} ({{.Size}} bytes) for {{.Architecture}}'
 
       - name: Publish
         if: env.PUBLISH == 'true'
@@ -102,6 +110,7 @@ jobs:
             echo "::error::DOCKERHUB_USERNAME and DOCKERHUB_TOKEN must be set on this repository."
             exit 1
           fi
+          podman_remote() { podman-remote --url "${PODMAN_URL}" "$@"; }
           targets="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
           # GHCR is optional: it needs a GitHub token that can write packages, which a Gitea runner
           # has no way to mint on its own.
@@ -110,15 +119,15 @@ jobs:
           else
             echo "no GHCR secrets: publishing to Docker Hub only"
           fi
-          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin docker.io
+          echo "${DOCKERHUB_TOKEN}" | podman_remote login -u "${DOCKERHUB_USERNAME}" --password-stdin docker.io
           if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USERNAME:-}" ]; then
-            echo "${GHCR_TOKEN}" | docker login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
+            echo "${GHCR_TOKEN}" | podman_remote login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
           fi
           for target in $targets; do
             echo "$TAGS" | while read -r tag; do
               [ -n "$tag" ] || continue
-              docker tag "${IMAGE_NAME}:build" "${target}:${tag}"
-              docker push "${target}:${tag}"
+              podman_remote tag "${IMAGE_NAME}:build" "${target}:${tag}"
+              podman_remote push "${target}:${tag}"
               echo "pushed ${target}:${tag}"
             done
           done
