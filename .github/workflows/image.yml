@@ -124,8 +124,7 @@ jobs:
             echo "${GHCR_TOKEN}" | podman_remote login -u "${GHCR_USERNAME}" --password-stdin ghcr.io
           fi
           for target in $targets; do
-            echo "$TAGS" | while read -r tag; do
-              [ -n "$tag" ] || continue
+            for tag in $TAGS; do
               podman_remote tag "${IMAGE_NAME}:build" "${target}:${tag}"
               podman_remote push "${target}:${tag}"
               echo "pushed ${target}:${tag}"
