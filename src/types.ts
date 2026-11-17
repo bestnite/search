@@ -34,6 +34,8 @@ export interface SearchConfig {
 }
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
 export interface SearchInput { query: string; maxResults?: number }
+/** Per-call strategy; it never mutates saved configuration. */
+export interface SearchOverrides { mode?: 'single' | 'parallel'; backends?: string[]; backend?: string; maxResults?: number }
 export interface AdapterInput {
   query: string; maxResults: number; config: SearchConfig; backend: BackendConfig; key?: string; signal: AbortSignal;
 }

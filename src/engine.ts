@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { catalog } from './catalog.js';
 import { runAdapter } from './adapters.js';
 import { abortError, SearchError } from './transport.js';
-import type { BackendOutcome, SearchConfig, SearchInput, SearchResult, Source } from './types.js';
+import type { BackendOutcome, SearchConfig, SearchInput, SearchOverrides, SearchResult, Source } from './types.js';
 export function revision(config:SearchConfig):string{return createHash('sha256').update(JSON.stringify(config)).digest('hex');}
 export class SearchEngine {
   private cache=new Map<string,{expires:number;result:SearchResult}>();
@@ -14,14 +14,35 @@ export class SearchEngine {
   clearDiagnostics(){this.history=[];}
   diagnostics(){return structuredClone(this.history);}
   counters(){return Object.fromEntries([...this.usage].map(([id,u])=>[id,{attempts:u.attempts,day:u.day}]));}
-  async search(input:SearchInput,signal?:AbortSignal,onlyBackend?:string):Promise<SearchResult>{
+  async search(input:SearchInput,signal?:AbortSignal,onlyBackend?:string,overrides?:SearchOverrides):Promise<SearchResult>{
     if(typeof input.query!=='string'||!input.query.trim()||input.query.length>10000)throw new SearchError('configuration','Query must contain 1–10,000 characters.');
     if(input.maxResults!==undefined&&(!Number.isInteger(input.maxResults)||input.maxResults<1||input.maxResults>50))throw new SearchError('configuration','Result limit must be 1–50.');
-    const c=this.config;const max=input.maxResults??c.maxResults;const outer=signal??new AbortController().signal;
+    if(overrides?.maxResults!==undefined&&(!Number.isInteger(overrides.maxResults)||overrides.maxResults<1||overrides.maxResults>50))throw new SearchError('configuration','Result limit must be 1–50.');
+    const c=this.config;const max=input.maxResults??overrides?.maxResults??c.maxResults;const outer=signal??new AbortController().signal;
     const deadline=AbortSignal.timeout(c.overallTimeoutMs);const combined=AbortSignal.any([outer,deadline]);
-    const ids=onlyBackend?[onlyBackend]:c.mode==='single'?[c.singleBackend]:catalog.filter(d=>c.backends[d.id]?.enabled).map(d=>d.id);
+    // Per-call overrides never touch saved configuration; anything that cannot be honoured is reported.
+    const notes:string[]=[];
+    const enabledIds=()=>catalog.filter(d=>c.backends[d.id]?.enabled).map(d=>d.id);
+    const resolveIds=():string[]=>{
+      if(onlyBackend)return [onlyBackend];
+      const mode=overrides?.mode??c.mode;
+      if(mode==='single'){
+        if(overrides?.backend||overrides?.backends?.length)notes.push('Note: single mode ignores the requested backend selection; the configured single backend was used.');
+        return [c.singleBackend];
+      }
+      if(overrides?.backend)notes.push('Note: parallel mode ignores a single backend argument; pass backends instead.');
+      const enabled=enabledIds();
+      if(!overrides?.backends?.length)return enabled;
+      const wanted=[...new Set(overrides.backends.map(value=>String(value).trim()).filter(Boolean))];
+      const usable=wanted.filter(id=>enabled.includes(id));
+      const rejected=wanted.filter(id=>!enabled.includes(id));
+      if(rejected.length)notes.push(`Ignored backends that are not enabled: ${rejected.join(', ')}.`);
+      if(!usable.length)notes.push('None of the requested backends are enabled. Ask the user which backends to enable, or omit the selection to use every enabled backend.');
+      return usable;
+    };
+    const ids=resolveIds();
     const cacheKey=JSON.stringify([revision(c),input.query,max,ids]);
-    const hit=this.cache.get(cacheKey);if(!onlyBackend&&c.cache.enabled&&hit&&hit.expires>Date.now())return {...structuredClone(hit.result),cached:true,content:hit.result.content+'\n[Cache hit: no upstream requests were made.]'};
+    const hit=!notes.length?this.cache.get(cacheKey):undefined;if(!onlyBackend&&c.cache.enabled&&hit&&hit.expires>Date.now())return {...structuredClone(hit.result),cached:true,content:hit.result.content+'\n[Cache hit: no upstream requests were made.]'};
     const outcomes:BackendOutcome[]=new Array(ids.length);let cursor=0;
     const worker=async()=>{while(cursor<ids.length){const index=cursor++;const id=ids[index]!;outcomes[index]=await this.call(id,input.query,max,combined);}};
     await Promise.all(Array.from({length:Math.min(c.concurrency,ids.length)},worker));
@@ -35,7 +56,7 @@ export class SearchEngine {
     }
     const ranked=[...merged.values()].sort((a,b)=>c.fusion==='rrf'?b.score-a.score||a.order-b.order:a.order-b.order);
     const sources=ranked.slice(0,max).map(x=>x.source);
-    const failed=outcomes.filter(o=>!o.ok);const report:string[]=[];
+    const failed=outcomes.filter(o=>!o.ok);const report:string[]=[...notes];
     if(!ids.length)report.push('Search failed: no backend is enabled. Ask the user to configure and enable a search backend.');
     else if(!success.length)report.push('Search failed: every selected backend failed. This is not a successful search with no matches.');
     if(failed.length)report.push('IMPORTANT: Inform the user of the following backend failures. No backend, access-mode, endpoint, or credential fallback was attempted.');
@@ -43,7 +64,7 @@ export class SearchEngine {
     const result:SearchResult={sources,content:report.join('\n'),truncated:ranked.length>max,outcomes,cached:false};
     if(c.diagnostics.enabled){const at=Date.now();this.history.push(...outcomes.map(o=>({...o,sources:[],at})));this.history=this.history.slice(-c.diagnostics.maxEntries);}
     // Failures are never cached, so a temporary failure cannot be hidden by a cache hit.
-    if(!onlyBackend&&c.cache.enabled&&success.length&&failed.length===0){this.cache.set(cacheKey,{expires:Date.now()+c.cache.ttlSeconds*1000,result:structuredClone(result)});while(this.cache.size>c.cache.maxEntries)this.cache.delete(this.cache.keys().next().value!);}
+    if(!onlyBackend&&!notes.length&&c.cache.enabled&&success.length&&failed.length===0){this.cache.set(cacheKey,{expires:Date.now()+c.cache.ttlSeconds*1000,result:structuredClone(result)});while(this.cache.size>c.cache.maxEntries)this.cache.delete(this.cache.keys().next().value!);}
     return result;
   }
   private async call(id:string,query:string,maxResults:number,signal:AbortSignal):Promise<BackendOutcome>{

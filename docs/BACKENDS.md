@@ -313,3 +313,16 @@ Tests assert both the default and the exemptions, including header containers of
 ## Credential editing does not require a save
 
 Choosing a different access mode used to lock the credential field until the configuration was saved, because the write was validated against the saved reference. The editor now sends the reference it currently shows, validated as an environment-style name, so a mode switch followed by a credential entry works without an intermediate save. Only a reference the provider reports as unwritable stays locked, and the field says why.
+
+## Per-call strategy (`web_search_plus`)
+
+`web_search` is the harness's own tool; its request shape is fixed by the web seam (`query` plus `maxResults`), so a provider cannot add parameters to it. Strategy overrides therefore live in a second tool:
+
+| Argument | Effect |
+| --- | --- |
+| `mode` | `single` or `parallel` for this call; omitted means the configured mode |
+| `backends` | Subset of the enabled backends; anything disabled or unknown is named in the result |
+| `backend` | Single backend id; ignored with a note in single mode, where the configured backend wins, and in parallel mode |
+| `maxResults` | Result bound for this call, 1–50 |
+
+Overrides never mutate saved configuration and are never cached, so a narrowed call cannot be served from a cache entry produced under a different strategy.
