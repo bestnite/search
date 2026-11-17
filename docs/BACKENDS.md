@@ -274,8 +274,10 @@ Reddit needs two different paths, because its public REST endpoints changed:
 
 | Access mode | Credential | Transport | Notes |
 | --- | --- | --- | --- |
+| `anonymous` (default) | none | Reddit's Android app endpoint (`gql-fed.reddit.com`, persisted operations) | Since 2026-10 the public REST `/search` and `/comments` answer 403 to anonymous tokens, so this mode uses the same anonymous application-only token the Android client obtains. No published quota. |
 | `oauth` | `{clientId, clientSecret}` or those plus `{username, password}` | `oauth.reddit.com` REST | Official API. `client_credentials` reads public data; adding a username and password switches to the script grant. Roughly 100 queries/minute per client for non-commercial use. |
-| `anonymous` | none | Reddit's Android app endpoint (`gql-fed.reddit.com`, persisted operations) | Since 2026-10 the public REST `/search` and `/comments` answer 403 to anonymous tokens, so this mode uses the same anonymous application-only token the Android client obtains. No published quota. |
+
+The mode lists are ordered by setup cost, and the first mode is the default: Reddit starts on `anonymous` because it needs no account at all.
 
 The two modes never fall back to each other: a mode with no usable credential or a rejected token reports an authentication failure naming the mode, and the message says to switch modes rather than doing it silently.
 
@@ -289,8 +291,10 @@ Two access modes, chosen explicitly; neither falls back to the other.
 
 | Access mode | Credential | Transport | Cost |
 | --- | --- | --- | --- |
-| `bearer` | `{bearerToken}` — an app-only bearer token from the X developer console | `api.x.com/2/tweets/search/recent` | Pay per post read, about $0.005 each; the `postsPerSearch` option (default 10) bounds it |
-| `session` | `{authToken, ct0}` — the cookies of a signed-in X browser session | `x.com/i/api/graphql/<queryId>/SearchTimeline` with `x-client-transaction-id` signing | No fee; bounded by the account's own rate limits |
+| `session` (default) | `{authToken, ct0}` — the cookies of a signed-in X browser session | `x.com/i/api/graphql/<queryId>/SearchTimeline` with `x-client-transaction-id` signing | No fee; bounded by the account's own rate limits |
+| `key` | `{bearerToken}` — an app-only bearer token from the X developer console | `api.x.com/2/tweets/search/recent` | Pay per post read, about $0.005 each; the `postsPerSearch` option (default 10) bounds it |
+
+X defaults to `session` because it needs no developer app or billing set-up.
 
 Facts that shape the design:
 
