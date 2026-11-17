@@ -89,7 +89,7 @@ return {ok:true,note:{
   shares:stats.sharedCount||'0',
   publishedAt:str(card.time||card.lastUpdateTime),
   tags:(card.tagList||[]).map(function(t){return str(t&&t.name);}).filter(Boolean).slice(0,20),
-  images:(card.imageList||[]).length,
+  imageUrls:(card.imageList||[]).map(i=>str(i.urlDefault||i.urlPre||i.url)).filter(Boolean),
   url:'https://www.xiaohongshu.com/explore/'+${literal(input.id)}
 }};`);
 }

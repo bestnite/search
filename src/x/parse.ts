@@ -24,6 +24,8 @@ export interface ParsedTweet {
   likes: number;
   reposts: number;
   replies: number;
+  /** Pictures the post carries; a post can be nothing but pictures. */
+  images: string[];
 }
 
 /**
@@ -93,7 +95,26 @@ export function parseTweet(result: Node): ParsedTweet | undefined {
     likes: num(counts.favorite_count ?? legacy.favorite_count),
     reposts: num(counts.retweet_count ?? legacy.retweet_count),
     replies: num(counts.reply_count ?? legacy.reply_count),
+    images: tweetImages(legacy),
   };
+}
+
+/**
+ * Photos attached to a tweet. X keeps them under `extended_entities` for real tweets and under
+ * `entities` in some projections; only photos are kept, because a video needs a player rather than
+ * an image reader.
+ */
+function tweetImages(legacy: Node): string[] {
+  const found: string[] = [];
+  for (const holder of [legacy.extended_entities, legacy.entities]) {
+    for (const item of list(node(holder).media)) {
+      const media = node(item);
+      if (str(media.type) !== 'photo') continue;
+      const url = str(media.media_url_https) ?? str(media.media_url);
+      if (url) found.push(url);
+    }
+  }
+  return [...new Set(found)];
 }
 
 /** Walk the timeline instructions and pull every tweet that has a body worth quoting. */
@@ -105,7 +126,7 @@ export function parseInstructions(data: Node, limit: number): ParsedTweet[] {
       const result = tweetFromEntry(node(entry));
       if (!result) continue;
       const parsed = parseTweet(result);
-      if (!parsed || parsed.text.trim() === '') continue;
+      if (!parsed || (parsed.text.trim() === '' && parsed.images.length === 0)) continue;
       tweets.push(parsed);
       if (tweets.length >= limit) return tweets;
     }
@@ -124,6 +145,7 @@ export function toSource(tweet: ParsedTweet): Source {
     source.summary = `${tweet.likes} likes, ${tweet.reposts} reposts, ${tweet.replies} replies`;
   }
   if (tweet.createdAt) source.publishedAt = tweet.createdAt;
+  if (tweet.images.length) source.summary = `${source.summary ? `${source.summary} · ` : ''}${tweet.images.length} image${tweet.images.length === 1 ? '' : 's'}`;
   return source;
 }
 
@@ -143,6 +165,8 @@ export interface XThreadPost {
   text: string;
   url: string;
   createdAt?: string;
+  /** Pictures the post carries; a post can be nothing but pictures. */
+  images?: string[];
 }
 
 export interface ParsedThread {
@@ -189,7 +213,7 @@ export function parseThread(data: Node, options: { limit: number; depth: number;
       const collected: Array<{ tweet: ParsedTweet; depth: number }> = [];
       conversationTweets(node(entry), 0, collected);
       for (const item of collected) {
-        if (item.tweet.text.trim() === '') continue;
+        if (item.tweet.text.trim() === '' && item.tweet.images.length === 0) continue;
         const url = `https://x.com/${item.tweet.handle ?? 'i/web'}/status/${item.tweet.id}`;
         if (!post) {
           post = {
@@ -198,6 +222,7 @@ export function parseThread(data: Node, options: { limit: number; depth: number;
             url,
             ...(item.tweet.handle ? { handle: item.tweet.handle } : {}),
             ...(item.tweet.createdAt ? { createdAt: item.tweet.createdAt } : {}),
+            ...(item.tweet.images.length ? { images: item.tweet.images } : {}),
           };
           continue;
         }

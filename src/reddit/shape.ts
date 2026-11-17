@@ -41,6 +41,9 @@ export interface GqlPostNode {
   url?: string | null;
   isSelfPost?: boolean | null;
   content?: { markdown?: string | null } | null;
+  media?: { image?: { url?: string | null } | null; gallery?: { items?: Array<{ url?: string | null }> | null } | null } | null;
+  preview?: { images?: Array<{ source?: { url?: string | null } | null }> | null } | null;
+  urlOverriddenByDest?: string | null;
 }
 
 export interface RedditComment {
@@ -63,6 +66,8 @@ export interface PostData {
   commentCount?: number;
   createdUtc?: number;
   selfText?: string;
+  /** Pictures the post carries, best effort: a direct link, a gallery, or the preview. */
+  images: string[];
 }
 
 const str = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
@@ -150,6 +155,24 @@ export function searchPostNodes(data: Record<string, unknown>): GqlPostNode[] {
   });
 }
 
+/** Media on a GraphQL post: a single picture, a gallery, a preview, or a direct image link. */
+function graphqlImages(node: GqlPostNode): string[] {
+  const found: string[] = [];
+  const direct = str(node.urlOverriddenByDest ?? node.url);
+  if (/\.(?:jpe?g|png|gif|webp)(?:\?|$)/i.test(direct)) found.push(direct);
+  const single = str(node.media?.image?.url);
+  if (single) found.push(single);
+  for (const item of node.media?.gallery?.items ?? []) {
+    const url = str(item?.url);
+    if (url) found.push(url);
+  }
+  for (const image of node.preview?.images ?? []) {
+    const url = str(image?.source?.url).replaceAll('&amp;', '&');
+    if (url) found.push(url);
+  }
+  return [...new Set(found)].slice(0, 10);
+}
+
 export function gqlPost(node: GqlPostNode): PostData {
   const id = str(node.id).replace(/^t3_/, '');
   const permalink = str(node.permalink);
@@ -163,6 +186,8 @@ export function gqlPost(node: GqlPostNode): PostData {
     commentCount: num(node.commentCount),
     createdUtc: isoToEpochSeconds(node.createdAt),
     selfText: str(node.content?.markdown),
+    // The GraphQL node nests media under the legacy shape it was projected from.
+    images: graphqlImages(node),
   };
 }
 
@@ -258,6 +283,30 @@ export function restThreadPost(payload: unknown): Record<string, unknown> {
   return post.data;
 }
 
+/** Reddit wraps media URLs in HTML entities and offers several shapes depending on the post type. */
+function imagesOf(data: Record<string, unknown>): string[] {
+  const unescape = (value: string): string => value.replaceAll('&amp;', '&');
+  const found: string[] = [];
+  const direct = str(data.url_overridden_by_dest) || str(data.url);
+  if (/\.(?:jpe?g|png|gif|webp)(?:\?|$)/i.test(direct)) found.push(direct);
+  const gallery = data.media_metadata;
+  if (gallery && typeof gallery === 'object') {
+    for (const item of Object.values(gallery as Record<string, unknown>)) {
+      const source = (item as { s?: { u?: unknown; gif?: unknown } } | null)?.s;
+      const url = str(source?.u) || str(source?.gif);
+      if (url) found.push(unescape(url));
+    }
+  }
+  const preview = (data.preview as { images?: unknown } | undefined)?.images;
+  if (Array.isArray(preview)) {
+    for (const image of preview) {
+      const url = str((image as { source?: { url?: unknown } } | null)?.source?.url);
+      if (url) found.push(unescape(url));
+    }
+  }
+  return [...new Set(found)].slice(0, 10);
+}
+
 export function restPost(data: Record<string, unknown>): PostData {
   const id = str(data.id);
   const permalink = str(data.permalink);
@@ -271,6 +320,7 @@ export function restPost(data: Record<string, unknown>): PostData {
     commentCount: num(data.num_comments),
     createdUtc: num(data.created_utc),
     selfText: str(data.selftext),
+    images: imagesOf(data),
   };
 }
 

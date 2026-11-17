@@ -32,6 +32,7 @@ export type { XCredentials } from './x/index.js';
 export { fetchXThread, normaliseId } from './x/thread.js';
 export { fetchXhsComments, fetchXhsNote, readXhsSearchNotes, resolveTarget as resolveXhsTarget, searchXhs } from './xhs/index.js';
 export type { XhsComment, XhsContext, XhsNote, XhsNoteSummary } from './xhs/index.js';
+export { materialiseImages, mediaDir, type MediaImage, type MediaOptions } from './media.js';
 export { BrowserSession, closeBrowserSessions, connectFailure, sessionFor, type BrowserSessionOptions } from './browser.js';
 export type { XThread } from './x/thread.js';
 export type { XReply, XThreadPost } from './x/parse.js';

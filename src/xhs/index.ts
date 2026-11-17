@@ -48,7 +48,8 @@ export interface XhsNote {
   shares: string;
   publishedAt?: string;
   tags: string[];
-  images: number;
+  /** Picture URLs, in the order the note shows them. */
+  imageUrls: string[];
   url: string;
 }
 
