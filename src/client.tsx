@@ -2,8 +2,9 @@ import styles from './client.css';
 import overrides from './client.overrides.css';
 import en from '../locale/en.json';
 import zh from '../locale/zh.json';
-import { catalog, defaultConfig, LANGUAGES, REGIONS, validateConfig } from '@nite07/search-core';
-import type { BackendDefinition, BackendOutcome, ConfigIssue, SearchConfig } from '@nite07/search-core';
+import { catalog, defaultConfig, LANGUAGES, REGIONS, validateConfig } from '@nite07/search-core/static';
+import type { BackendDefinition, ConfigIssue, SearchConfig } from '@nite07/search-core/static';
+import type { BackendOutcome } from '@nite07/search-core';
 import { blockersOf, visible } from './visibility';
 import type { SettingsSnapshot } from './types';
 

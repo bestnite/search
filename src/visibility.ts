@@ -1,4 +1,4 @@
-import type { SearchConfig } from '@nite07/search-core';
+import type { SearchConfig } from '@nite07/search-core/static';
 
 /**
  * Which configuration paths are currently applicable.

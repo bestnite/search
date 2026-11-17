@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultConfig } from '@nite07/search-core';
+import { defaultConfig } from '@nite07/search-core/static';
 import { blockersOf, visible } from '../src/visibility.js';
 
 test('single-backend selection is only applicable in single mode and its value survives mode switches', () => {
