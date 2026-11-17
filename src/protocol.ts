@@ -50,7 +50,7 @@ export function createProtocol(tools: ToolDefinition[], info: ServerInfo, writer
         if (!tool) { fail(id, -32602, `Unknown tool: ${name}`, { available: tools.map(item => item.name) }); return; }
         try {
           const value = await tool.call(args, signal);
-          result(id, { content: [{ type: 'text', text: render(value) }], structuredContent: value, isError: false });
+          result(id, { content: contentBlocks(value), structuredContent: structuredCopy(value), isError: false });
         } catch (error) {
           // A tool failure is reported inside the result, with the message the caller needs.
           result(id, { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true });
@@ -79,6 +79,36 @@ export function createProtocol(tools: ToolDefinition[], info: ServerInfo, writer
       }
       await dispatch(request, signal);
     },
+  };
+}
+
+/**
+ * An MCP result is one text block plus one image block per picture that arrived. Base64 never goes
+ * into structuredContent, which exists for machine-readable fields rather than payloads.
+ */
+function contentBlocks(value: unknown): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [{ type: 'text', text: render(value) }];
+  const images = (value as { images?: unknown } | null)?.images;
+  if (Array.isArray(images)) {
+    for (const image of images as Array<{ data?: unknown; mimeType?: unknown }>) {
+      if (typeof image?.data === 'string' && typeof image.mimeType === 'string' && image.mimeType !== '') {
+        blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+      }
+    }
+  }
+  return blocks;
+}
+
+/** The same value with payloads replaced by their size, for structuredContent. */
+function structuredCopy(value: unknown): unknown {
+  const images = (value as { images?: unknown } | null)?.images;
+  if (!Array.isArray(images)) return value;
+  return {
+    ...(value as Record<string, unknown>),
+    images: images.map(image => {
+      const { data, ...rest } = image as Record<string, unknown>;
+      return typeof data === 'string' ? { ...rest, inline: true } : rest;
+    }),
   };
 }
 

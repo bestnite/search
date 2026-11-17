@@ -43,7 +43,7 @@ so `"credentials": { "keenable": "${NITE_SEARCH_KEENABLE_KEY}" }` keeps the secr
 | Tool | What it does |
 | --- | --- |
 | `web_search` | Search across the enabled backends. Takes `query`, plus optional `mode`, `backends`, `allBackends`, `exclude`, `backend`, `compact` and `maxResults`. Anything that cannot be honoured is named in the report rather than silently dropped. |
-| `read_thread` | Read one discussion: `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
+| `read_thread` | Read one discussion, with the pictures a post carries returned as MCP image content (bounded by count, per-file size and a per-call budget, with every link listed): `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
 | `list_backends` | Every backend with its modes, cost tier, enabled state and whether a credential is present. It never enables anything. |
 
 ## Behaviour worth relying on

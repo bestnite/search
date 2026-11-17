@@ -71,3 +71,30 @@ test('rendering prefers post text, then a source list, then JSON', () => {
   assert.match(render({ report: 'one failed', sources: [{ title: 'T', url: 'https://e.test' }] }), /one failed[\s\S]*- T <https:\/\/e.test>/);
   assert.match(render({ other: 1 }), /"other": 1/);
 });
+
+test('pictures become image content blocks and never leak into structuredContent', async () => {
+  const pictureTool: ToolDefinition = {
+    name: 'picture', description: 'Returns one text block and one picture', inputSchema: { type: 'object', properties: {} },
+    async call() {
+      return {
+        text: 'a post with a picture',
+        images: [
+          { url: 'https://img.example/a.png', mimeType: 'image/png', bytes: 3, data: 'AAAA' },
+          { url: 'https://img.example/b.png', mimeType: 'image/png', error: 'HTTP 404' },
+        ],
+      };
+    },
+  };
+  const out: string[] = [];
+  const protocol = createProtocol([pictureTool], { name: 'websearch-mcp', version: '9.9.9' }, { write: chunk => { out.push(chunk); return true; } });
+  await protocol.handle(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'picture', arguments: {} } }), new AbortController().signal);
+  const reply = JSON.parse(out.pop()!);
+  assert.equal(reply.result.content[0].type, 'text');
+  const imageBlocks = reply.result.content.filter((block: { type: string }) => block.type === 'image');
+  assert.equal(imageBlocks.length, 1, 'only the picture that arrived becomes a block');
+  assert.deepEqual(imageBlocks[0], { type: 'image', data: 'AAAA', mimeType: 'image/png' });
+  const structured = reply.result.structuredContent.images;
+  assert.equal(structured[0].inline, true);
+  assert.equal(structured[0].data, undefined, 'the base64 payload stays out of structuredContent');
+  assert.match(structured[1].error, /HTTP 404/);
+});

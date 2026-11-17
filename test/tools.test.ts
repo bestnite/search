@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTools } from '../src/tools.js';
+import type { ServerConfig } from '../src/config.js';
 import { defaultConfig } from '@nite07/search-core';
 import type { SearchEngine } from '@nite07/search-core';
 
 const identity = { name: 'websearch-mcp', version: '1.2.3', projectUrl: 'https://example.test/websearch-mcp' };
 
-function configWith(enabled: string[]) {
+function configWith(enabled: string[]): ServerConfig {
   const search = defaultConfig();
   for (const id of enabled) search.backends[id]!.enabled = true;
-  return { search, credentials: {}, compactByDefault: false, configPath: '/tmp/config.json' };
+  const credentials: Record<string, string> = {};
+  return { search, credentials, compactByDefault: false, configPath: '/tmp/config.json' };
 }
 
 /** A stand-in engine that records the overrides instead of searching. */
