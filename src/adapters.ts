@@ -5,6 +5,7 @@ import { languageFor, regionFor } from './locale-map.js';
 import { searchTencent } from './tencent.js';
 import { searchReddit, type RedditCredentials } from './reddit/index.js';
 import { parseXCredentials, searchX, type XCredentials } from './x/index.js';
+import { searchXhs } from './xhs/index.js';
 type Row=Record<string,unknown>;
 const obj=(v:unknown):Row=>v&&typeof v==='object'&&!Array.isArray(v)?v as Row:{};
 const array=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
@@ -16,6 +17,18 @@ function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',da
 }
 export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Promise<AdapterResult>{
   const b=i.backend;const o=b.options;const c=i.config;const headers:Record<string,string>={'Content-Type':'application/json'};
+  if(id==='xiaohongshu'){
+    // The browser belongs to the user, so there is no attempt budget to reserve per request:
+    // one page read is one read on their own infrastructure.
+    const wsEndpoint=String(o.wsEndpoint||b.endpoint||'');
+    const notes=await searchXhs({query:i.query,maxResults:i.maxResults,...(typeof o.sort==='string'&&o.sort!==''?{sort:o.sort}:{})},{
+      wsEndpoint,
+      ...(i.key?{token:i.key}:{}),
+      timeoutMs:b.timeoutMs,
+      signal:t.signal,
+    });
+    return {sources:notes};
+  }
   if(id==='tencent-wsa')return searchTencent(i,t);
   if(id==='x'){
     const credentials:XCredentials=parseXCredentials(i.key);

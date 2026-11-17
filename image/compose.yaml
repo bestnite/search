@@ -1,0 +1,23 @@
+# One browser for Xiaohongshu reads: stealth Chromium, virtual display, VNC, token-protected
+# Playwright endpoint. The profile volume holds the login, so it survives a restart.
+services:
+  xhs-browser:
+    build: .
+    image: ghcr.io/nite07/xhs-playwright:latest
+    container_name: xhs-browser
+    restart: unless-stopped
+    environment:
+      # Leave empty to generate a token on first start and keep it in the profile volume.
+      XHS_WS_TOKEN: ""
+      # Set a password before publishing the VNC port beyond loopback.
+      XHS_VNC_PASSWORD: ""
+      XHS_WS_PATH: /xhs
+    ports:
+      - "127.0.0.1:3000:3000"   # Playwright endpoint, token required
+      - "127.0.0.1:6080:6080"   # noVNC: sign in to Xiaohongshu here, once
+    volumes:
+      - xhs-profile:/profile
+    shm_size: "1gb"             # Chromium crashes on the default 64MB
+
+volumes:
+  xhs-profile:

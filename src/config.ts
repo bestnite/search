@@ -44,9 +44,15 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   for(const d of catalog){const b=c.backends[d.id]!;const p=`backends.${d.id}`;
     choice(b.mode,d.modes.map(m=>m.mode),`${p}.mode`);
     if(b.enabled&&d.status==='unverified')fail(`${p}.enabled`,'Backend protocol is not verified.');
-    if(b.endpoint){try{const url=new URL(b.endpoint);if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hash||url.search)throw 0;
-      const local=url.hostname==='localhost'||url.hostname==='127.0.0.1'||url.hostname==='[::1]';if(url.protocol==='http:'&&!local)throw 0;
-    }catch{fail(`${p}.endpoint`,'Use an HTTPS endpoint without credentials, query, or fragment; HTTP is allowed only on loopback.');}}
+    if(b.endpoint){try{
+      const url=new URL(b.endpoint);if(url.username||url.password||url.hash||url.search)throw 0;
+      const local=url.hostname==='localhost'||url.hostname==='127.0.0.1'||url.hostname==='[::1]';
+      // A browser backend points at a Playwright server, whose endpoint is a WebSocket URL.
+      const schemes=url.protocol==='ws:'||url.protocol==='wss:'?['ws:','wss:']:['http:','https:'];
+      if(!schemes.includes(url.protocol))throw 0;
+      // Unencrypted transports are only acceptable on loopback; anything remote must be TLS.
+      const plain=url.protocol==='http:'||url.protocol==='ws:';if(plain&&!local)throw 0;
+    }catch{fail(`${p}.endpoint`,'Use an HTTPS or WSS endpoint without credentials, query, or fragment; unencrypted HTTP and WS are allowed only on loopback.');}}
     else if(b.enabled)fail(`${p}.endpoint`,'An endpoint is required.');
     if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(b.credentialRef))fail(`${p}.credentialRef`,'Expected an environment-style credential reference.');
     num(b.timeoutMs,1000,120000,`${p}.timeoutMs`);num(b.rateLimitPerMinute,0,100000,`${p}.rateLimitPerMinute`);num(b.dailyAttemptLimit,0,1000000,`${p}.dailyAttemptLimit`);
