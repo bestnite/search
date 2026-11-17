@@ -68,3 +68,7 @@ test('compact returns links without snippets',async()=>{const c=defaultConfig();
  assert.ok(JSON.stringify(compact.sources).length*2<JSON.stringify(full.sources).length*2);});
 
 test('the agent switch is a validated boolean that defaults to on',async()=>{const c=defaultConfig();assert.equal(c.tools.webSearchPlus,true);const off=structuredClone(c)as any;off.tools.webSearchPlus=false;assert.deepEqual(validateConfig(off),[]);const bogus=structuredClone(c)as any;bogus.tools.webSearchPlus='yes';assert.ok(validateConfig(bogus).some(issue=>issue.path==='tools.webSearchPlus'));const unknown=structuredClone(c)as any;unknown.tools.somethingElse=true;assert.ok(validateConfig(unknown).some(issue=>issue.path==='tools.somethingElse'));});
+
+test('a failed backend never leaves undefined keys in tool-visible output',async()=>{const c=config();c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>{throw new Error('ECONNRESET');}));const r=await e.search({query:'hello'});
+ const roundTrip=JSON.parse(JSON.stringify(r));assert.deepEqual(roundTrip,r,'the result must survive a JSON round trip unchanged');
+ assert.equal('status' in r.outcomes[0]!.error! ,false,'an absent status must not be an undefined property');});

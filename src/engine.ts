@@ -103,7 +103,8 @@ export class SearchEngine {
         if(b.rateLimitPerMinute&&u.recent.length>=b.rateLimitPerMinute)throw new SearchError('budget','Local per-minute attempt limit reached.');u.attempts++;u.recent.push(Date.now());
       }});
       result.ok=true;result.sources=response.sources;warnings.push(...response.warnings??[]);this.failures.delete(id);
-    }catch(e){const error=e instanceof SearchError?e:new SearchError('protocol','Backend failed unexpectedly; inspect plugin diagnostics.');result.error={kind:error.kind,message:error.message,status:error.status};
+    }catch(e){const error=e instanceof SearchError?e:new SearchError('protocol','Backend failed unexpectedly; inspect plugin diagnostics.');// An own property set to undefined survives nothing: JSON round-trip drops it, so omit it instead.
+      result.error={kind:error.kind,message:error.message,...(error.status===undefined?{}:{status:error.status})};
       if(attempts&&this.config.breaker.enabled){const old=this.failures.get(id)?.count??0;this.failures.set(id,{count:old+1,until:old+1>=this.config.breaker.threshold?Date.now()+this.config.breaker.cooldownMs:0});}
     }
     result.attempts=attempts;result.durationMs=Date.now()-started;return result;

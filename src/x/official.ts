@@ -61,9 +61,9 @@ export async function searchXOfficial(input: { query: string; maxResults: number
     return [{
       url: username ? `https://x.com/${username}/status/${post.id}` : `https://x.com/i/web/status/${post.id}`,
       title: `${username ? `@${username}` : 'X post'}: ${text.slice(0, 90)}`,
-      snippet: text,
-      summary: typeof metrics.like_count === 'number' ? `${String(metrics.like_count)} likes, ${String(metrics.repost_count ?? 0)} reposts` : undefined,
-      publishedAt: typeof post.created_at === 'string' ? post.created_at : undefined,
+      ...(text ? { snippet: text } : {}),
+      ...(typeof metrics.like_count === 'number' ? { summary: `${String(metrics.like_count)} likes, ${String(metrics.repost_count ?? 0)} reposts` } : {}),
+      ...(typeof post.created_at === 'string' ? { publishedAt: post.created_at } : {}),
     } satisfies Source];
   });
   // Billing is per post read, so never hand the caller more than the configured cap.
