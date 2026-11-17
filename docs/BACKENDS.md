@@ -305,7 +305,7 @@ Facts that shape the design:
 - The tweet shape moved too: the body is `details.full_text` (long posts still use `note_tweet`), the timestamp is `details.created_at_ms`, and engagement counts sit under `counts`. Fields are located structurally rather than by a fixed path, because X moves them between releases.
 - Both modes surface credentials only as field names in error messages; tokens, cookies and upstream response bodies never appear in output.
 
-The behaviour contract for both modes is covered by unit tests with mocked fetch. **Neither mode has been exercised against the live service**: no bearer token and no X cookies were supplied. The `session` parsing paths that depend on X's current layout are listed as assumptions in the port notes.
+The behaviour contract for both modes is covered by unit tests with mocked fetch. When this section was written **neither mode had been exercised against the live service**, because no bearer token and no X cookies were supplied; `session` mode was then verified live the same day, further down this file, and the parsing paths that depend on X's current layout remain assumptions in the port notes. `key` mode still has no live call.
 
 ## Xiaohongshu (added 2026-11-17)
 
@@ -352,6 +352,8 @@ A compose file and an `env.example` sit next to the image sources: the endpoint 
 ### Verification status for Xiaohongshu (2026-11-17, live)
 
 Search, note detail and comment reads were all executed against a signed-in session. Three defects only a live session could expose were found and fixed: the proxy forwarded `Origin` and `Host` unchanged so a reachable endpoint answered 403; a page script used a leftover placeholder instead of a string helper and threw past the health probe; and the per-note token was not remembered, so a note found by search could not be opened afterwards. Unit tests cover the read paths with an injected browser.
+
+Re-verified in this deployment on 2026-11-18 through the shared browser: search, note detail and comments each answered in 2.5–3.2 s, and the deployment wiring (container, endpoint, session file, stored token) is recorded in [VERIFICATION.md](VERIFICATION.md).
 
 ## Outbound identity
 
