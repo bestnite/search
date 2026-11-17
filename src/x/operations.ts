@@ -127,7 +127,7 @@ export class OperationsRegistry {
     if (bundleUrl === undefined) {
       // A signed-out X serves a different front end (x-web/entry-client-logged-out-*), and that is
       // about the session, not about this adapter, so the two cases must not share one message.
-      if (html.includes('entry-client-logged-out') || /\/x-web\//.test(html)) {
+      if (html.includes('entry-client-logged-out')) {
         // Status and final URL separate "these cookies are rejected" from "the request never reached
         // a signed-in context"; both end up on the signed-out page otherwise.
         throw new SearchError(
@@ -135,9 +135,11 @@ export class OperationsRegistry {
           `x.com answered with the signed-out page (HTTP ${home.status}, landed on ${home.url}), so the stored auth_token and ct0 are not an accepted session. Copy both cookies again from a browser that shows a signed-in timeline.`,
         );
       }
+      // Since 2026-11 X serves x-web/entry-client-* instead of responsive-web main.*.js, so this is
+      // a front-end migration rather than a signed-out session.
       throw new SearchError(
         'protocol',
-        `Could not find main.js in the x.com home page; the page layout changed. ${MAINTAINER_ACTION}`,
+        `x.com no longer references main.js (front-end migrated to x-web); this adapter still expects the old bundle. ${MAINTAINER_ACTION}`,
       );
     }
     return this.fetchText(bundleUrl, transport, 'the x.com main bundle');

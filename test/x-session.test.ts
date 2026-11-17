@@ -457,3 +457,14 @@ test('a signed-out home page is reported as an expired session, not a layout cha
     (error: unknown) => error instanceof SearchError && error.kind === 'authentication' && /signed-out page/.test(error.message) && /HTTP 200/.test(error.message),
   );
 });
+
+test('a signed-in page on the new x-web front end reports a migration, not an expired session', async () => {
+  const signedIn = '<html><head><script src="https://abs.twimg.com/x-web/x-web/entry-client-DpQAcGwb.js"></script></head></html>';
+  const fetcher = (async () => new Response(signedIn, { status: 200 })) as unknown as typeof fetch;
+  const { searchXSession, resetXSessionState } = await import('../src/x/session.js');
+  resetXSessionState();
+  await assert.rejects(
+    searchXSession({ query: 'q', maxResults: 5 }, { credentials: { authToken: 'a', ct0: 'b' }, signal: new AbortController().signal, timeoutMs: 3000, fetch: fetcher }),
+    (error: unknown) => error instanceof SearchError && error.kind === 'protocol' && /migrated to x-web/.test(error.message),
+  );
+});
