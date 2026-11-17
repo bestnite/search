@@ -224,5 +224,7 @@
   "colorLegend": "绿色＝免费/自带账号/自托管，黄色＝免费额度，红色＝试用或付费。由便宜到贵排序。",
   "credentialPending": "当前操作还没结束，稍等。",
   "credentialRefRequired": "请先填一个凭证引用名。",
-  "credentialReadOnly": "这个凭证引用是只读的：它的值由其它来源提供，插件无法覆盖。换一个引用名试试，例如 DSH_SEARCH_X_SESSION。"
+  "credentialReadOnly": "这个凭证引用是只读的：它的值由其它来源提供，插件无法覆盖。换一个引用名试试，例如 DSH_SEARCH_X_SESSION。",
+  "credentialPlainKey": "直接填密钥字符串。",
+  "credentialShapeLabel": "凭证格式"
 }

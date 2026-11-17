@@ -7,6 +7,8 @@ export interface OptionField {
 }
 export interface ModeDefinition {
   mode: AccessMode; endpoint: string; tier: CostTier; limits: Localized; pricingUrl: string;
+  /** What the credential field expects, shown next to it; absent means no credential is used. */
+  credentialShape?: Localized;
 }
 export interface BackendDefinition {
   id: string; title: string; status: 'documented' | 'unverified'; docs: string; verifiedAt: string;

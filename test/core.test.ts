@@ -44,3 +44,10 @@ test('a per-call result bound is enforced and never cached over a different boun
  const bounded=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',maxResults:2});
  assert.equal(bounded.sources.length,2);assert.equal(bounded.truncated,true);
  await assert.rejects(e.search({query:'hello'},undefined,undefined,{maxResults:99}),/1–50/);});
+
+test('every mode that needs a credential tells the UI what to paste',async()=>{const {catalog}=await import('../src/catalog.js');const shaped=new Set(['x','reddit','tencent-wsa']);
+ for(const def of catalog)for(const mode of def.modes){
+  if(mode.mode==='anonymous'){assert.equal(mode.credentialShape,undefined,`${def.id}/${mode.mode} takes no credential`);continue;}
+  if(shaped.has(def.id))assert.ok(mode.credentialShape,`${def.id}/${mode.mode} must declare the credential shape`);
+  if(mode.credentialShape)assert.ok(mode.credentialShape.en&&mode.credentialShape.zh,`${def.id}/${mode.mode} shape needs both languages`);
+ }});
