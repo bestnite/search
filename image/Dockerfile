@@ -31,6 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/search-browser
 COPY package.json launcher.mjs ws-proxy.mjs keeper.mjs entrypoint.sh /opt/search-browser/
+# websockify serves /usr/share/novnc as a plain directory, and noVNC ships no index.html, so a bare
+# visit to the VNC port answered with a file listing. One redirect page keeps the port's front door
+# to the window a person is meant to open.
+COPY index.html /usr/share/novnc/index.html
 RUN npm install --omit=dev --no-audit --no-fund \
     && npx patchright install chrome \
     && chmod +x /opt/search-browser/entrypoint.sh
