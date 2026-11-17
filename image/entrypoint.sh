@@ -34,6 +34,10 @@ launcher_pid=$!
 node /opt/xhs-bridge/ws-proxy.mjs &
 proxy_pid=$!
 
+# The sign-in window: kept open so a human can log in over VNC at any time.
+node /opt/xhs-bridge/keeper.mjs &
+keeper_pid=$!
+
 cat >&2 <<BANNER
 
   Xiaohongshu browser ready
@@ -49,8 +53,8 @@ cat >&2 <<BANNER
 BANNER
 
 # Any component dying is the container's failure; stop the rest instead of serving a half stack.
-cleanup() { kill "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid" 2>/dev/null || true; }
+cleanup() { kill "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid" 2>/dev/null || true; }
 trap cleanup EXIT
 
-wait -n "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid"
+wait -n "$keeper_pid" "$launcher_pid" "$proxy_pid" "$novnc_pid" "$wm_pid" "$xvfb_pid"
 log 'a component exited; shutting down'

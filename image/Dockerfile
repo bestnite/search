@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /opt/xhs-bridge /profile
 
 WORKDIR /opt/xhs-bridge
-COPY package.json launcher.mjs ws-proxy.mjs login.mjs entrypoint.sh /opt/xhs-bridge/
+COPY package.json launcher.mjs ws-proxy.mjs keeper.mjs entrypoint.sh /opt/xhs-bridge/
 RUN npm install --omit=dev --no-audit --no-fund \
     && npx patchright install chrome \
     && chmod +x /opt/xhs-bridge/entrypoint.sh

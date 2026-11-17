@@ -39,12 +39,32 @@ journalctl --user -u xhs-browser -n 50 | grep -E 'endpoint|token'
 
 ## Sign in once
 
-1. Open `http://<host>:6080/vnc.html`, connect.
-2. In that window, open `xiaohongshu.com` and sign in with the QR code.
-3. The launcher saves cookies to `/profile/state.json` every minute and on shutdown.
+The container keeps a sign-in window open on its display, so there is nothing to start by hand:
+
+1. Open `http://<host>:6080/vnc.html` and connect with `XHS_VNC_PASSWORD`.
+2. Xiaohongshu is already loaded in that window; sign in with the QR code.
+3. The keeper notices the session and writes `/profile/state.json`; it refreshes it while the
+   session stays valid.
 
 After that the session is reused on every start. Nothing in the search core can sign in, and no
 credential ever leaves the container.
+
+If the window ever closes, restart the container: the keeper reopens it.
+
+## Publishing it beyond loopback
+
+A remote machine needs the ports bound to an address it can reach, for example a tailnet address:
+
+```sh
+podman run -d --name xhs-browser \
+  -p 100.64.0.10:3030:3000 -p 100.64.0.10:6080:6080 \
+  -e XHS_VNC_PASSWORD='<eight chars or fewer>' \
+  -v ~/.config/dsh-search/xhs:/profile:Z --shm-size=1gb xhs-playwright
+```
+
+Bind the VNC port only where you trust the network, and set a password whenever it is not loopback:
+anything that can reach it and knows no password can drive the browser. The Playwright endpoint
+always requires its bearer token.
 
 ## Point the search core at it
 
