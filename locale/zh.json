@@ -4,7 +4,7 @@
     "description": "多后端搜索，固定选择匿名或密钥模式，提供费用分档、有限重试和完整 Web 设置。后端默认关闭，账户调用可能产生费用。"
   },
   "title": "网页搜索",
-  "intro": "已启用 {{enabled}}/{{total}} 个后端。明确选择访问模式，控制请求额度，查看搜索运行情况。",
+  "intro": "已启用 {{enabled}}/{{total}} 个后端。",
   "loading": "正在读取已保存设置…",
   "loadFailed": "读取设置失败，请重新加载。",
   "reload": "重新加载设置",
@@ -219,5 +219,8 @@
   "notSpecified": "不指定",
   "activeTitle": "当前未启用本插件作为搜索源",
   "activeOther": "内置搜索当前选择的是「{{provider}}」。在选中本插件之前，搜索仍会走它。",
-  "activateSelf": "设为网页搜索来源"
+  "activateSelf": "设为网页搜索来源",
+  "tierCount": "共 {{total}} 家",
+  "tierEnabled": "启用 {{enabled}}",
+  "tierFiltered": "筛选后 {{shown}}"
 }

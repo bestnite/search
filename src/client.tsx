@@ -225,9 +225,10 @@ export function createClient(React: any) {
                 <div className="ns-field"><label htmlFor="ns-backend-filter">{t('filterBackends')}</label><select id="ns-backend-filter" value={backendFilter} onChange={(event: any) => setBackendFilter(event.target.value)}>{['all', 'enabled', 'configured'].map(value => <option key={value} value={value}>{t(`filter.${value}`)}</option>)}</select></div>
               </div>
               {(['free', 'allowance', 'trial', 'paid', 'self-hosted', 'unverified'] as const).map(tier => {
-                const members = definitions.filter(def => tierOf(def) === tier && matches(def));
-                const total = definitions.filter(def => tierOf(def) === tier).length;
-                return members.length ? <div className="ns-tier" key={tier}><h4>{t(`tier.${tier}`)} <span className="ns-muted">({members.length}/{total})</span></h4>{members.map(def => {
+                const inTier = definitions.filter(def => tierOf(def) === tier);
+                const members = inTier.filter(matches);
+                const enabledInTier = inTier.filter(def => draft.backends[def.id]?.enabled).length;
+                return members.length ? <div className="ns-tier" key={tier}><h4>{t(`tier.${tier}`)} <span className="ns-muted">{tr('tierCount', { total: inTier.length })} · {tr('tierEnabled', { enabled: enabledInTier })}{members.length < inTier.length ? ` · ${tr('tierFiltered', { shown: members.length })}` : ''}</span></h4>{members.map(def => {
                   const backend = draft.backends[def.id]; if (!backend) return null;
                   const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous';
                   return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips"><span className={`ns-chip ${locked ? 'ns-chip--off' : tierRisk(tier)}`}>{locked ? t('unverified') : t(`tier.${tier}`)}</span><span className="ns-chip">{t(`choice.${backend.mode}`)}</span>{def.evidence === 'live' && <span className="ns-chip ns-chip--ok">{t('liveVerified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>

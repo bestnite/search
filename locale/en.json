@@ -4,7 +4,7 @@
     "description": "Multi-backend search with explicit anonymous or key access, cost tiers, bounded retries and complete Web settings. Backends start disabled; account-backed requests may incur charges."
   },
   "title": "Web search",
-  "intro": "{{enabled}} of {{total}} backends enabled. Choose explicit access modes, control request budgets, and inspect search activity.",
+  "intro": "{{enabled}} of {{total}} backends enabled.",
   "loading": "Loading saved settings…",
   "loadFailed": "Could not load settings. Reload to try again.",
   "reload": "Reload settings",
@@ -219,5 +219,8 @@
   "notSpecified": "Not specified",
   "activeTitle": "This plugin is not the active search provider",
   "activeOther": "The web seam currently selects “{{provider}}”. Searches keep going there until this plugin is selected.",
-  "activateSelf": "Use this plugin for web search"
+  "activateSelf": "Use this plugin for web search",
+  "tierCount": "{{total}} total",
+  "tierEnabled": "{{enabled}} on",
+  "tierFiltered": "{{shown}} after filter"
 }
