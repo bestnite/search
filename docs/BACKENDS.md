@@ -300,3 +300,12 @@ Facts that shape the design:
 - Both modes surface credentials only as field names in error messages; tokens, cookies and upstream response bodies never appear in output.
 
 The behaviour contract for both modes is covered by unit tests with mocked fetch. **Neither mode has been exercised against the live service**: no bearer token and no X cookies were supplied. The `session` parsing paths that depend on X's current layout are listed as assumptions in the port notes.
+
+## Outbound identity
+
+Every request this plugin sends carries `dsh-search/<version> (+project url)` as its `User-Agent`, with the version injected from `package.json` at build time. Two paths opt out because they impersonate a first-party client, and `withAppUserAgent` leaves any caller-supplied agent alone:
+
+- Reddit anonymous mode sends the Android client's device headers.
+- X session mode sends the web client's browser headers for the signing handshake and the GraphQL call.
+
+Tests assert both the default and the exemptions, including header containers of every shape (`Headers`, tuple arrays, plain objects).

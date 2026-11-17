@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { REDDIT_USER_AGENT } from '../src/reddit/auth.js';
+import { APP_USER_AGENT } from '../src/ua.js';
 import { SearchError } from '../src/transport.js';
 import {
   ANDROID_CLIENT_ID,
@@ -630,7 +631,8 @@ test('no failure message carries a token, a client secret, a password or an upst
 });
 
 test('the OAuth client identifies itself with version and project, the anonymous path does not', async () => {
-  assert.match(REDDIT_USER_AGENT, /^dsh-search\/\S+ \(Reddit read-only client; \+https:\/\/git\.nite07\.com\/nite\/dsh-search\)$/);
+  assert.equal(REDDIT_USER_AGENT, APP_USER_AGENT);
+  assert.match(APP_USER_AGENT, /^dsh-search\/\S+ \(\+https:\/\/\S+\)$/);
   const calls: Array<Record<string, string>> = [];
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push((init?.headers ?? {}) as Record<string, string>);

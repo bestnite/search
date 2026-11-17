@@ -1,4 +1,5 @@
 import type { FailureKind, RetryConfig } from './types.js';
+import { initWithAppUserAgent } from './ua.js';
 export class SearchError extends Error {
   constructor(public kind:FailureKind,message:string,public status?:number,public attempts=0){super(message);this.name='SearchError';}
 }
@@ -14,7 +15,7 @@ export async function requestText(url:string,init:RequestInit,options:TransportO
     const timeout=AbortSignal.timeout(options.attemptTimeoutMs);const signal=AbortSignal.any([options.signal,timeout]);
     let error:SearchError;let wait:number|undefined;
     try{
-      const response=await fetcher(url,{...init,signal,redirect:'error'});
+      const response=await fetcher(url,{...initWithAppUserAgent(init),signal,redirect:'error'});
       // Bound response bytes before parsing; upstream bodies may include credentials.
       const reader=response.body?.getReader();let text='';let bytes=0;
       if(reader){const decoder=new TextDecoder();for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>4*1024*1024){await reader.cancel();throw new SearchError('protocol','Response exceeds the 4 MiB limit.',response.status,attempts);}text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();}

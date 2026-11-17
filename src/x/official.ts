@@ -1,5 +1,6 @@
 import type { Source } from '../types.js';
 import { SearchError } from '../transport.js';
+import { withAppUserAgent } from '../ua.js';
 
 /**
  * Official X API v2 recent search.
@@ -31,7 +32,7 @@ export async function searchXOfficial(input: { query: string; maxResults: number
   const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(ctx.timeoutMs)]);
   let response: Response;
   try {
-    response = await fetcher(url, { headers: { Authorization: `Bearer ${ctx.bearerToken}`, Accept: 'application/json' }, signal });
+    response = await fetcher(url, { headers: withAppUserAgent({ Authorization: `Bearer ${ctx.bearerToken}`, Accept: 'application/json' }), signal });
   } catch (error) {
     if (ctx.signal.aborted) throw new SearchError('timeout', 'The request was cancelled or timed out.');
     throw new SearchError('network', 'Could not reach the X API; check connectivity and the endpoint.');
