@@ -65,18 +65,59 @@ function sliceObject(source: string, start: number): string {
   return source.slice(start);
 }
 
-/** Mine the search operation out of a search page document. */
-export function findSearchOperation(html: string): SearchOperation | null {
+/** Read one JS string literal starting at the opening quote, honouring escapes. */
+function scanString(source: string, quoteAt: number): { value: string; end: number } | null {
+  const quote = source[quoteAt];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return null;
+  let value = '';
+  for (let index = quoteAt + 1; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (char === '\\') { const next = source[index + 1]; if (next === undefined) return null; value += next; index += 1; continue; }
+    if (char === quote) return { value, end: index };
+    value += char;
+  }
+  return null;
+}
+
+/**
+ * Shape two: `{kind:0, key:"<queryId>{<json as an escaped string>}", name:"<Operation>"}`.
+ * The status page serializes operations this way, while the search page uses object variables.
+ */
+export function findKeyedOperation(html: string, operationName: string): SearchOperation | null {
+  const marker = `,name:"${operationName}"`;
+  for (let at = html.indexOf(marker); at >= 0; at = html.indexOf(marker, at + marker.length)) {
+    const keyAt = html.lastIndexOf('key:"', at);
+    if (keyAt < 0 || at - keyAt > 20_000) continue;
+    const literal = scanString(html, keyAt + 4);
+    if (!literal) continue;
+    const braceAt = literal.value.indexOf('{');
+    if (braceAt < 0) continue;
+    const queryId = literal.value.slice(0, braceAt).trim();
+    if (!/^[A-Za-z0-9_-]{10,44}$/.test(queryId)) continue;
+    const variables = literalToJson(literal.value.slice(braceAt));
+    if (Object.keys(variables).length === 0) continue;
+    return { queryId, variables };
+  }
+  return null;
+}
+
+/** Mine one operation out of an X document, tolerating either serialized shape. */
+export function findOperation(html: string, operationName: string): SearchOperation | null {
   for (const match of html.matchAll(OPERATION_RE)) {
     const [, queryId, name] = match;
-    if (name !== OPERATION_NAME || queryId === undefined) continue;
+    if (name !== operationName || queryId === undefined) continue;
     const open = html.indexOf('{', (match.index ?? 0) + match[0].length);
     if (open < 0) continue;
     const variables = literalToJson(sliceObject(html, open));
     if (Object.keys(variables).length === 0) continue;
     return { queryId, variables };
   }
-  return null;
+  return findKeyedOperation(html, operationName);
+}
+
+/** Mine the search operation out of a search page document. */
+export function findSearchOperation(html: string): SearchOperation | null {
+  return findOperation(html, OPERATION_NAME);
 }
 
 export interface DiscoveryTransport {
@@ -86,24 +127,38 @@ export interface DiscoveryTransport {
   fetchImpl?: typeof fetch;
 }
 
-/** Cached per build: the query id changes with each X deploy, not with each search. */
+export interface DiscoveryTarget {
+  /** Page whose document embeds the operation. */
+  pageUrl: string;
+  operationName: string;
+}
+
+/** Cached per build: query ids change with each X deploy, not with each request. */
 export class SearchOperationCache {
-  private entry: { operation: SearchOperation; loadedAt: number } | null = null;
+  private entries = new Map<string, { operation: SearchOperation; loadedAt: number }>();
 
   constructor(private readonly ttlMs: number = DEFAULT_TTL_MS, private readonly now: () => number = Date.now) {}
 
-  reset(): void { this.entry = null; }
+  reset(): void { this.entries.clear(); }
 
-  async get(transport: DiscoveryTransport, query: string, fresh = false): Promise<SearchOperation> {
-    if (!fresh && this.entry && this.now() - this.entry.loadedAt < this.ttlMs) return this.entry.operation;
-    const operation = await discover(transport, query);
-    this.entry = { operation, loadedAt: this.now() };
+  async get(transport: DiscoveryTransport, target: DiscoveryTarget, fresh = false): Promise<SearchOperation> {
+    // The query id belongs to the build, not to the query or the post, so one entry per operation.
+    const key = target.operationName;
+    const cached = this.entries.get(key);
+    if (!fresh && cached && this.now() - cached.loadedAt < this.ttlMs) return cached.operation;
+    const operation = await discover(transport, target);
+    this.entries.set(key, { operation, loadedAt: this.now() });
     return operation;
   }
 }
 
-async function discover(transport: DiscoveryTransport, query: string): Promise<SearchOperation> {
-  const url = `${SEARCH_PAGE}?q=${encodeURIComponent(query)}&src=typed_query&f=live`;
+/** Page URL that carries a single post's conversation. */
+export function statusUrl(id: string): string {
+  return id.includes('/') ? id : `https://x.com/i/web/status/${id}`;
+}
+
+export async function discover(transport: DiscoveryTransport, target: DiscoveryTarget): Promise<SearchOperation> {
+  const url = target.pageUrl;
   const fetcher = transport.fetchImpl ?? fetch;
   let response: Response;
   try {
@@ -124,12 +179,12 @@ async function discover(transport: DiscoveryTransport, query: string): Promise<S
   } catch (error) {
     throw mapThrown(error, transport.signal, transport.timeoutMs, 'the x.com search page');
   }
-  const operation = findSearchOperation(html);
+  const operation = findOperation(html, target.operationName);
   if (!operation) {
     if (html.includes('entry-client-logged-out')) {
       throw new SearchError('authentication', 'x.com served the signed-out page for these cookies, so the session is no longer live. Sign in to X in a browser and copy both cookies again.');
     }
-    throw new SearchError('protocol', `The x.com search page no longer embeds the ${OPERATION_NAME} operation. ${MAINTAINER_ACTION}`);
+    throw new SearchError('protocol', `The x.com page no longer embeds the ${target.operationName} operation. ${MAINTAINER_ACTION}`);
   }
   // The page also proves the cookies work: it only carries the operation when signed in
   // unless the visitor is authenticated, so no extra probe is needed here.

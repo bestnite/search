@@ -1,4 +1,5 @@
 import type { Source } from '../types.js';
+import { SearchError } from '../transport.js';
 
 /**
  * Shapes below follow X's 2026 search response: the timeline arrives as `instructions[]`,
@@ -124,4 +125,106 @@ export function toSource(tweet: ParsedTweet): Source {
   }
   if (tweet.createdAt) source.publishedAt = tweet.createdAt;
   return source;
+}
+
+/** One reply in a conversation, flattened for reading. */
+export interface XReply {
+  id: string;
+  handle?: string;
+  text: string;
+  depth: number;
+  url: string;
+  likes: number;
+}
+
+export interface XThreadPost {
+  id: string;
+  handle?: string;
+  text: string;
+  url: string;
+  createdAt?: string;
+}
+
+export interface ParsedThread {
+  post: XThreadPost;
+  replies: XReply[];
+  truncated: boolean;
+}
+
+/**
+ * Collect the tweets of one conversation, keeping module nesting as reply depth. A module entry
+ * carries no tweet of its own — its replies live in `items` — so the two cases are separate; a
+ * structural search on the module would otherwise report the same reply at two depths.
+ */
+function conversationTweets(entry: Node, depth: number, into: Array<{ tweet: ParsedTweet; depth: number }>): void {
+  const content = node(entry.content);
+  const items = list(content.items);
+  if (items.length > 0) {
+    for (const item of items) {
+      const holder = node(node(item).item);
+      const direct = node(holder.itemContent);
+      const tweet = Object.keys(direct).length > 0 ? tweetFromEntry({ content: direct }) : undefined;
+      if (tweet) {
+        const parsed = parseTweet(tweet);
+        if (parsed) into.push({ tweet: parsed, depth: depth + 1 });
+        continue;
+      }
+      conversationTweets(holder, depth + 1, into);
+    }
+    return;
+  }
+  const own = tweetFromEntry(entry);
+  if (!own) return;
+  const parsed = parseTweet(own);
+  if (parsed) into.push({ tweet: parsed, depth });
+}
+
+export function parseThread(data: Node, options: { limit: number; depth: number; maxChars: number }): ParsedThread {
+  const container = node(node(data.data).threaded_conversation_with_injections_v2);
+  const instructions = list(node(container).instructions ?? node(node(data.data).tweet_result).instructions);
+  const flat: ParsedThread['replies'] = [];
+  let post: XThreadPost | undefined;
+  for (const instruction of instructions) {
+    for (const entry of list(node(instruction).entries)) {
+      const collected: Array<{ tweet: ParsedTweet; depth: number }> = [];
+      conversationTweets(node(entry), 0, collected);
+      for (const item of collected) {
+        if (item.tweet.text.trim() === '') continue;
+        const url = `https://x.com/${item.tweet.handle ?? 'i/web'}/status/${item.tweet.id}`;
+        if (!post) {
+          post = {
+            id: item.tweet.id,
+            text: item.tweet.text,
+            url,
+            ...(item.tweet.handle ? { handle: item.tweet.handle } : {}),
+            ...(item.tweet.createdAt ? { createdAt: item.tweet.createdAt } : {}),
+          };
+          continue;
+        }
+        if (item.depth > options.depth) continue;
+        flat.push({
+          id: item.tweet.id,
+          text: item.tweet.text,
+          depth: item.depth,
+          url,
+          likes: item.tweet.likes,
+          ...(item.tweet.handle ? { handle: item.tweet.handle } : {}),
+        });
+      }
+    }
+  }
+  if (!post) throw new SearchError('protocol', 'X returned a conversation with no post in it.');
+  let replies = flat.slice(0, options.limit);
+  let truncated = flat.length > replies.length;
+  let budget = options.maxChars;
+  const kept: XReply[] = [];
+  for (const reply of replies) {
+    if (budget <= 0) { truncated = true; break; }
+    const room = Math.min(reply.text.length, budget);
+    kept.push({ ...reply, text: reply.text.slice(0, room) });
+    if (room < reply.text.length) truncated = true;
+    budget -= room;
+  }
+  replies = kept;
+  return { post, replies, truncated };
 }

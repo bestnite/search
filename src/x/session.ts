@@ -3,6 +3,7 @@ import { SearchError } from '../transport.js';
 import {
   DEFAULT_LANG,
   GRAPHQL_BASE,
+  SEARCH_PAGE,
   MAINTAINER_ACTION,
   type SessionCredential,
   apiHeaders,
@@ -50,10 +51,11 @@ export async function searchXSession(input: { query: string; maxResults: number 
     ...(ctx.fetch ? { fetchImpl: ctx.fetch } : {}),
   };
   const limit = Math.min(input.maxResults, MAX_POSTS_PER_REQUEST);
-  let operation = await operations.get(transport, input.query);
+  const target = { pageUrl: `${SEARCH_PAGE}?q=${encodeURIComponent(input.query)}&src=typed_query&f=live`, operationName: OPERATION_NAME };
+  let operation = await operations.get(transport, target);
   let body = await read(transport, operation, input.query, limit, ctx);
   if (body === 'stale') {
-    operation = await operations.get(transport, input.query, true);
+    operation = await operations.get(transport, target, true);
     body = await read(transport, operation, input.query, limit, ctx);
     if (body === 'stale') {
       throw new SearchError('protocol', `X rejected the ${OPERATION_NAME} query id twice in a row after rediscovery. ${MAINTAINER_ACTION}`);

@@ -49,7 +49,11 @@ configuration.
 23 entries across four access modes: anonymous tiers, free allowances, trial credits, paid APIs, and
 two session-cookie backends (X, Reddit) that use the account you already have. `catalog` carries the
 mode list, cost tier, quota note and options for each one. Reddit threads are available through
-`fetchRedditThread`; X posts through `searchX`.
+`fetchRedditThread`, X searches through `searchX`, and X conversations through `fetchXThread`.
+
+X is read the way the site itself reads it: the operations the web app embeds in a page (search and
+per-post conversation) are mined from that document, then called directly with the cookies. No
+transaction-id signing, no bundle crawling, and a stale operation id is rediscovered once.
 
 ## Development
 
