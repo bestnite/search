@@ -43,7 +43,7 @@ so `"credentials": { "keenable": "${NITE_SEARCH_KEENABLE_KEY}" }` keeps the secr
 | Tool | What it does |
 | --- | --- |
 | `web_search` | Search across the enabled backends. Takes `query`, plus optional `mode`, `backends`, `allBackends`, `exclude`, `backend`, `compact` and `maxResults`. Anything that cannot be honoured is named in the report rather than silently dropped. |
-| `read_thread` | Read one Reddit post with its comment tree: `url` or `postId`, with `sort`, `limit` and `depth` caps. Comment text is untrusted user content. |
+| `read_thread` | Read one discussion: `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
 | `list_backends` | Every backend with its modes, cost tier, enabled state and whether a credential is present. It never enables anything. |
 
 ## Behaviour worth relying on
@@ -56,6 +56,9 @@ so `"credentials": { "keenable": "${NITE_SEARCH_KEENABLE_KEY}" }` keeps the secr
   difference between a usable context and a flooded one.
 - **Reddit default is anonymous.** No account needed; the adapter uses the same anonymous token the
   Android client obtains, because Reddit's public REST search answers 403 to anonymous callers.
+- **X thread reading follows the site, not a scraper.** The adapter reads the operation the web app
+  embeds in the post page and calls it directly, so it survives front-end releases without a
+  transaction-id signer; a stale operation id is rediscovered once before failing.
 
 ## Development
 

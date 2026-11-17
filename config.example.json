@@ -13,11 +13,40 @@
     "excludeDomains": [],
     "dedup": "url",
     "fusion": "rrf",
-    "retry": { "enabled": true, "statuses": [408, 429, 500, 502, 503, 504], "maxRetries": 2, "initialDelayMs": 500, "maxDelayMs": 5000, "networkErrors": false, "timeouts": false },
-    "cache": { "enabled": true, "ttlSeconds": 900, "maxEntries": 100 },
-    "breaker": { "enabled": false, "threshold": 3, "cooldownMs": 60000 },
-    "diagnostics": { "enabled": true, "maxEntries": 50 },
-    "tools": { "webSearchPlus": true, "compactByDefault": false },
+    "retry": {
+      "enabled": true,
+      "statuses": [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "maxRetries": 2,
+      "initialDelayMs": 500,
+      "maxDelayMs": 5000,
+      "networkErrors": false,
+      "timeouts": false
+    },
+    "cache": {
+      "enabled": true,
+      "ttlSeconds": 900,
+      "maxEntries": 100
+    },
+    "breaker": {
+      "enabled": false,
+      "threshold": 3,
+      "cooldownMs": 60000
+    },
+    "diagnostics": {
+      "enabled": true,
+      "maxEntries": 50
+    },
+    "tools": {
+      "webSearchPlus": true,
+      "compactByDefault": false
+    },
     "backends": {
       "keenable": {
         "enabled": true,
@@ -27,7 +56,10 @@
         "timeoutMs": 15000,
         "rateLimitPerMinute": 0,
         "dailyAttemptLimit": 0,
-        "options": { "clientTitle": "websearch-mcp", "snippet_max_length": 2000 }
+        "options": {
+          "clientTitle": "websearch-mcp",
+          "snippet_max_length": 2000
+        }
       },
       "reddit": {
         "enabled": true,
@@ -37,13 +69,30 @@
         "timeoutMs": 15000,
         "rateLimitPerMinute": 0,
         "dailyAttemptLimit": 0,
-        "options": { "sort": "relevance", "time": "all", "subreddit": "" }
+        "options": {
+          "sort": "relevance",
+          "time": "all",
+          "subreddit": ""
+        }
+      },
+      "x": {
+        "enabled": false,
+        "mode": "session",
+        "endpoint": "https://x.com/i/api/graphql",
+        "credentialRef": "DSH_SEARCH_X_KEY",
+        "timeoutMs": 20000,
+        "rateLimitPerMinute": 0,
+        "dailyAttemptLimit": 0,
+        "options": {
+          "postsPerSearch": 25
+        }
       }
     }
   },
   "credentials": {
     "keenable": "${NITE_SEARCH_KEENABLE_KEY}",
-    "reddit": "${NITE_SEARCH_REDDIT_KEY}"
+    "reddit": "${NITE_SEARCH_REDDIT_KEY}",
+    "x": "${DSH_SEARCH_X_KEY}"
   },
   "compactByDefault": false
 }
