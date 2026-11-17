@@ -17,25 +17,27 @@ page's client. This image is that browser, packaged so nothing has to be assembl
 ## Run it
 
 ```sh
-podman build -t xhs-playwright .
-podman run -d --name xhs-browser \
-  -p 127.0.0.1:3000:3000 -p 127.0.0.1:6080:6080 \
-  -v xhs-profile:/profile --shm-size=1gb \
-  xhs-playwright
+podman compose up -d --build
 podman logs xhs-browser      # prints the endpoint and the bearer token
 ```
 
-On a systemd host, the included `xhs-browser.container` quadlet is the better fit:
+Compose takes the password, token and published ports from the shell or from a `.env` file beside
+`compose.yaml`:
 
-```sh
-mkdir -p ~/.config/containers/systemd
-cp xhs-browser.container ~/.config/containers/systemd/
-podman volume create xhs-profile      # only if it does not exist yet
-systemctl --user daemon-reload && systemctl --user start xhs-browser
-journalctl --user -u xhs-browser -n 50 | grep -E 'endpoint|token'
-```
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `XHS_BIND_ADDR` | `127.0.0.1` | Address the ports are bound to; set it when another machine must reach them |
+| `XHS_ENDPOINT_PORT` | `3000` | Host port for the Playwright endpoint |
+| `XHS_VNC_PORT` | `6080` | Host port for noVNC |
+| `XHS_VNC_PASSWORD` | empty | VNC password; required as soon as the port is not loopback |
+| `XHS_WS_TOKEN` | empty | Endpoint token; generated on first start when empty |
 
-`podman-compose up -d` with `compose.yaml` also works.
+Without compose, the equivalent is one `podman build` and one `podman run` with the same ports,
+volume and `--shm-size=1gb`.
+
+A named volume keeps the login with the container. Use a bind mount instead when the search core
+runs on the same host and must read the session file: replace the volume line with
+`- /path/to/data:/profile:Z`.
 
 ## Sign in once
 
@@ -49,31 +51,16 @@ The container keeps a sign-in window open on its display, so there is nothing to
 After that the session is reused on every start. Nothing in the search core can sign in, and no
 credential ever leaves the container.
 
-If the window ever closes, restart the unit: the keeper reopens it.
+If the window ever closes, restart the container: the keeper reopens it.
 
-Run it as a quadlet so systemd owns the lifecycle. The deployment directory follows the layout the
-other containers on this machine use — unit, environment file, data and a reload script per service:
+Two deployment notes, both learned the hard way:
 
-```
-~/pod/xhs-browser/
-  xhs-browser.container   # quadlet: image, published address, profile mount
-  .env                    # XHS_VNC_PASSWORD, mode 600, never committed
-  data/                   # profile: state.json and ws-token
-  reload.sh               # copy into ~/.config/containers/systemd and restart
-```
-
-```sh
-podman build -t xhs-playwright ~/dev/search-core/image
-cd ~/pod/xhs-browser && ./reload.sh
-```
-
-A plain `podman restart` is not enough in rootless mode: the published ports are re-established by
-the unit's start, and a bare restart can leave a specific published address unbound while the
-container itself is healthy.
-
-The search core reads `~/.config/dsh-search/xhs/state.json` by default. Point that path at the data
-directory with a symlink, or set the backend's `statePath` option; the container only ever writes
-inside `data/`.
+- In rootless mode a plain `podman restart` can bring the container back healthy with its published
+  address unbound, which looks like a dead endpoint from every client. Recreate instead, either with
+  `podman compose up -d --force-recreate` or by restarting whatever unit owns the container.
+- The search core reads `~/.config/dsh-search/xhs/state.json` by default. When the profile is a
+  bind mount, point that path at it with a symlink or set the backend's `statePath` option; the
+  container only ever writes inside the mounted directory.
 
 ## Publishing it beyond loopback
 

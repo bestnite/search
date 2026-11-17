@@ -1,5 +1,10 @@
-# One browser for Xiaohongshu reads: Patchright-driven Google Chrome, virtual display, VNC, and a
-# token-protected Playwright endpoint. The profile volume holds the login, so it survives a restart.
+# One browser for Xiaohongshu reads: Patchright-driven Google Chrome, a virtual display, noVNC for the
+# one-time QR sign-in, and a token-protected Playwright endpoint for the search core to attach to.
+#
+# Build and start:   podman compose up -d --build
+# Endpoint and token: podman logs xhs-browser
+#
+# Values come from this directory's .env file (compose reads it for interpolation) or from the shell.
 services:
   xhs-browser:
     build: .
@@ -7,17 +12,20 @@ services:
     container_name: xhs-browser
     restart: unless-stopped
     environment:
-      # Leave empty to generate a token on first start and keep it in the profile volume.
-      XHS_WS_TOKEN: ""
-      # Set a password before publishing the VNC port beyond loopback.
-      XHS_VNC_PASSWORD: ""
+      # Empty means: generate a token on first start and keep it in the profile volume.
+      XHS_WS_TOKEN: "${XHS_WS_TOKEN:-}"
+      # Set a password whenever the VNC port is published beyond loopback.
+      XHS_VNC_PASSWORD: "${XHS_VNC_PASSWORD:-}"
       XHS_WS_PATH: /xhs
     ports:
-      - "127.0.0.1:3000:3000"   # Playwright endpoint, token required
-      - "127.0.0.1:6080:6080"   # noVNC: sign in to Xiaohongshu here, once
+      # Host port 3000 is often taken; set XHS_ENDPOINT_PORT when it is.
+      - "${XHS_BIND_ADDR:-127.0.0.1}:${XHS_ENDPOINT_PORT:-3000}:3000"
+      - "${XHS_BIND_ADDR:-127.0.0.1}:${XHS_VNC_PORT:-6080}:6080"
     volumes:
+      # A bind mount puts the login where the search core can read it:
+      #   - ~/pod/xhs-browser/data:/profile:Z
       - xhs-profile:/profile
-    shm_size: "1gb"             # Chromium crashes on the default 64MB
+    shm_size: "1gb"      # Chromium crashes on the default 64MB
 
 volumes:
   xhs-profile:
