@@ -33,7 +33,7 @@ export interface SearchConfig {
   breaker: { enabled: boolean; threshold: number; cooldownMs: number };
   diagnostics: { enabled: boolean; maxEntries: number };
   /** Agent-facing switches; turning one off removes that tool instead of letting the agent ask for it. */
-  tools: { webSearchPlus: boolean };
+  tools: { webSearchPlus: boolean; compactByDefault: boolean };
   backends: Record<string, BackendConfig>;
 }
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }

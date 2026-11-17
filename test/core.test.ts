@@ -85,3 +85,13 @@ test('credentialed modes other than key also receive the stored credential',asyn
  assert.equal(resolved,2);
  assert.ok(!(outcome.error?.message??'').includes('needs a stored credential'));
 });
+
+test('compact becomes the default from configuration yet stays overridable per call',async()=>{const build=()=>{const c=defaultConfig();c.backends.searxng!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;c.cache.enabled=false;return c;};
+ const rows=[{title:'T',url:'https://example.org/1',content:'a long snippet '.repeat(30)}];
+ const compactConfig=build();compactConfig.tools.compactByDefault=true;
+ const tight=new SearchEngine(compactConfig,async()=>undefined,mock(()=>Response.json({results:rows})));
+ assert.equal((await tight.search({query:'hello'},undefined,undefined,{mode:'parallel'})).sources[0]!.snippet,undefined,'the strategy path honours the saved default');
+ assert.ok((await tight.search({query:'hello'},undefined,undefined,{mode:'parallel',compact:false})).sources[0]!.snippet,'an explicit false wins over the saved default');
+ const plain=build();plain.tools.compactByDefault=true;
+ const provider=new SearchEngine(plain,async()=>undefined,mock(()=>Response.json({results:rows})));
+ assert.ok((await provider.search({query:'hello'})).sources[0]!.snippet,'the plain web_search path keeps snippets regardless');});

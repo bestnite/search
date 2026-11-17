@@ -340,6 +340,8 @@ Overrides never mutate saved configuration and are never cached, so a narrowed c
 
 The tool itself is switchable: with `tools.webSearchPlus` off the plugin does not register it, so the agent cannot call it rather than calling it and being refused. The switch lives on the Search behaviour tab and defaults to on.
 
+`tools.compactByDefault` makes compact results the default for this tool while leaving the plain `web_search` path untouched: the harness's own tool still returns snippets, because they are what its consumers read. An explicit `compact: false` on a call overrides the saved preference.
+
 ### X session search verification (2026-11-17, live)
 
 With a real signed-in session, the adapter returned 8 posts for `deepseek harness`, each with a working `x.com/<handle>/status/<id>` link, a snippet and an ISO timestamp, in one page read plus one GraphQL read. Two failure modes were reproduced deliberately: rejected cookies answer `authentication` (the page comes back signed out), and a page without the embedded operation answers `protocol` naming `SearchByRawQuery` and the maintainer action.

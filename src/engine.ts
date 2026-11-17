@@ -72,7 +72,10 @@ export class SearchEngine {
     const ranked=[...merged.values()].sort((a,b)=>c.fusion==='rrf'?b.score-a.score||a.order-b.order:a.order-b.order);
     const rankedSources=ranked.slice(0,max).map(x=>x.source);
     // Compact drops snippets: the caller asked for links, not text to read.
-    const sources=overrides?.compact?rankedSources.map(source=>({url:source.url,...(source.title?{title:source.title}:{}),...(source.publishedAt?{publishedAt:source.publishedAt}:{})})):rankedSources;
+    // Compact is a strategy the caller opted into: the plain provider path (no overrides) never
+    // trims snippets, while the strategy tool defaults to the saved preference.
+    const compact=overrides?(overrides.compact??c.tools.compactByDefault):false;
+    const sources=compact?rankedSources.map(source=>({url:source.url,...(source.title?{title:source.title}:{}),...(source.publishedAt?{publishedAt:source.publishedAt}:{})})):rankedSources;
     const failed=outcomes.filter(o=>!o.ok);const report:string[]=[...notes];
     if(!ids.length)report.push('Search failed: no backend is enabled. Ask the user to configure and enable a search backend.');
     else if(!success.length)report.push('Search failed: every selected backend failed. This is not a successful search with no matches.');

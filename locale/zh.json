@@ -228,5 +228,7 @@
   "credentialPlainKey": "直接填密钥字符串。",
   "credentialShapeLabel": "凭证格式",
   "field.tools.webSearchPlus": "允许使用 web_search_plus",
-  "help.tools.webSearchPlus": "关闭后这个工具不会注册，agent 只能用配置里的固定策略搜索。"
+  "help.tools.webSearchPlus": "关闭后这个工具不会注册，agent 只能用配置里的固定策略搜索。",
+  "field.tools.compactByDefault": "默认返回精简结果",
+  "help.tools.compactByDefault": "结果只保留链接、标题和日期。agent 只需要链接时能省下大量上下文；单次调用仍可要求完整摘要。"
 }

@@ -228,5 +228,7 @@
   "credentialPlainKey": "Paste the key itself.",
   "credentialShapeLabel": "Credential format",
   "field.tools.webSearchPlus": "Allow web_search_plus",
-  "help.tools.webSearchPlus": "Off hides the tool entirely: the agent then searches only through the configured strategy."
+  "help.tools.webSearchPlus": "Off hides the tool entirely: the agent then searches only through the configured strategy.",
+  "field.tools.compactByDefault": "Compact results by default",
+  "help.tools.compactByDefault": "Sources carry only URL, title and date. Saves context when the agent only needs links; a call can still ask for full snippets."
 }
