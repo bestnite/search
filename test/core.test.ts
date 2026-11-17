@@ -24,7 +24,7 @@ test('malformed successful response is a protocol failure not no-results',async(
 test('configuration rejects credential-bearing and malformed endpoints but accepts plaintext on any host',()=>{for(const endpoint of ['https://u:p@example.org','https://example.org?key=secret','ws://example.org/socket#secret','ftp://example.org']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.ok(validateConfig(c).some(i=>i.path.endsWith('.endpoint')),`${endpoint} should be rejected`);}for(const endpoint of ['http://search.example.org/api','http://host.containers.internal:3030/socket']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.deepEqual(validateConfig(c).filter(i=>i.path.endsWith('.endpoint')),[],`${endpoint} should be accepted`);}});
 test('an adapter that leaves fields undefined cannot break the JSON boundary',async()=>{const c=defaultConfig();c.backends.keenable!.enabled=true;c.mode='single';c.singleBackend='keenable';c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:[{url:'https://example.org/a'}]})));const r=await e.search({query:'q'},new AbortController().signal);const walk=(v:any,path:string)=>{if(v===undefined)throw new Error(`undefined at ${path}`);if(v&&typeof v==='object')for(const[k,item]of Object.entries(v))walk(item,`${path}.${k}`);};walk(r,'result');assert.equal(JSON.parse(JSON.stringify(r)).sources.length,1);});
 test('browser-backed readers share one endpoint, one token reference and one session file',async()=>{const {defaultConfig}=await import('../src/config.js');const {validateConfig}=await import('../src/config.js');const {browserBackends}=await import('../src/adapters.js');
- const c=defaultConfig();assert.deepEqual(c.browser,{endpoint:'',credentialRef:'DSH_SEARCH_BROWSER_TOKEN',statePath:'',timeoutMs:60000});
+ const c=defaultConfig();assert.deepEqual(c.browser,{endpoint:'',statePath:'',timeoutMs:60000},'the shared browser block carries no credential name');
  assert.ok(browserBackends.xiaohongshu,'the browser registry carries the Xiaohongshu reader');
  // A browser backend may leave its own endpoint empty once the shared one is set.
  const shared=defaultConfig();shared.backends.xiaohongshu!.enabled=true;shared.backends.xiaohongshu!.endpoint='';assert.ok(validateConfig(shared).some(i=>i.path==='backends.xiaohongshu.endpoint'),'without any endpoint it is an error');
@@ -32,14 +32,14 @@ test('browser-backed readers share one endpoint, one token reference and one ses
  // The shared endpoint gets the same scheme rules as any other endpoint, and no host is refused.
  const sharedAlias=defaultConfig();sharedAlias.browser.endpoint='ws://host.containers.internal:3030/ws';assert.deepEqual(validateConfig(sharedAlias).filter(i=>i.path==='browser.endpoint'),[],'a container-runtime alias is a valid endpoint');
  const wrongScheme=defaultConfig();wrongScheme.browser.endpoint='ftp://example.org/ws';assert.ok(validateConfig(wrongScheme).some(i=>i.path==='browser.endpoint'),'a non-WebSocket scheme is not a Playwright endpoint');
- const bad=defaultConfig();bad.browser.credentialRef='not a ref';assert.ok(validateConfig(bad).some(i=>i.path==='browser.credentialRef'));
+ const bad=defaultConfig();bad.browser.timeoutMs=1;assert.ok(validateConfig(bad).some(i=>i.path==='browser.timeoutMs'));
 });
 test('plaintext endpoints are accepted on any host, including container-runtime aliases',()=>{for(const endpoint of ['ws://host.containers.internal:3030/ws','ws://host.docker.internal:3030/ws','ws://100.64.0.10:3030/xhs','ws://example.org/socket']){const shared=defaultConfig();shared.browser.endpoint=endpoint;assert.deepEqual(validateConfig(shared).filter(i=>i.path==='browser.endpoint'),[],`${endpoint} should be accepted as the shared browser endpoint`);const c=config();c.backends.xiaohongshu!.enabled=true;c.backends.xiaohongshu!.mode='browser';c.backends.xiaohongshu!.endpoint=endpoint;assert.deepEqual(validateConfig(c).filter(i=>i.path.endsWith('.endpoint')),[],`${endpoint} should be accepted on a backend`);}});
 test('Zhihu case-sensitive GET contract includes timestamp and bearer',async()=>{const c=config();const b=c.backends['zhihu-web']!;b.enabled=true;const response=await runAdapter('zhihu-web',{query:'test',maxResults:30,config:c,backend:b,key:'secret',signal:new AbortController().signal},{signal:new AbortController().signal,retry:c.retry,attemptTimeoutMs:1000,beforeAttempt(){},onAttempt(){},fetch:mock((url,init)=>{const u=new URL(url);assert.equal(u.searchParams.get('Query'),'test');assert.equal(u.searchParams.get('Count'),'20');assert.equal((init.headers as any).Authorization,'Bearer secret');assert.ok((init.headers as any)['X-Request-Timestamp']);return Response.json({Code:0,Data:{Items:[{Title:'test',Url:'https://example.org',ContentText:'text'}]}});})});assert.equal(response.sources[0]!.snippet,'text');});
 
 test('free anonymous tiers are not labelled unavailable, and live evidence is recorded',async()=>{const {catalog}=await import('../src/catalog.js');for(const id of ['exa','anysearch','parallel','you','keenable']){const def=catalog.find(item=>item.id===id)!;assert.equal(def.evidence,'live',`${id} should carry live evidence`);assert.ok(def.modes.some(mode=>mode.mode==='anonymous'&&mode.tier==='free'),`${id} anonymous mode should be a free tier`);}const exa=catalog.find(item=>item.id==='exa')!;assert.equal(exa.modes.find(mode=>mode.mode==='anonymous')!.tier,'free');for(const def of catalog){if(def.status==='unverified')continue;for(const mode of def.modes)assert.notEqual(mode.tier,'unverified',`${def.id}/${mode.mode} must not be tiered as unavailable`);}});
 
-test('a retired backend id in a saved row is pruned instead of blocking load, and new ids are backfilled',async()=>{const {parseConfig}=await import('../src/config.js');const saved:any=defaultConfig();saved.backends.serper={enabled:false,mode:'key',endpoint:'https://google.serper.dev/search',credentialRef:'DSH_SEARCH_SERPER_KEY',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:{}};delete saved.backends.exa;const loaded=parseConfig(saved);assert.equal('serper' in loaded.backends,false);assert.ok(loaded.backends.exa);assert.deepEqual(validateConfig(loaded),[]);});
+test('a retired backend id in a saved row is pruned instead of blocking load, and new ids are backfilled',async()=>{const {parseConfig}=await import('../src/config.js');const saved:any=defaultConfig();saved.backends.serper={enabled:false,mode:'key',endpoint:'https://google.serper.dev/search',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:{}};delete saved.backends.exa;const loaded=parseConfig(saved);assert.equal('serper' in loaded.backends,false);assert.ok(loaded.backends.exa);assert.deepEqual(validateConfig(loaded),[]);});
 
 test('language and region codes are validated and translated per backend',async()=>{const {LANGUAGES,REGIONS,languageFor,regionFor}=await import('../src/locale-map.js');assert.equal(languageFor('brave','zh-Hans'),'zh-hans');assert.equal(languageFor('serper','zh-Hans'),'zh-cn');assert.equal(languageFor('serper','zh-Hant'),'zh-tw');assert.equal(languageFor('searxng','zh-Hans'),'zh-CN');assert.equal(languageFor('you','zh-Hant'),'ZH');assert.equal(languageFor('anysearch','zh-Hans'),'zh');assert.equal(languageFor('keenable','en'),undefined);assert.equal(languageFor('brave','xx'),undefined);assert.equal(regionFor('brave','CN'),'CN');assert.equal(regionFor('serper','CN'),'cn');assert.equal(regionFor('searxng','CN'),undefined);const c=defaultConfig();c.language='xx' as any;assert.ok(validateConfig(c).some(i=>i.path==='language'));const d=defaultConfig();d.region='ZZ' as any;assert.ok(validateConfig(d).some(i=>i.path==='region'));const e=defaultConfig();e.language='zh-Hans';e.region='CN';assert.deepEqual(validateConfig(e),[]);assert.ok(LANGUAGES.includes('zh-Hans')&&REGIONS.includes('CN'));});
 
@@ -109,49 +109,65 @@ test('compact becomes the default from configuration yet stays overridable per c
  const provider=new SearchEngine(plain,async()=>undefined,mock(()=>Response.json({results:rows})));
  assert.ok((await provider.search({query:'hello'})).sources[0]!.snippet,'the plain web_search path keeps snippets regardless');});
 
-test('a browser backend owns no credential reference; the endpoint token belongs to the shared browser',async()=>{
+test('credential names are fixed in code and are not part of the configuration',async()=>{
+  const {backendCredentialRef,browserCredentialRef}=await import('../src/config.js');
+  assert.equal(backendCredentialRef('keenable'),'DSH_SEARCH_KEENABLE_KEY');
+  assert.equal(backendCredentialRef('x'),'DSH_SEARCH_X_KEY');
+  assert.equal(backendCredentialRef('tencent-wsa'),'DSH_SEARCH_TENCENT_WSA_KEY');
+  assert.equal(browserCredentialRef(),'DSH_SEARCH_BROWSER_TOKEN');
   const c=defaultConfig();
-  assert.equal(c.backends.xiaohongshu!.credentialRef,'','a browser-only backend does not borrow a key name');
-  assert.equal(c.browser.credentialRef,'DSH_SEARCH_BROWSER_TOKEN');
+  assert.equal('credentialRef' in c.browser,false,'the shared browser block names no credential');
+  for(const row of Object.values(c.backends))assert.equal('credentialRef' in row,false,'a backend row names no credential');
   assert.equal(c.backends.xiaohongshu!.mode,'browser');
-  // A backend that also reads over HTTP still needs its own reference.
-  assert.match(c.backends.keenable!.credentialRef,/^DSH_SEARCH_KEENABLE_KEY$/);
-  // An empty reference is legal only while the backend reads through the browser.
-  const keyMode=config();keyMode.backends.keenable!.credentialRef='';assert.ok(validateConfig(keyMode).some(i=>i.path==='backends.keenable.credentialRef'),'key mode cannot run without a reference');
-  const browserMode=defaultConfig();browserMode.backends.xiaohongshu!.enabled=true;assert.deepEqual(validateConfig(browserMode).filter(i=>i.path==='backends.xiaohongshu.credentialRef'),[]);
-  const legacy=defaultConfig();legacy.backends.xiaohongshu!.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';assert.deepEqual(validateConfig(legacy).filter(i=>i.path==='backends.xiaohongshu.credentialRef'),[],'a legacy per-backend reference still validates');
+  const legacy=structuredClone(c) as any;
+  legacy.browser.credentialRef='CUSTOM_BROWSER';
+  legacy.backends.keenable.credentialRef='CUSTOM_BACKEND';
+  assert.ok(validateConfig(legacy).some(issue=>issue.path==='browser.credentialRef'));
+  assert.ok(validateConfig(legacy).some(issue=>issue.path==='backends.keenable.credentialRef'));
 });
 
-test('the shared browser token wins over a backend-level one, which stays a legacy fallback',async()=>{
+test('a browser read asks for the browser token by its fixed name, and no other',async()=>{
   const {browserBackends}=await import('../src/adapters.js');
-  const original=browserBackends.xiaohongshu!;const seen:string[]=[];
+  const original=browserBackends.xiaohongshu!;const seen:string[]=[];const asked:string[]=[];
   browserBackends.xiaohongshu={search:async input=>{seen.push(String(input.key??''));return [];}};
   try{
-    const stored:Record<string,string>={DSH_SEARCH_BROWSER_TOKEN:'SHARED',DSH_SEARCH_XIAOHONGSHU_KEY:'BACKEND'};
-    const c=defaultConfig();c.browser.endpoint='ws://127.0.0.1:3000/ws';c.backends.xiaohongshu!.enabled=true;c.backends.xiaohongshu!.mode='browser';c.backends.xiaohongshu!.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';c.retry.enabled=false;
-    const engine=new SearchEngine(c,async ref=>stored[ref],mock(()=>Response.json(payload)));
+    const stored:Record<string,string>={DSH_SEARCH_BROWSER_TOKEN:'BROWSER',DSH_SEARCH_XIAOHONGSHU_KEY:'BACKEND'};
+    const c=defaultConfig();c.browser.endpoint='ws://127.0.0.1:3000/ws';c.backends.xiaohongshu!.enabled=true;c.backends.xiaohongshu!.mode='browser';c.retry.enabled=false;
+    const engine=new SearchEngine(c,async ref=>{asked.push(ref);return stored[ref];},mock(()=>Response.json(payload)));
     await engine.search({query:'x'},undefined,'xiaohongshu');
-    assert.deepEqual(seen,['SHARED'],'the shared reference is read first');
+    assert.deepEqual(seen,['BROWSER'],'the browser token is the one used');
+    assert.deepEqual([...new Set(asked)],['DSH_SEARCH_BROWSER_TOKEN'],'no other name is ever looked up');
     delete stored.DSH_SEARCH_BROWSER_TOKEN;
     await engine.search({query:'x'},undefined,'xiaohongshu');
-    assert.deepEqual(seen,['SHARED','BACKEND'],'the backend reference covers a token stored before the shared block existed');
-    delete stored.DSH_SEARCH_XIAOHONGSHU_KEY;
-    await engine.search({query:'x'},undefined,'xiaohongshu');
-    assert.deepEqual(seen,['SHARED','BACKEND',''],'a browser read without a token is not blocked');
+    assert.deepEqual(seen,['BROWSER',''],'a browser read without a token is not blocked');
+    assert.deepEqual(asked,['DSH_SEARCH_BROWSER_TOKEN','DSH_SEARCH_BROWSER_TOKEN'],'a missing browser token never triggers a backend lookup');
   }finally{browserBackends.xiaohongshu=original;}
 });
 
-test('a saved row stops using the generated per-backend reference and points at the shared browser',async()=>{
-  const {legacyCredentialRef,parseConfig}=await import('../src/config.js');
-  assert.equal(legacyCredentialRef('xiaohongshu'),'DSH_SEARCH_XIAOHONGSHU_KEY');
+test('a credentialed HTTP read resolves only its fixed backend name after loading saved references',async()=>{
+  const {parseConfig}=await import('../src/config.js');
+  const saved=structuredClone(config()) as any;
+  saved.backends.keenable.mode='key';saved.backends.keenable.credentialRef='CUSTOM_KEY';
+  saved.browser.credentialRef='CUSTOM_BROWSER';
+  const asked:string[]=[];
+  const engine=new SearchEngine(parseConfig(saved),async ref=>{asked.push(ref);return 'FIXED_KEY';},mock((_url,init)=>{
+    assert.equal(new Headers(init.headers).get('X-API-Key'),'FIXED_KEY');
+    return Response.json(payload);
+  }));
+  const result=await engine.search({query:'hello'});
+  assert.equal(result.outcomes[0]!.ok,true);
+  assert.deepEqual(asked,['DSH_SEARCH_KEENABLE_KEY']);
+});
+
+test('a saved credential name is dropped on load, whatever it says',async()=>{
+  const {parseConfig}=await import('../src/config.js');
   const saved=structuredClone(defaultConfig()) as any;
+  saved.browser.credentialRef='SOMETHING_ELSE';
   saved.backends.xiaohongshu.enabled=true;saved.backends.xiaohongshu.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';
-  assert.equal(parseConfig(saved).backends.xiaohongshu!.credentialRef,'','the generated name is dropped on load');
-  // A reference the operator chose is respected, and a backend that also reads over HTTP keeps its own.
-  const chosen=structuredClone(defaultConfig()) as any;
-  chosen.backends.xiaohongshu.credentialRef='MY_OWN_TOKEN_REF';
-  assert.equal(parseConfig(chosen).backends.xiaohongshu!.credentialRef,'MY_OWN_TOKEN_REF');
-  const http=structuredClone(defaultConfig()) as any;
-  http.backends.keenable.credentialRef='DSH_SEARCH_KEENABLE_KEY';
-  assert.equal(parseConfig(http).backends.keenable!.credentialRef,'DSH_SEARCH_KEENABLE_KEY');
+  saved.backends.keenable.enabled=true;saved.backends.keenable.credentialRef='MY_OWN_KEY_NAME';
+  const loaded=parseConfig(saved);
+  assert.equal('credentialRef' in loaded.browser,false);
+  assert.equal('credentialRef' in loaded.backends.xiaohongshu!,false);
+  assert.equal('credentialRef' in loaded.backends.keenable!,false,'a hand-chosen name is dropped too: it cannot redirect a lookup');
+  assert.deepEqual(validateConfig(loaded),[]);
 });

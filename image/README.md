@@ -64,10 +64,14 @@ Nothing in the search core can sign in, and no credential leaves the container.
 {
   "mode": "browser",
   "endpoint": "ws://<host>:3000/ws",
-  "credentialRef": "DSH_SEARCH_BROWSER_TOKEN",
   "options": { "statePath": "" }   // empty: the core's default state file
 }
 ```
+
+Store the endpoint token printed by the container under the fixed name `DSH_SEARCH_BROWSER_TOKEN`
+in the host's credential store. The core resolves only that name for browser reads; it is not a
+configuration field, and no backend-specific token is tried. Set `browser.endpoint` in the shared
+configuration to use the same endpoint across backends.
 
 Any number of backends may share this endpoint: each read opens its own browser context, so cookies
 from different sites never mix, and the connection is reused across calls. The state file path is a

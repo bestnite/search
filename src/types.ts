@@ -21,7 +21,7 @@ export interface RetryConfig {
   networkErrors: boolean; timeouts: boolean;
 }
 export interface BackendConfig {
-  enabled: boolean; mode: AccessMode; endpoint: string; credentialRef: string; timeoutMs: number;
+  enabled: boolean; mode: AccessMode; endpoint: string; timeoutMs: number;
   rateLimitPerMinute: number; dailyAttemptLimit: number; options: Record<string, string | number | boolean>;
 }
 export interface SearchConfig {
@@ -29,7 +29,7 @@ export interface SearchConfig {
   overallTimeoutMs: number; language: string; region: string; recency: 'any' | 'day' | 'week' | 'month' | 'year';
   safeSearch: boolean; includeDomains: string[]; excludeDomains: string[]; dedup: 'url' | 'url-title';
   fusion: 'rrf' | 'ordered'; retry: RetryConfig;
-  /** Shared by every browser-backed reader; empty fields fall back to the backend's own settings. */
+  /** Shared by every browser-backed reader; credentials use the fixed browser token name. */
   browser: BrowserConfig;
   cache: { enabled: boolean; ttlSeconds: number; maxEntries: number };
   breaker: { enabled: boolean; threshold: number; cooldownMs: number };
@@ -42,7 +42,7 @@ export interface SearchConfig {
  * One browser, shared by every backend that reads through one. A backend that set its own endpoint
  * keeps working: the shared endpoint wins only when it is filled in.
  */
-export interface BrowserConfig { endpoint: string; credentialRef: string; statePath: string; timeoutMs: number }
+export interface BrowserConfig { endpoint: string; statePath: string; timeoutMs: number }
 
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
 export interface SearchInput { query: string; maxResults?: number }

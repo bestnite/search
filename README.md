@@ -40,6 +40,13 @@ console.log(result.sources);   // citeable sources
 console.log(result.content);   // failure report, when anything failed
 ```
 
+Credential names are fixed in code, not configuration fields. Credentialed HTTP modes resolve
+`backendCredentialRef(id)` (`DSH_SEARCH_<BACKEND_ID>_KEY`, with hyphens replaced by underscores and
+the ID uppercased); browser modes resolve only `browserCredentialRef()`
+(`DSH_SEARCH_BROWSER_TOKEN`). Both helpers are exported for hosts that store credentials. Anonymous
+modes never resolve a credential. `parseConfig` drops saved `credentialRef` fields rather than using
+them to redirect a lookup.
+
 `search(input, signal?, onlyBackend?, overrides?)` accepts per-call strategy overrides —
 `mode`, `backends`, `exclude`, `backend`, `compact`, `maxResults` — without touching the saved
 configuration.
@@ -54,21 +61,20 @@ mode list, cost tier, quota note and options for each one. Reddit threads are av
 ### Xiaohongshu
 
 Xiaohongshu only answers its own page runtime, so this backend drives a browser you host rather than
-an HTTP endpoint. The endpoint and its token belong to that browser, so both live in the shared
-`browser` block; the backend itself carries no endpoint, no token reference and no account
-credential — signing in happens inside the browser, over VNC:
+an HTTP endpoint. Set the endpoint in the shared `browser` block and store the token printed by
+the container under `DSH_SEARCH_BROWSER_TOKEN` in the host's credential store. No credential name
+is configured on the browser or backend. Signing in happens inside the browser, over VNC:
 
 ```ts
-config.browser.endpoint = 'ws://127.0.0.1:3000/xhs';
-config.browser.credentialRef = 'DSH_SEARCH_BROWSER_TOKEN'; // resolves to the token the container printed
+config.browser.endpoint = 'ws://127.0.0.1:3000/ws';
 config.backends.xiaohongshu!.enabled = true;
 config.backends.xiaohongshu!.mode = 'browser';
 ```
 
-Every backend in `browser` mode inherits that endpoint and token, which is what lets one container
-serve several of them. A backend-level `endpoint` or `credentialRef` is still read when the shared
-value is empty, so rows written before the shared block keep working; it is a fallback, not a second
-place to configure the same browser.
+Every backend in `browser` mode uses that shared endpoint when it is set, so one container can
+serve several of them. If the shared endpoint is empty, the backend's own `endpoint` is used.
+Token lookup always uses `DSH_SEARCH_BROWSER_TOKEN`; there is no per-backend token fallback. A
+missing token does not block attachment to a browser endpoint that accepts unauthenticated clients.
 
 The repository ships [`image/`](./image/README.md): a container with Patchright-driven Google
 Chrome, a VNC surface to sign in once, a token-protected Playwright endpoint and a profile volume. Login and

@@ -10,7 +10,7 @@ function input(maxResults = 5): AdapterInput {
   return {
     query: 'test', maxResults, config, key: JSON.stringify({ secretId: 'test-id', secretKey: 'test-secret' }),
     signal: new AbortController().signal,
-    backend: { enabled: true, mode: 'key', endpoint: 'https://wsa.tencentcloudapi.com/', credentialRef: '',
+    backend: { enabled: true, mode: 'key', endpoint: 'https://wsa.tencentcloudapi.com/',
       timeoutMs: 1000, rateLimitPerMinute: 0, dailyAttemptLimit: 0, options: { Mode: 2 } },
   };
 }

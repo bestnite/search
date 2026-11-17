@@ -4,7 +4,7 @@
  * Nothing here depends on DeepSeek Harness, so any host can drive it.
  */
 export { catalog } from './catalog.js';
-export { defaultConfig, legacyCredentialRef, parseConfig, validateConfig } from './config.js';
+export { backendCredentialRef, browserCredentialRef, defaultConfig, parseConfig, validateConfig } from './config.js';
 export { SearchEngine } from './engine.js';
 export { revision } from './engine.js';
 export type { ConfigIssue, SearchOverrides, SearchResult, BackendOutcome } from './types.js';

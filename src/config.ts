@@ -2,22 +2,25 @@ import { catalog } from './catalog.js';
 import { LANGUAGES, REGIONS } from './locale-map.js';
 import type { ConfigIssue, SearchConfig } from './types.js';
 /**
- * The reference name a release before the shared browser block generated for a backend's own
- * credential. It is kept only so a saved row can be recognised and migrated; nothing writes it now.
+ * The credential name this library files a backend's key under. It is fixed here and not part of the
+ * configuration on purpose: a saved row must not be able to point a lookup at another name, and the
+ * settings page never has to show or ask for a name.
  */
-export function legacyCredentialRef(id: string): string {
+export function backendCredentialRef(id: string): string {
   return `DSH_SEARCH_${id.replaceAll('-', '_').toUpperCase()}_KEY`;
+}
+/** The single endpoint token every browser-backed reader uses. Fixed for the same reason. */
+export function browserCredentialRef(): string {
+  return 'DSH_SEARCH_BROWSER_TOKEN';
 }
 export function defaultConfig(): SearchConfig {
   return {
     mode:'parallel', singleBackend:'keenable', maxResults:8, concurrency:4, overallTimeoutMs:30000,
     language:'', region:'', recency:'any', safeSearch:true, includeDomains:[], excludeDomains:[],dedup:'url',fusion:'rrf',
-    browser:{endpoint:'',credentialRef:'DSH_SEARCH_BROWSER_TOKEN',statePath:'',timeoutMs:60000},
+    browser:{endpoint:'',statePath:'',timeoutMs:60000},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false},
-    // A backend that only ever reads through the shared browser owns no credential of its own: the
-    // endpoint token belongs to the browser, so the reference stays empty instead of borrowing a key name.
-    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:d.modes.some(m=>m.mode!=='browser')?legacyCredentialRef(d.id):'',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
+    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
   };
 }
 export function validateConfig(value: unknown): ConfigIssue[] {
@@ -63,7 +66,6 @@ export function validateConfig(value: unknown): ConfigIssue[] {
     }catch{fail(path,'Use an HTTP(S) or WS(S) endpoint without credentials, query, or fragment.');}};
   const sharedBrowser=c.browser.endpoint;
   if(sharedBrowser)checkEndpoint(sharedBrowser,'browser.endpoint');
-  if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.browser.credentialRef))fail('browser.credentialRef','Expected an environment-style credential reference.');
   if(!(c.browser.timeoutMs>=1000&&c.browser.timeoutMs<=120000))fail('browser.timeoutMs','Expected 1000 to 120000 milliseconds.');
   for(const d of catalog){const b=c.backends[d.id]!;const p=`backends.${d.id}`;
     choice(b.mode,d.modes.map(m=>m.mode),`${p}.mode`);
@@ -71,9 +73,6 @@ export function validateConfig(value: unknown): ConfigIssue[] {
     if(b.endpoint)checkEndpoint(b.endpoint,`${p}.endpoint`);
     // A browser backend may inherit the shared endpoint instead of naming its own.
     else if(b.enabled&&!(b.mode==='browser'&&sharedBrowser))fail(`${p}.endpoint`,'An endpoint is required.');
-    // An empty reference is the normal state for a browser backend; a name is only kept for legacy
-    // rows, where the token was stored per backend before the shared browser block existed.
-    if((b.credentialRef!==''||b.mode!=='browser')&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(b.credentialRef))fail(`${p}.credentialRef`,'Expected an environment-style credential reference.');
     num(b.timeoutMs,1000,120000,`${p}.timeoutMs`);num(b.rateLimitPerMinute,0,100000,`${p}.rateLimitPerMinute`);num(b.dailyAttemptLimit,0,1000000,`${p}.dailyAttemptLimit`);
     for(const o of d.options){const v=b.options[o.key];if(o.choices&&!o.choices.includes(String(v)))fail(`${p}.options.${o.key}`,'Unsupported option.');if(typeof v==='number')num(v,o.min??1,o.max??100000,`${p}.options.${o.key}`);}
   }
@@ -86,14 +85,10 @@ export function parseConfig(value:unknown):SearchConfig{
     const raw=structuredClone(value) as any;
     for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
     for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
-    // A browser-only backend used to be given a credential reference of its own, named after the
-    // backend. The token belongs to the browser, so that generated name is dropped and the endpoint
-    // token is expected under the shared browser reference; a reference the user chose is left alone.
-    for(const d of catalog){
-      if(!d.modes.every(m=>m.mode==='browser'))continue;
-      const row=raw.backends[d.id];
-      if(row&&row.credentialRef===legacyCredentialRef(d.id))row.credentialRef='';
-    }
+    // A credential reference used to be a configuration field. The name is fixed in code now, so a
+    // saved reference is dropped instead of being honoured: nothing in a file may redirect a lookup.
+    if(raw.browser&&typeof raw.browser==='object')delete raw.browser.credentialRef;
+    for(const id of Object.keys(raw.backends)){const row=raw.backends[id];if(row&&typeof row==='object')delete row.credentialRef;}
     value=raw;
   }
   const issues=validateConfig(value);
