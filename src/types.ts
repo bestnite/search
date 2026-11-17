@@ -10,6 +10,8 @@ export interface ModeDefinition {
 }
 export interface BackendDefinition {
   id: string; title: string; status: 'documented' | 'unverified'; docs: string; verifiedAt: string;
+  /** 'live' means this deployment completed a real call to the backend, not merely that docs describe it. */
+  evidence: 'documented' | 'live';
   modes: ModeDefinition[]; options: OptionField[]; capabilities: string[];
 }
 export interface RetryConfig {
