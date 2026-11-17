@@ -44,6 +44,7 @@ The list is grouped by the cheapest path a backend offers, so anything with a fr
 - `web_search` — the backend fan-out described above.
 - `web_search_plus` — search with a strategy for this call only: (can be switched off in settings, which stops registering it) `mode` (single or parallel), `backends` (a subset of the enabled ones), `allBackends` + `exclude` (everything except a few, cheaper to write than listing ids), `compact` (links and titles only, no snippets, which is the biggest lever on result size; can be made the default in settings) and `maxResults`. Saved configuration is untouched, a backend that is not enabled is reported rather than silently dropped, and the result names the backends that actually ran.
 - `x_thread` — read one X post with its replies, so a discussion a search surfaced can be quoted. Needs the X backend in session mode; a bounded depth, reply count and character budget apply.
+- `xiaohongshu_note` — read one Xiaohongshu note: text, author, engagement counts, tags, and optionally its top-level comments. Takes the share link (which carries the token the read needs) or a note id from an earlier search in the same session. Needs the Xiaohongshu backend in browser mode, and reports a disabled backend or a missing token instead of an empty note.
 - `reddit_thread` — read one Reddit post with its comment tree, so a model can quote the discussion instead of guessing. Capped by depth, comment count and character budget.
 - `search_manage` — inspect or change this plugin's settings from the agent side.
 

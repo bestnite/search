@@ -27,3 +27,10 @@ test('X conversations have their own tool with a bounded schema',async()=>{const
 test('web_search_plus exposes per-call strategy without touching saved config',async()=>{const h=harness();const c=defaultConfig();await apply(h.ctx,c);const tool=h.tool('web_search_plus');assert.ok(tool,'web_search_plus should be registered');const props=(tool as any).parameters.properties;for(const key of['query','mode','backends','allBackends','exclude','backend','compact','maxResults'])assert.ok(key in props,`missing ${key}`);assert.deepEqual((tool as any).parameters.required,['query']);assert.deepEqual((props.mode as any).enum,['single','parallel']);assert.deepEqual(h.stored,undefined,'registration must not write configuration');});
 
 test('web_search_plus disappears when the agent switch is off',async()=>{const withTool=harness();await apply(withTool.ctx,defaultConfig());assert.ok(withTool.tool('web_search_plus'));const c=defaultConfig();c.tools.webSearchPlus=false;const without=harness();await apply(without.ctx,c);assert.equal(without.tool('web_search_plus'),undefined,'the tool must not be registered at all');assert.ok(without.tool('search_manage'),'other tools stay registered');});
+
+test('the note tool explains what is missing before it touches the browser',async()=>{const h=harness();const c=defaultConfig();await apply(h.ctx,c);const tool=h.tool('xiaohongshu_note');assert.ok(tool,'the note tool is registered');
+ const signal=new AbortController().signal;
+ await assert.rejects(tool.execute({url:'https://www.xiaohongshu.com/explore/abc'},{signal}),/disabled/);
+ const enabled=defaultConfig();enabled.backends.xiaohongshu!.enabled=true;const h2=harness();await apply(h2.ctx,enabled);
+ await assert.rejects(h2.tool('xiaohongshu_note')!.execute({},{signal}),/Pass url .* or id/);
+});
