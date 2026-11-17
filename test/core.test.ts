@@ -108,3 +108,35 @@ test('compact becomes the default from configuration yet stays overridable per c
  const plain=build();plain.tools.compactByDefault=true;
  const provider=new SearchEngine(plain,async()=>undefined,mock(()=>Response.json({results:rows})));
  assert.ok((await provider.search({query:'hello'})).sources[0]!.snippet,'the plain web_search path keeps snippets regardless');});
+
+test('a browser backend owns no credential reference; the endpoint token belongs to the shared browser',async()=>{
+  const c=defaultConfig();
+  assert.equal(c.backends.xiaohongshu!.credentialRef,'','a browser-only backend does not borrow a key name');
+  assert.equal(c.browser.credentialRef,'DSH_SEARCH_BROWSER_TOKEN');
+  assert.equal(c.backends.xiaohongshu!.mode,'browser');
+  // A backend that also reads over HTTP still needs its own reference.
+  assert.match(c.backends.keenable!.credentialRef,/^DSH_SEARCH_KEENABLE_KEY$/);
+  // An empty reference is legal only while the backend reads through the browser.
+  const keyMode=config();keyMode.backends.keenable!.credentialRef='';assert.ok(validateConfig(keyMode).some(i=>i.path==='backends.keenable.credentialRef'),'key mode cannot run without a reference');
+  const browserMode=defaultConfig();browserMode.backends.xiaohongshu!.enabled=true;assert.deepEqual(validateConfig(browserMode).filter(i=>i.path==='backends.xiaohongshu.credentialRef'),[]);
+  const legacy=defaultConfig();legacy.backends.xiaohongshu!.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';assert.deepEqual(validateConfig(legacy).filter(i=>i.path==='backends.xiaohongshu.credentialRef'),[],'a legacy per-backend reference still validates');
+});
+
+test('the shared browser token wins over a backend-level one, which stays a legacy fallback',async()=>{
+  const {browserBackends}=await import('../src/adapters.js');
+  const original=browserBackends.xiaohongshu!;const seen:string[]=[];
+  browserBackends.xiaohongshu={search:async input=>{seen.push(String(input.key??''));return [];}};
+  try{
+    const stored:Record<string,string>={DSH_SEARCH_BROWSER_TOKEN:'SHARED',DSH_SEARCH_XIAOHONGSHU_KEY:'BACKEND'};
+    const c=defaultConfig();c.browser.endpoint='ws://127.0.0.1:3000/ws';c.backends.xiaohongshu!.enabled=true;c.backends.xiaohongshu!.mode='browser';c.backends.xiaohongshu!.credentialRef='DSH_SEARCH_XIAOHONGSHU_KEY';c.retry.enabled=false;
+    const engine=new SearchEngine(c,async ref=>stored[ref],mock(()=>Response.json(payload)));
+    await engine.search({query:'x'},undefined,'xiaohongshu');
+    assert.deepEqual(seen,['SHARED'],'the shared reference is read first');
+    delete stored.DSH_SEARCH_BROWSER_TOKEN;
+    await engine.search({query:'x'},undefined,'xiaohongshu');
+    assert.deepEqual(seen,['SHARED','BACKEND'],'the backend reference covers a token stored before the shared block existed');
+    delete stored.DSH_SEARCH_XIAOHONGSHU_KEY;
+    await engine.search({query:'x'},undefined,'xiaohongshu');
+    assert.deepEqual(seen,['SHARED','BACKEND',''],'a browser read without a token is not blocked');
+  }finally{browserBackends.xiaohongshu=original;}
+});

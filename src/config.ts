@@ -8,7 +8,9 @@ export function defaultConfig(): SearchConfig {
     browser:{endpoint:'',credentialRef:'DSH_SEARCH_BROWSER_TOKEN',statePath:'',timeoutMs:60000},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false},
-    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
+    // A backend that only ever reads through the shared browser owns no credential of its own: the
+    // endpoint token belongs to the browser, so the reference stays empty instead of borrowing a key name.
+    backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,credentialRef:d.modes.some(m=>m.mode!=='browser')?`DSH_SEARCH_${d.id.replaceAll('-','_').toUpperCase()}_KEY`:'',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
   };
 }
 export function validateConfig(value: unknown): ConfigIssue[] {
@@ -62,7 +64,9 @@ export function validateConfig(value: unknown): ConfigIssue[] {
     if(b.endpoint)checkEndpoint(b.endpoint,`${p}.endpoint`);
     // A browser backend may inherit the shared endpoint instead of naming its own.
     else if(b.enabled&&!(b.mode==='browser'&&sharedBrowser))fail(`${p}.endpoint`,'An endpoint is required.');
-    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(b.credentialRef))fail(`${p}.credentialRef`,'Expected an environment-style credential reference.');
+    // An empty reference is the normal state for a browser backend; a name is only kept for legacy
+    // rows, where the token was stored per backend before the shared browser block existed.
+    if((b.credentialRef!==''||b.mode!=='browser')&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(b.credentialRef))fail(`${p}.credentialRef`,'Expected an environment-style credential reference.');
     num(b.timeoutMs,1000,120000,`${p}.timeoutMs`);num(b.rateLimitPerMinute,0,100000,`${p}.rateLimitPerMinute`);num(b.dailyAttemptLimit,0,1000000,`${p}.dailyAttemptLimit`);
     for(const o of d.options){const v=b.options[o.key];if(o.choices&&!o.choices.includes(String(v)))fail(`${p}.options.${o.key}`,'Unsupported option.');if(typeof v==='number')num(v,o.min??1,o.max??100000,`${p}.options.${o.key}`);}
   }
