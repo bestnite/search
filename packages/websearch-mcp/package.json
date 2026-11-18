@@ -1,0 +1,51 @@
+{
+  "name": "@nite07/websearch-mcp",
+  "version": "0.1.3",
+  "description": "MCP server for multi-backend web search plus Reddit and X thread reading, built on @nite07/search-core.",
+  "license": "MIT",
+  "author": "nite07",
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.nite07.com/nite/websearch-mcp.git"
+  },
+  "homepage": "https://git.nite07.com/nite/websearch-mcp",
+  "bugs": {
+    "url": "https://git.nite07.com/nite/websearch-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "web-search",
+    "reddit",
+    "x",
+    "search"
+  ],
+  "type": "module",
+  "bin": {
+    "websearch-mcp": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "config.example.json"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "start": "node dist/main.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@nite07/search-core": "0.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

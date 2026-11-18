@@ -1,0 +1,96 @@
+{
+  "search": {
+    "mode": "parallel",
+    "singleBackend": "keenable",
+    "maxResults": 8,
+    "concurrency": 4,
+    "overallTimeoutMs": 30000,
+    "language": "",
+    "region": "",
+    "recency": "any",
+    "safeSearch": false,
+    "includeDomains": [],
+    "excludeDomains": [],
+    "dedup": "url",
+    "fusion": "rrf",
+    "retry": {
+      "enabled": true,
+      "statuses": [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "maxRetries": 2,
+      "initialDelayMs": 500,
+      "maxDelayMs": 5000,
+      "networkErrors": false,
+      "timeouts": false
+    },
+    "cache": {
+      "enabled": true,
+      "ttlSeconds": 900,
+      "maxEntries": 100
+    },
+    "breaker": {
+      "enabled": false,
+      "threshold": 3,
+      "cooldownMs": 60000
+    },
+    "diagnostics": {
+      "enabled": true,
+      "maxEntries": 50
+    },
+    "tools": {
+      "webSearchPlus": true,
+      "compactByDefault": false
+    },
+    "backends": {
+      "keenable": {
+        "enabled": true,
+        "mode": "anonymous",
+        "endpoint": "https://api.keenable.ai/v1/search/public",
+        "timeoutMs": 15000,
+        "rateLimitPerMinute": 0,
+        "dailyAttemptLimit": 0,
+        "options": {
+          "clientTitle": "websearch-mcp",
+          "snippet_max_length": 2000
+        }
+      },
+      "reddit": {
+        "enabled": true,
+        "mode": "anonymous",
+        "endpoint": "https://gql-fed.reddit.com/",
+        "timeoutMs": 15000,
+        "rateLimitPerMinute": 0,
+        "dailyAttemptLimit": 0,
+        "options": {
+          "sort": "relevance",
+          "time": "all",
+          "subreddit": ""
+        }
+      },
+      "x": {
+        "enabled": false,
+        "mode": "session",
+        "endpoint": "https://x.com/i/api/graphql",
+        "timeoutMs": 20000,
+        "rateLimitPerMinute": 0,
+        "dailyAttemptLimit": 0,
+        "options": {
+          "postsPerSearch": 25
+        }
+      }
+    },
+    "browser": {
+      "endpoint": "",
+      "statePath": "",
+      "timeoutMs": 60000
+    }
+  },
+  "credentials": {},
+  "compactByDefault": false
+}
