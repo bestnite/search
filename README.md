@@ -6,6 +6,9 @@ Web search you actually control. Pick the providers you want, see what each one 
 enabling it, and read the exact reason when something fails. This repository contains the shared
 engine plus the two ways to use it.
 
+There are 24 backends, from keyless tiers to paid APIs; per-backend quotas, prices and the date they
+were checked are in [BACKENDS.md](packages/dsh-search/docs/BACKENDS.md).
+
 ## Which package do I want?
 
 | You want to… | Install | Where it lives |
@@ -45,21 +48,6 @@ npm install @nite07/search-core
 ```
 
 Start with the runnable example in the [core README](packages/core/README.md).
-
-## What you get
-
-- **Explicit access mode per backend.** Anonymous, key, OAuth or a session cookie — exactly the mode
-  you chose. No silent fallback between modes, keys or endpoints.
-- **Visible cost.** Every mode carries a cost tier and a dated quota note, so nothing gets enabled
-  before you know what it bills.
-- **Honest failures.** A partial failure returns what worked and names what did not; a total failure
-  says the search failed instead of returning an empty list.
-- **Browser-backed sites.** Xiaohongshu only answers its own page runtime, so it reads through a
-  browser container you host. The image, the VNC sign-in and the endpoint token are all in this repo:
-  [browser image](packages/core/image/README.md).
-
-There are 24 backends, from keyless tiers to paid APIs. The per-backend quotas, prices and the date
-they were checked: [BACKENDS.md](packages/dsh-search/docs/BACKENDS.md).
 
 ## Documentation
 
