@@ -32,46 +32,30 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 ## 配置页面
 
 配置有页面了：每个后端的接入模式、成本档位、选项与凭证都在同一张表里，每张卡片带一个实测按钮。
-它跑在自己进程里——常驻一个实例守着页面，MCP 客户端照旧拉起 stdio 服务，互不影响。
+**这个页面由 MCP 服务器自己提供**——一个进程，不需要额外的单元、容器或端口转发：
 
 ```sh
-websearch-mcp --ui                                    # 只听 127.0.0.1:7799
-websearch-mcp --ui --host 0.0.0.0 --port 7799         # 局域网可达，令牌照旧
-websearch-mcp --print-url --host 0.0.0.0 --port 7799  # 打印要打开的链接
-WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp --ui        # 要求这个令牌
-websearch-mcp --ui --no-token                        # 完全不鉴权
+WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp   # stdio 服务 + 页面
 ```
 
-- 绑定地址和端口是启动参数：`--host` / `--port`，或环境变量 `WEBSEARCH_MCP_UI_HOST` /
-  `WEBSEARCH_MCP_UI_PORT`。默认只绑 loopback。
-- **只有给了令牌才鉴权，而令牌只从环境变量或命令行来——这个服务绝不往磁盘写令牌。**
-  `--no-token` 最高，其次 `--token <值>`，再是 `WEBSEARCH_MCP_UI_TOKEN`。所以 systemd 单元或容器定义
-  就是全部事实：写一行 `Environment=WEBSEARCH_MCP_UI_TOKEN=…`，没有文件要挂载、备份或清理。
-- 有令牌时，第一个请求带 `?token=`，换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不留在浏览器
-  历史里。**没有令牌时页面是敞开的**：能连上端口的人就能改配置，包括凭证。只绑 loopback 又不设令牌，
-  单人自用没问题；一旦绑到更宽的地址，就该配一个令牌。
-- 保存时用服务端同一套 schema 校验。被拒的保存不动文件，按字段路径列出所有问题；通过的保存先写
-  `config.json.bak-<本地时间>`（保留 5 份），再原子替换文件并设为 0600。
-- 正在跑的 stdio 服务监听到文件变化就重读，所以保存后下一次 `web_search` 就用新配置，不用重启
-  客户端。文件如果解析不了，保留上一份可用配置，并在 stderr 说明原因。
+- `WEBSEARCH_MCP_UI_PORT` 打开页面，`WEBSEARCH_MCP_UI_HOST` 选绑定地址（默认 `127.0.0.1`，
+  同机客户端什么都不用加）。
+- 页面活多久取决于服务活多久。客户端关掉 stdin，进程退出、端口释放；客户端重新拉起服务，页面也就跟着回来。
+- 端口绑不上时只在 stderr 报一句，MCP 工具照常工作——页面永远不该成为丢工具的理由。
+- **只有给了令牌才鉴权，令牌只从环境变量或命令行来——服务绝不往磁盘写令牌。** 页面模式也可以用
+  `--no-token`；两者都没有时页面是开放的，日志会说明。
+- 有令牌时第一个请求带 `?token=`，换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不留在浏览器历史里。
+- 保存用服务端同一套 schema 校验。被拒的保存不动文件，按字段路径列出问题；通过的保存先写
+  `config.json.bak-<本地时间>`（保留 5 份），再原子替换并设为 0600。服务一直在 watch 这个文件，
+  所以保存完下一次 `web_search` 就用新配置。
+- 文件解析不了时保留上一份可用配置，并在 stderr 说明原因。
 - 配置旁边如果有 `config.container.json`，每次保存会连它一起重写：loopback 端点换成
-  `host.containers.internal`，浏览器登录态文件映射到 `/host/home`。跑在容器里的 MCP 客户端读的就是这份。
-  没有这个文件就不会凭空创建。
+  `host.containers.internal`，浏览器登录态文件映射到 `/host/home`。没有这个文件就不会凭空创建。
 
-常驻页面用用户级服务即可，不必上容器：
+不想起 MCP 客户端、只想看一眼页面：
 
-```ini
-[Unit]
-Description=websearch-mcp settings WebUI
-After=network-online.target
-
-[Service]
-ExecStart=/usr/bin/node /path/to/websearch-mcp/dist/main.js --ui --host 0.0.0.0 --port 7799
-Restart=on-failure
-UMask=0077
-
-[Install]
-WantedBy=default.target
+```sh
+websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打印链接
 ```
 
 ## 客户端配置

@@ -8,6 +8,7 @@ import { createTools, type ServerIdentity } from './tools.js';
 import { watchSource } from './live.js';
 import { startUi, tokenUrls } from './ui/server.js';
 import { decideToken, tokenIsShort } from './ui/token.js';
+import { embeddedFromEnv } from './ui/embedded.js';
 
 const DEFAULT_UI_HOST = '127.0.0.1';
 const DEFAULT_UI_PORT = 7799;
@@ -50,7 +51,7 @@ const help = (): string => `websearch-mcp — MCP server for multi-backend web s
 
 Usage
   websearch-mcp                        run over stdio (what an MCP client spawns)
-  websearch-mcp --ui                   run the settings page instead of stdio
+  websearch-mcp --ui                   run only the settings page, without stdio
   websearch-mcp --print-config         print a starter configuration to stdout
   websearch-mcp --print-url            print the page URLs
 
@@ -68,8 +69,8 @@ Authentication
 
 Environment
   WEBSEARCH_MCP_CONFIG      path to config.json (default ~/.config/websearch-mcp/config.json)
-  WEBSEARCH_MCP_UI_HOST     bind address for --ui
-  WEBSEARCH_MCP_UI_PORT     port for --ui
+  WEBSEARCH_MCP_UI_HOST     bind address for the page (default 127.0.0.1)
+  WEBSEARCH_MCP_UI_PORT     serve the page from this stdio process too, on this port
   WEBSEARCH_MCP_UI_TOKEN    the token to require, unless --token or --no-token is given
   DSH_SEARCH_<BACKEND>_KEY  a credential; wins over the value stored in the file
   DSH_SEARCH_BROWSER_TOKEN  the browser endpoint token
@@ -135,6 +136,30 @@ function resolveToken(): { token?: string; source: string } {
 
 const openWarning = (): void => log('no token is configured, so the page is open: anyone who can reach it can rewrite the configuration');
 
+/**
+ * stdio mode answers MCP tools; with WEBSEARCH_MCP_UI_PORT set it also answers HTTP, in the same
+ * process. A port that cannot be bound is reported and the MCP side carries on: an MCP client must
+ * never lose its tools because a page could not start.
+ */
+async function startEmbeddedUi(configFile: string): Promise<{ close(): Promise<void> } | undefined> {
+  const decision = embeddedFromEnv();
+  if (!decision.target) {
+    if (decision.error) log(`settings page stays off: WEBSEARCH_MCP_UI_PORT ${decision.error}`);
+    return undefined;
+  }
+  const { token } = resolveToken();
+  try {
+    const ui = await startUi({ configPath: configFile, host: decision.target.host, port: decision.target.port, ...(token === undefined ? {} : { token }), version: identity.version, log });
+    log(`settings page on ${decision.target.host}:${ui.port}, served by this process`);
+    for (const url of ui.urls) log(`open ${url}`);
+    if (!token) openWarning();
+    return { close: () => ui.close() };
+  } catch (error) {
+    log(`settings page stays off: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
+}
+
 const wantsUi = flags.has('ui');
 if (!wantsUi && flags.has('print-url')) {
   const { token } = resolveToken();
@@ -182,6 +207,7 @@ if (wantsUi) {
   const abort = new AbortController();
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { source.close(); abort.abort(); process.exit(0); });
 
+  const embedded = await startEmbeddedUi(config.configPath);
   const tools = createTools(source, identity);
   const protocol = createProtocol(tools, { name: identity.name, version: identity.version }, process.stdout);
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -190,6 +216,7 @@ if (wantsUi) {
     if (abort.signal.aborted) break;
     await protocol.handle(line, abort.signal);
   }
+  await embedded?.close();
   source.close();
 }
 

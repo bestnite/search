@@ -40,51 +40,37 @@ and Reddit, which need no account.
 ## Settings page
 
 The configuration has a page: every backend, its access mode, its cost tier, its options and its
-credential in one form, plus a probe button per backend. It runs as its own process, so a resident
-instance can hold the page while MCP clients keep spawning the stdio server.
+credential in one form, plus a probe button per backend. **The MCP server serves it itself** — one
+process, no extra unit, container or port-forwarder to install:
 
 ```sh
-websearch-mcp --ui                                    # http://127.0.0.1:7799
-websearch-mcp --ui --host 0.0.0.0 --port 7799         # reachable from the LAN; the token still applies
-websearch-mcp --print-url --host 0.0.0.0 --port 7799  # the link to open
-WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp --ui        # require that token
-websearch-mcp --ui --no-token                        # no authentication at all
+WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp   # stdio client + page
 ```
 
-- The bind address and port are launch arguments: `--host` / `--port`, or `WEBSEARCH_MCP_UI_HOST` /
-  `WEBSEARCH_MCP_UI_PORT`. The default binds loopback only.
+- `WEBSEARCH_MCP_UI_PORT` turns the page on for that process; `WEBSEARCH_MCP_UI_HOST` picks the bind
+  address (default `127.0.0.1`, so a client on the same machine needs nothing else).
+- The page lives exactly as long as the server does. When the client closes stdin the process exits
+  and the port is released, which also means a client that respawns the server gets a fresh page.
+- A port that cannot be bound is reported on stderr and the MCP tools carry on: a page is never a
+  reason to lose the tools.
 - **Authentication is on only when a token is supplied, and the token comes from the environment or
-  the command line — this server never writes one to disk.** `--no-token` wins, then `--token <value>`,
-  then `WEBSEARCH_MCP_UI_TOKEN`. A systemd unit or a container spec is therefore the whole story:
-  `Environment=WEBSEARCH_MCP_UI_TOKEN=…`, and nothing to mount, back up or leak.
+  the command line — this server never writes one to disk.** `--no-token` (page-only mode) or
+  `WEBSEARCH_MCP_UI_TOKEN` (any mode) decides it; with neither, the page is open and the log says so.
 - With a token the first request carries `?token=`, exchanged for an `HttpOnly`, `SameSite=Strict`
-  cookie, so the link does not stay in browser history. **With no token the page is open**: whoever
-  can reach the port can rewrite the configuration, credentials included. Loopback plus no token is a
-  reasonable single-user setup; anything wider deserves a token.
+  cookie, so the link does not stay in browser history.
 - Saving validates against the same schema the server enforces. A rejected save leaves the file
   untouched and lists every problem by path; an accepted one writes `config.json.bak-<local time>`
-  (five kept) and replaces the file atomically at mode 0600.
-- A running stdio server re-reads the file when it changes, so a save reaches the next `web_search`
-  without restarting the client. A file that stops parsing keeps the previous configuration and says
-  so on stderr.
+  (five kept) and replaces the file atomically at mode 0600. The server watching that file reloads
+  immediately, so the next `web_search` already uses what the page saved.
+- A file that stops parsing keeps the previous configuration and says why on stderr.
 - When a `config.container.json` sits beside the file, every save rewrites it too: loopback endpoints
-  become `host.containers.internal`, and the browser session file is mapped into `/host/home`. That is
-  the copy an MCP client running in a container reads. The companion is never created on its own.
+  become `host.containers.internal`, and the browser session file is mapped into `/host/home`. The
+  companion is never created on its own.
 
-A resident page is a user service, not a container:
+Page without an MCP client, for a quick look:
 
-```ini
-[Unit]
-Description=websearch-mcp settings WebUI
-After=network-online.target
-
-[Service]
-ExecStart=/usr/bin/node /path/to/websearch-mcp/dist/main.js --ui --host 0.0.0.0 --port 7799
-Restart=on-failure
-UMask=0077
-
-[Install]
-WantedBy=default.target
+```sh
+websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url prints the links and exits
 ```
 
 ## Client configuration
