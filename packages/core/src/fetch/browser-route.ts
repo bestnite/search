@@ -102,6 +102,39 @@ function diagnosticCode(message: string): string {
   return line ? ` (${line})` : '';
 }
 
+/** What a page has to look like before a refused status is worth asking about again. */
+function looksLikeRealPage(html: string): boolean {
+  const parsed = parseHtmlDocument(html, 'about:blank');
+  if (!parsed.title) return false;
+  return parsed.text.trim().length >= 200;
+}
+
+/**
+ * Read the rendered document once, measuring UTF-8 bytes inside the page so an oversized document is
+ * never serialized across the wire just to be rejected here.
+ *
+ * A page that navigates itself right after `domcontentloaded` destroys the context the read was bound
+ * to. That is not a fetch failure: wait for the replacement document once and read again.
+ */
+async function readDocument(page: Page, limit: number): Promise<Capture> {
+  const read = () => page.evaluate((max: number): Capture => {
+    const root = document.documentElement;
+    const html = root ? root.outerHTML : '';
+    // Four bytes per character is the UTF-8 upper bound; one byte per character is the lower.
+    if (html.length * 4 <= max) return { html };
+    const bytes = new TextEncoder().encode(html).byteLength;
+    return bytes > max ? { tooLarge: bytes } : { html };
+  }, limit);
+  try {
+    return await read();
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (!/execution context was destroyed|cannot find context|target (page, context or browser )?closed|context was destroyed/i.test(text)) throw error;
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 }).catch(() => undefined);
+    return read();
+  }
+}
+
 /** A captured main document, or the size that made it unacceptable. */
 interface Capture {
   html?: string;
@@ -249,7 +282,7 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       });
       page = adopt(openedPage, value => value.close());
 
-      const response = await untilAborted(page.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
+      let response = await untilAborted(page.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
       if (request.selectorWait) {
         try {
           await page.waitForSelector(request.selectorWait, { timeout: Math.min(request.routeTimeoutMs, 10_000) });
@@ -258,34 +291,36 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         }
       }
       if (request.settleMs > 0) await abortableWait(request.settleMs, request.signal);
-      const statusCode = response?.status();
+      let statusCode = response?.status();
+      // Record what the first navigation already answered, so a failure while reading can still
+      // report the status and URL instead of losing them.
+      observedStatus = statusCode;
+      observedUrl = page.url();
+      // Some anti-bot fronts answer the first document with a 4xx while handing the browser the
+      // cookie that unlocks the next one; Zhihu does exactly this, and the first document it returns
+      // still renders the real page. Asking once more with that cookie turns a refused load into a
+      // 200. The retry only happens when the first document is a real page, never for a bare 4xx.
+      if (statusCode !== undefined && statusCode >= 400) {
+        const firstDocument = await readDocument(page, maxDomBytes);
+        if (!('html' in firstDocument) || !looksLikeRealPage(firstDocument.html ?? '')) {
+          // Not a rendered page: keep the refusal as the outcome instead of asking again.
+        } else {
+          notes.push(`The first document answered HTTP ${statusCode}; it rendered a page, so the navigation was retried once with the cookies that answer set.`);
+          try {
+            response = await untilAborted(page.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
+            statusCode = response?.status();
+          } catch {
+            // The retry failing keeps the first status and the document already read below.
+          }
+        }
+      }
       const finalUrl = page.url();
       observedStatus = statusCode;
       observedUrl = finalUrl;
       // Bound the capture inside the page: the remote side measures UTF-8 bytes and, when the
       // document is over the bound, reports only the size instead of serializing it across the wire.
       const target = page;
-      const readDom = () => target.evaluate((limit: number): Capture => {
-        const root = document.documentElement;
-        const html = root ? root.outerHTML : '';
-        // Four bytes per character is the UTF-8 upper bound; one byte per character is the lower.
-        if (html.length * 4 <= limit) return { html };
-        const bytes = new TextEncoder().encode(html).byteLength;
-        return bytes > limit ? { tooLarge: bytes } : { html };
-      }, maxDomBytes);
-      // A page that navigates itself right after `domcontentloaded` destroys the context the read was
-      // bound to. That is not a fetch failure: wait for the replacement document once and read again.
-      const captured = await untilAborted((async (): Promise<Capture> => {
-        try {
-          return await readDom();
-        } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
-          if (!/execution context was destroyed|cannot find context|target (page, context or browser )?closed|context was destroyed/i.test(text)) throw error;
-          if (request.signal.aborted) throw error;
-          await target.waitForLoadState('domcontentloaded', { timeout: Math.min(5_000, request.routeTimeoutMs) }).catch(() => undefined);
-          return readDom();
-        }
-      })());
+      const captured = await untilAborted(readDocument(target, maxDomBytes));
       if (typeof captured.tooLarge === 'number') {
         return routeFailure(
           'limit',

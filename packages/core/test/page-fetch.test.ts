@@ -2009,3 +2009,65 @@ test('a failure after the response keeps the status the target already answered'
   assert.equal(result.finalUrl, 'https://www.zhihu.com/signin');
   assert.match(result.error?.message ?? '', /answered HTTP 403 before the read failed/);
 });
+
+test('a rendered page behind a 4xx is asked for once more, and the second answer decides', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  const statuses: (number | undefined)[] = [];
+  let loads = 0;
+  const page = {
+    goto: async () => { loads += 1; const status = loads === 1 ? 403 : 200; statuses.push(status); return { status: () => status }; },
+    url: () => 'https://www.zhihu.com/question/1',
+    waitForLoadState: async () => undefined,
+    evaluate: async () => ({ html: '<html><head><title>Real page</title></head><body>' + 'answer text '.repeat(60) + '</body></html>' }),
+    close: async () => undefined,
+  };
+  const fetcher = createBrowserFetcher(async () => ({
+    newContext: async () => ({ newPage: async () => page, close: async () => undefined }),
+    close: async () => undefined,
+  }) as never);
+  const result = await fetcher({
+    url: new URL('https://www.zhihu.com/question/1'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'session',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(loads, 2, 'the navigation was retried exactly once');
+  assert.equal(result.outcome, 'ok', 'the 200 answered by the retry is the outcome');
+  assert.equal(result.statusCode, 200);
+  assert.ok(result.notes.some(note => /answered HTTP 403; it rendered a page/.test(note)), 'the first refusal stays in the record');
+});
+
+test('a bare 4xx page is not retried, so a real 404 still stops the chain', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  let loads = 0;
+  const page = {
+    goto: async () => { loads += 1; return { status: () => 404 }; },
+    url: () => 'https://example.com/missing',
+    waitForLoadState: async () => undefined,
+    evaluate: async () => ({ html: '<html><head><title></title></head><body>not found</body></html>' }),
+    close: async () => undefined,
+  };
+  const fetcher = createBrowserFetcher(async () => ({
+    newContext: async () => ({ newPage: async () => page, close: async () => undefined }),
+    close: async () => undefined,
+  }) as never);
+  const result = await fetcher({
+    url: new URL('https://example.com/missing'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(loads, 1, 'a bare 404 is reported, not retried');
+  assert.equal(result.outcome, 'http-error');
+  assert.equal(result.statusCode, 404);
+});
