@@ -89,10 +89,12 @@ const exaFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'free',
       limits: text('Free keyless MCP, no account; the rate limit is not published. One call fetches one URL.', '无 Key 的免费 MCP，无需账号；限流未公布。一次调用抓取一个 URL。'),
       pricingUrl: 'https://exa.ai/pricing',
     },
     key: {
+      tier: 'paid',
       limits: text('$1 per 1,000 pages for text contents; a keyed call is billed by the account balance.', '正文按 $1/千页计费；有 Key 调用计入账户余额。'),
       pricingUrl: 'https://exa.ai/products/contents',
     },
@@ -123,10 +125,12 @@ const parallelFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'free',
       limits: text('Free anonymous MCP, no account; the numeric quota is not published.', '免费匿名 MCP，无需账号；数值额度未公布。'),
       pricingUrl: 'https://parallel.ai/pricing',
     },
     key: {
+      tier: 'paid',
       limits: text('$1 per 1,000 URLs on the Extract API.', 'Extract API 按 $1/千个 URL 计费。'),
       pricingUrl: 'https://docs.parallel.ai/getting-started/pricing',
     },
@@ -156,6 +160,7 @@ const deepseekFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     key: {
+      tier: 'paid',
       limits: text('$0.75 per 1,000 successful fetch requests; 25 QPS per account for fetch plus a per-domain limit. A failed request is not billed.', '按 $0.75/千次成功抓取计费；抓取每账户 25 QPS，另有单域名限流。失败的请求不计费。'),
       pricingUrl: 'https://api-docs.deepseek.com/guides/search/',
     },
@@ -187,6 +192,7 @@ const serpexFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     key: {
+      tier: 'paid',
       limits: text('1 credit per successfully extracted URL; the same organization repeating the same URL and format within 5 minutes is free. Failed extractions are never charged.', '每个成功抽取的 URL 计 1 credit；同一组织 5 分钟内对同一 URL 使用同一 format 不重复计费。失败的抽取不计费。'),
       pricingUrl: 'https://serpex.dev/docs/getting-started/pricing',
     },
@@ -218,6 +224,7 @@ const linkupFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     key: {
+      tier: 'paid',
       limits: text('$0.001 per call with the standard mode and no JavaScript rendering; $0.005 with JavaScript rendering or the pro mode. Structured output adds $0.001.', '标准模式且不渲染 JavaScript 时 $0.001/次；渲染 JavaScript 或使用 pro 模式时 $0.005/次；结构化输出另加 $0.001。'),
       pricingUrl: 'https://docs.linkup.so/pages/documentation/endpoints/fetch/overview.md',
     },
@@ -263,10 +270,12 @@ const tavilyFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'free',
       limits: text('Free keyless access on the same endpoint, rate-limited; the numeric limit is not published. No account and no credit.', '同一端点上的免费无 Key 访问，有限流但未公布数值。无需账号、不消耗 credit。'),
       pricingUrl: 'https://docs.tavily.com/documentation/keyless.md',
     },
     key: {
+      tier: 'allowance',
       limits: text('1,000 free credits/month; basic extraction is 1 credit per 5 successful URLs, advanced 2 credits per 5. Pay-as-you-go is $0.008/credit.', '每月免费 1000 credits；basic 抽取每 5 个成功 URL 计 1 credit，advanced 每 5 个计 2 credits；按量 $0.008/credit。'),
       pricingUrl: 'https://docs.tavily.com/documentation/api-credits',
     },
@@ -303,6 +312,7 @@ const youFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     key: {
+      tier: 'paid',
       limits: text('$0.90 per 1,000 URLs. PDFs parsed with the default standard effort add $0.50 per 1,000 PDF pages; lite adds none.', '每 1000 个 URL 计 $0.90。PDF 使用默认 standard 解析时每 1000 页另加 $0.50；lite 不另计。'),
       pricingUrl: 'https://you.com/docs/administration/billing',
     },
@@ -345,10 +355,12 @@ const keenableFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'free',
       limits: text('1,000 requests/hour and 10/second per IP and endpoint, no credits; the public title header is required.', '每 IP 与端点 1000 次/小时、10 次/秒，不消耗 credit；必须发送公开调用标识头。'),
       pricingUrl: 'https://docs.keenable.ai/pricing.md',
     },
     key: {
+      tier: 'allowance',
       limits: text('100,000 fetches/month free with a key; a fetch the provider had to crawl live is billed as the fetch.live SKU. Confirm current account terms.', '有 Key 时每月 10 万次抓取免费；供应商需要实时抓取的请求按 fetch.live 计费。以账户当前条款为准。'),
       pricingUrl: 'https://docs.keenable.ai/pricing.md',
     },
@@ -393,10 +405,12 @@ const anysearchFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'free',
       limits: text('Anonymous requests are metered per IP with lower limits and a daily free reset (UTC). No credential is created automatically by this plugin.', '匿名请求按 IP 计量、限流更低，每日（UTC）重置。本插件不会自动创建任何凭证。'),
       pricingUrl: 'https://anysearch.com/pricing.md',
     },
     key: {
+      tier: 'allowance',
       limits: text('Free plan 1,000/day, 10 QPS; Pro calls are billed separately.', '免费档 1000 次/天、10 QPS；Pro 调用另行计费。'),
       pricingUrl: 'https://anysearch.com/pricing.md',
     },
@@ -429,6 +443,7 @@ const doubaoFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     key: {
+      tier: 'allowance',
       limits: text('Pay-as-you-go API keys only: subscription-plan keys work for search but cannot fetch. Each fetch uses 1 call of the 500/month free allowance shared with Doubao search, then ¥0.003 per call.', '仅支持按量后付费 API Key：订阅套餐 Key 可用于搜索，但无法调用 Fetch。每次抓取占用与豆包搜索共享的每月 500 次免费额度中的 1 次，之后按 ¥0.003/次计费。'),
       pricingUrl: 'https://docs.volcengine.com/docs/zh/networked-search/online-search-product-billing',
     },
@@ -461,6 +476,7 @@ const openWebsearchFetch: FetchOperationDefinition = {
   },
   modeConstraints: {
     anonymous: {
+      tier: 'self-hosted',
       limits: text('Self-hosted daemon: no vendor fee and no published quota; the daemon\'s own rate limits and your infrastructure costs apply.', '自建 daemon：无厂商调用费，也没有公开额度；实际受 daemon 自身限流与你的运行成本约束。'),
       pricingUrl: 'https://github.com/Aas-ee/open-webSearch',
     },

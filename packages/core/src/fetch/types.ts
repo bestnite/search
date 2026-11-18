@@ -1,4 +1,4 @@
-import type { AccessMode, Localized } from '../types.js';
+import type { AccessMode, CostTier, Localized } from '../types.js';
 import type {
   FETCH_BROWSER_CONTEXT_MODES,
   FETCH_CHALLENGE_SOLVERS,
@@ -54,6 +54,8 @@ export interface FetchModeEvidence {
  * the selected mode, so the cost is known before the mode is enabled rather than after a bill.
  */
 export interface FetchModeConstraint {
+  /** Fetch-specific cost tier; search pricing is not a substitute. */
+  tier: CostTier;
   limits: Localized;
   pricingUrl?: string;
 }

@@ -631,6 +631,9 @@ export function createClient(React: any, ReactDOM?: any) {
         // One flat list, cheapest first; the chip colour already explains why a backend sits where it does.
         const ranked = definitions.slice().sort((left, right) => tierRank(bestTier(left)) - tierRank(bestTier(right)) || readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
+        function modeChip(mode: string, tier: string, selected: boolean, evidence?: string, documented = false) {
+          return <span key={mode} className={`ns-chip ${selected ? 'is-on' : ''} ${tierRisk(tier)}`} aria-current={selected ? 'true' : undefined} title={evidence || t(`choice.${mode}`)}>{t(`choice.${mode}`)} · {t(`tier.${tier}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
+        }
 
         // Search, browser and fetch are separate views over one shared draft: switching tabs never
         // saves, never discards edits, and never moves a value between the operation records.
@@ -747,7 +750,7 @@ export function createClient(React: any, ReactDOM?: any) {
                           from the summary: a documented-only mode says so here, visibly. */}
                       {provider.modes.map(mode => {
                         const documented = modeEvidenceOf(def, mode)?.evidence === 'documented';
-                        return <span key={mode} className={`ns-chip ${mode === modeLabel ? 'is-on' : ''}`} title={`${t(`choice.${mode}`)} · ${evidenceLabel(def, mode)}`}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
+                        return modeChip(mode, def.fetch?.modeConstraints?.[mode as AccessMode]?.tier ?? 'unverified', mode === modeLabel, evidenceLabel(def, mode), documented);
                       })}
                       <span className={`ns-dot ${snapshot?.credentials[def.id]?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" />
                       <span className={`ns-badge ${selected ? 'is-on' : ''}`}>{selected ? t('fetchProviderSelected') : t('fetchProviderNotSelected')}</span>
@@ -856,7 +859,7 @@ export function createClient(React: any, ReactDOM?: any) {
               {ranked.filter(matches).map(def => {
                 const backend = draft.backends[def.id]; if (!backend) return null;
                 const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous'; const readsThroughBrowser = backend.mode === 'browser';
-                return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => <span key={item.mode} className={`ns-chip ${item.mode === backend.mode ? 'is-on' : ''} ${item.tier === 'unverified' ? 'ns-chip--off' : tierRisk(item.tier)}`} aria-current={item.mode === backend.mode ? 'true' : undefined} title={t(`choice.${item.mode}`)}>{t(`choice.${item.mode}`)} · {t(`tier.${item.tier}`)}</span>)}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
+                return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => modeChip(item.mode, item.tier, item.mode === backend.mode))}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
                   <div className="ns-backend-body">
                     {locked && <p className="ns-warning">{t('unverifiedHelp')}</p>}
                     <p className="ns-quota">{mode?.limits[lang]} <a href={mode?.pricingUrl || def.docs} target="_blank" rel="noreferrer">{t('source')}</a> · {t('verifiedAt')} {def.verifiedAt || t('notVerified')}</p>

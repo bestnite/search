@@ -354,7 +354,8 @@ test('one credential control serves a keyed search mode or a keyed fetch mode, a
   assert.match(client, /fetchCredentialFieldId\(def\.id\)/, 'the fetch card input has its own id');
   assert.match(client, /anonymousSearchKeyedFetch/, 'keyless search and keyed fetch are described per mode, not contradicted');
   assert.match(client, /credentialForFetch/, 'the control says when only the fetch mode uses the key');
-  assert.match(client, /provider\.modes\.map\(mode => \{[\s\S]{0,400}fetchEvidenceBadge/, 'the collapsed summary names a documented-only mode');
+  assert.match(client, /provider\.modes\.map\(mode => \{[\s\S]{0,400}modeChip\([^;]+documented\)/, 'the collapsed summary passes its evidence to the shared chip');
+  assert.match(client, /documented \? ` · \$\{t\('fetchEvidenceBadge'\)\}`/, 'the shared chip visibly names a documented-only mode');
   assert.match(client, /selectedFetchEvidence/, 'the selected provider summary names the evidence of the selected mode');
 });
 
