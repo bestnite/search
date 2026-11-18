@@ -45,6 +45,10 @@ permissions:
 
 jobs:
   build:
+    # The Gitea repository runs the workflows it mirrors, so without this guard a tag or a manual run
+    # would build here and push the same tags to Docker Hub and GHCR a second time. Publishing stays
+    # on GitHub, which holds the registry credentials; on any other server the job is skipped.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the commit
