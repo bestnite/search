@@ -2,6 +2,13 @@
 
 English | [简体中文](README.zh.md)
 
+[![dsh-search](https://img.shields.io/npm/v/@nite07/dsh-search?label=dsh-search&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
+[![websearch-mcp](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=websearch-mcp&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
+[![search-core](https://img.shields.io/npm/v/@nite07/search-core?label=search-core&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](packages/core/LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
+[![browser image](https://img.shields.io/docker/v/nite07/search-browser?label=browser%20image&style=flat-square&color=2496ed)](packages/core/image/README.md)
+
 Web search you actually control. Pick the providers you want, see what each one costs before
 enabling it, and read the exact reason when something fails. This repository contains the shared
 engine plus the two ways to use it.

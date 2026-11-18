@@ -2,6 +2,13 @@
 
 [English](README.md) | 简体中文
 
+[![dsh-search](https://img.shields.io/npm/v/@nite07/dsh-search?label=dsh-search&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
+[![websearch-mcp](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=websearch-mcp&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
+[![search-core](https://img.shields.io/npm/v/@nite07/search-core?label=search-core&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](packages/core/LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
+[![browser image](https://img.shields.io/docker/v/nite07/search-browser?label=browser%20image&style=flat-square&color=2496ed)](packages/core/image/README.md)
+
 你能自己掌控的网页搜索。想用哪家就用哪家，启用前就能看到它的费用，失败时直接告诉你失败原因。这个仓库包含共用的搜索引擎，以及使用它的两种方式。
 
 一共 24 个后端，从完全免登录到按量付费都有。各家的额度、单价和核实日期见 [BACKENDS.md](packages/dsh-search/docs/BACKENDS.md)。

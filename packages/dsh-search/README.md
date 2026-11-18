@@ -2,6 +2,9 @@
 
 English | [中文](README.zh.md)
 
+[![npm](https://img.shields.io/npm/v/@nite07/dsh-search?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
+
 Multi-backend web search for DeepSeek Harness: 24 providers, switched on one at a time, each with an
 explicit access mode and a visible cost tier.
 

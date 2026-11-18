@@ -2,6 +2,9 @@
 
 [English](README.md) | 中文
 
+[![image](https://img.shields.io/docker/v/nite07/search-browser?label=image&style=flat-square&color=2496ed)](https://hub.docker.com/r/nite07/search-browser)
+[![pulls](https://img.shields.io/docker/pulls/nite07/search-browser?style=flat-square&color=2496ed)](https://hub.docker.com/r/nite07/search-browser)
+
 `@nite07/search-core` 里所有 `browser` 模式后端共用的浏览器容器。像小红书这类只认自己页面运行时的站点，就是通过这里的一个真实 Chrome 来读的，而不是调 HTTP 接口。
 
 你自己跑它，在 VNC 里登录一次，搜索代码连上来。镜像本身不知道你在读哪个站，所以以后再接一个需要浏览器的后端也不用改镜像。

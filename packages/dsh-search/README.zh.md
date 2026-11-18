@@ -2,6 +2,9 @@
 
 [English](README.md) | 中文
 
+[![npm](https://img.shields.io/npm/v/@nite07/dsh-search?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
+
 给 DeepSeek Harness 用的多后端网页搜索：24 家搜索服务，逐个开关，每个都明确选定接入模式、标明费用档。
 
 ## 安装

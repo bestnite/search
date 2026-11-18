@@ -2,6 +2,9 @@
 
 [English](README.md) | 中文
 
+[![npm](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
+
 一个多后端网页搜索的 MCP 服务，另外能读 Reddit 和 X 的讨论帖，以及小红书的笔记。任何 MCP 客户端都能用：Claude Code、Codex、DeepSeek Harness，或者你自己写的。
 
 ## 为什么还要一个搜索 MCP

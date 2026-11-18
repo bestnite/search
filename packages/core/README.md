@@ -2,6 +2,10 @@
 
 English | [中文](README.zh.md)
 
+[![npm](https://img.shields.io/npm/v/@nite07/search-core?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
+
 A provider-agnostic multi-backend web search engine in TypeScript. It ships the backend catalog, the
 per-backend adapters, the HTTP transport and a single `SearchEngine`, with no dependency on any host
 framework — the [DeepSeek Harness plugin](../dsh-search/README.md) and the [MCP server](../websearch-mcp/README.md)

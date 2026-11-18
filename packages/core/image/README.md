@@ -2,6 +2,9 @@
 
 English | [中文](README.zh.md)
 
+[![image](https://img.shields.io/docker/v/nite07/search-browser?label=image&style=flat-square&color=2496ed)](https://hub.docker.com/r/nite07/search-browser)
+[![pulls](https://img.shields.io/docker/pulls/nite07/search-browser?style=flat-square&color=2496ed)](https://hub.docker.com/r/nite07/search-browser)
+
 The browser container behind every `browser`-mode backend in `@nite07/search-core`. Sites like
 Xiaohongshu answer only their own page runtime, so they are read through a real Chrome here instead of
 an HTTP endpoint.
