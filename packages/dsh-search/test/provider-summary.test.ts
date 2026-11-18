@@ -22,8 +22,13 @@ test('fetch summary tiers describe fetching rather than borrowing search prices'
 test('search and fetch use one mode-chip renderer without losing fetch evidence or operation status', async () => {
   const source = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
   assert.match(source, /modeChip\(item.mode, item.tier, item.mode === backend.mode\)/);
-  assert.match(source, /modeChip\(mode, def.fetch\?\.modeConstraints\?\.\[mode as AccessMode\]\?\.tier \?\? 'unverified', mode === modeLabel, evidenceLabel\(def, mode\), documented\)/);
-  assert.match(source, /documented \? ` · \$\{t\('fetchEvidenceBadge'\)\}`/);
+  assert.match(source, /modeChip\(mode, def.fetch\?\.modeConstraints\?\.\[mode as AccessMode\]\?\.tier \?\? 'unverified', mode === modeLabel, evidenceLabel\(def, mode\)\)/);
+  const chipRenderer = source.slice(source.indexOf('function modeChip('), source.indexOf('// Search, browser and fetch'));
+  assert.doesNotMatch(chipRenderer, /fetchEvidenceBadge|documented/, 'list badges contain only mode and cost');
+  const fetchSummary = source.slice(source.indexOf('<details className="ns-card ns-backend ns-provider-card"'), source.indexOf('<p className="ns-chips ns-mode-evidence">'));
+  assert.doesNotMatch(fetchSummary, /fetchEvidenceBadge/, 'collapsed provider labels omit documentation status');
+  assert.match(source, /ns-mode-evidence[\s\S]*fetchEvidenceBadge/, 'expanded cards retain per-mode evidence');
+  assert.match(source, /t\('fetchModeDocumentedOnly'\)/, 'expanded cards retain the documentation-only explanation');
   assert.match(source, /selected \? t\('fetchProviderSelected'\) : t\('fetchProviderNotSelected'\)/);
   assert.match(source, /backend.enabled \? t\('enabled'\) : t\('disabled'\)/);
 });

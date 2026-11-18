@@ -631,8 +631,8 @@ export function createClient(React: any, ReactDOM?: any) {
         // One flat list, cheapest first; the chip colour already explains why a backend sits where it does.
         const ranked = definitions.slice().sort((left, right) => tierRank(bestTier(left)) - tierRank(bestTier(right)) || readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
-        function modeChip(mode: string, tier: string, selected: boolean, evidence?: string, documented = false) {
-          return <span key={mode} className={`ns-chip ${selected ? 'is-on' : ''} ${tierRisk(tier)}`} aria-current={selected ? 'true' : undefined} title={evidence || t(`choice.${mode}`)}>{t(`choice.${mode}`)} · {t(`tier.${tier}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
+        function modeChip(mode: string, tier: string, selected: boolean, evidence?: string) {
+          return <span key={mode} className={`ns-chip ${selected ? 'is-on' : ''} ${tierRisk(tier)}`} aria-current={selected ? 'true' : undefined} title={evidence || t(`choice.${mode}`)}>{t(`choice.${mode}`)} · {t(`tier.${tier}`)}</span>;
         }
 
         // Search, browser and fetch are separate views over one shared draft: switching tabs never
@@ -746,12 +746,8 @@ export function createClient(React: any, ReactDOM?: any) {
                   <summary>
                     <span className="ns-backend-title">{def.title}</span>
                     <span className="ns-chips">
-                      {/* The card is collapsed by default, so the evidence state has to be readable
-                          from the summary: a documented-only mode says so here, visibly. */}
-                      {provider.modes.map(mode => {
-                        const documented = modeEvidenceOf(def, mode)?.evidence === 'documented';
-                        return modeChip(mode, def.fetch?.modeConstraints?.[mode as AccessMode]?.tier ?? 'unverified', mode === modeLabel, evidenceLabel(def, mode), documented);
-                      })}
+                      {/* Keep list labels compact; evidence remains in the tooltip and expanded body. */}
+                      {provider.modes.map(mode => modeChip(mode, def.fetch?.modeConstraints?.[mode as AccessMode]?.tier ?? 'unverified', mode === modeLabel, evidenceLabel(def, mode)))}
                       <span className={`ns-dot ${snapshot?.credentials[def.id]?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" />
                       <span className={`ns-badge ${selected ? 'is-on' : ''}`}>{selected ? t('fetchProviderSelected') : t('fetchProviderNotSelected')}</span>
                     </span>
