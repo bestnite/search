@@ -35,9 +35,14 @@
     "README.zh.md"
   ],
   "dependencies": {
-    "@nite07/search-core": "0.1.7"
+    "@nite07/search-core": "0.1.7",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.2.0"
   },
   "bundleDependencies": [
-    "@nite07/search-core"
+    "@nite07/search-core",
+    "@modelcontextprotocol/server",
+    "@modelcontextprotocol/core",
+    "zod"
   ]
 }

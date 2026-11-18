@@ -128,6 +128,12 @@ websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打
 
 `compact: true` 只回 URL、标题和日期，通常就是一个还能用的上下文和一个被灌满的上下文的区别。
 
+## 协议版本
+
+线上协议交给[官方 TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/v2/)
+（`@modelcontextprotocol/server`），不是手写循环：服务端会说无状态的 `2026-07-28`，对仍在用
+`initialize` 开场的客户端回退到 2025 握手。协议改版因此是升依赖，不是重写连接层。
+
 ## 可以依赖的行为
 
 - **不切换。** 后端只按你选定的模式、你给的凭证、配置里的端点工作。重试不会换服务商、不会换模式。

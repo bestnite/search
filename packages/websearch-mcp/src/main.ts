@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { createInterface } from 'node:readline';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ConfigError, DEFAULT_CONFIG_PATH, loadConfig, starterConfig } from './config.js';
-import { createProtocol } from './protocol.js';
+import { serveTools } from './sdk.js';
 import { createTools, type ServerIdentity } from './tools.js';
 import { watchSource } from './live.js';
 import { startUi, tokenUrls } from './ui/server.js';
@@ -205,21 +204,32 @@ if (wantsUi) {
     crash(error);
     throw error;
   }
-  log(`ready; config ${config.configPath}`);
   const source = watchSource(config, log);
-  const abort = new AbortController();
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { source.close(); abort.abort(); process.exit(0); });
-
   const embedded = await startEmbeddedUi(config.configPath);
   const tools = createTools(source, identity);
-  const protocol = createProtocol(tools, { name: identity.name, version: identity.version }, process.stdout);
-  const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
   log(`ready with ${tools.length} tools; watching ${config.configPath}`);
-  for await (const line of input) {
-    if (abort.signal.aborted) break;
-    await protocol.handle(line, abort.signal);
-  }
-  await embedded?.close();
-  source.close();
+
+  let closing = false;
+  const shutdown = async (): Promise<void> => {
+    if (closing) return;
+    closing = true;
+    await handle?.close().catch(() => undefined);
+    await embedded?.close();
+    source.close();
+    process.exit(0);
+  };
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void shutdown());
+  // The SDK owns stdin; its end is the client going away, which is this process's exit condition.
+  process.stdin.on('end', () => void shutdown());
+  process.stdin.on('close', () => void shutdown());
+
+  const handle = await serveTools(tools, identity, {
+    onerror: error => log(`mcp transport error: ${error.message}`),
+  });
+  log('mcp ready');
+  await new Promise<void>(resolve => {
+    process.stdin.once('end', resolve);
+    process.stdin.once('close', resolve);
+  });
 }
 

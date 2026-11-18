@@ -160,6 +160,13 @@ or a missing note token is reported instead of an empty note. |
 `compact: true` returns URL, title and date only, which is usually the difference between a usable
 context and a flooded one.
 
+## Protocol versions
+
+The wire protocol is the [official TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/v2/)
+(`@modelcontextprotocol/server`), not a hand-written loop: the server answers the stateless
+`2026-07-28` revision and falls back to the 2025 handshake for clients that still open with
+`initialize`. A protocol revision therefore reaches this package as a dependency bump.
+
 ## Behaviour worth relying on
 
 - **No fallback.** A backend uses the mode you selected, the credential you gave it and the endpoint in
