@@ -106,10 +106,12 @@
     border-radius: .5rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; word-break: break-word;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem;
   }
-  #issues { margin-bottom: 1.25rem; }
-  #issues .panel { border-color: var(--bad); }
-  #issues ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+  #issues { position: fixed; top: 3.75rem; right: 1.25rem; z-index: 45; width: min(32rem, calc(100vw - 2.5rem)); }
+  #issues:empty { display: none; }
+  #issues .panel { border-color: var(--bad); box-shadow: 0 10px 30px rgba(16, 24, 40, .18); }
+  #issues ul { margin: .4rem 0 0; padding-left: 1.1rem; max-height: 40vh; overflow: auto; }
   #issues li { font-size: .85rem; }
+  #issues .head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
   #banner .panel { border-color: var(--warn); }
   .toast {
     position: fixed; left: 50%; bottom: 1.5rem; transform: translate(-50%, 1rem); opacity: 0;
@@ -124,7 +126,14 @@
   .tabs .tab { border-radius: 999px; padding: .35rem .9rem; }
   .tabs .tab.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .route { border: 1px solid var(--line); border-radius: .7rem; padding: .75rem; margin-bottom: .75rem; background: var(--panel); }
-  .rule { border: 1px dashed var(--line); border-radius: .6rem; padding: .6rem; margin: .5rem 0; }
+  .rule { border: 1px dashed var(--line); border-radius: .6rem; padding: .4rem .6rem; margin: .45rem 0; }
+  .rule > summary.rule-head { display: flex; align-items: center; gap: .6rem; cursor: pointer; list-style: none; }
+  .rule > summary.rule-head::-webkit-details-marker { display: none; }
+  .rule > summary.rule-head::before { content: '▸'; color: var(--muted); font-size: .8rem; }
+  .rule[open] > summary.rule-head::before { content: '▾'; }
+  .rule > summary.rule-head .chip { margin-left: auto; }
+  .rule > summary.rule-head button { margin-left: .5rem; }
+  .rule-body { padding: .35rem 0 .1rem .9rem; }
   .rule-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
   .condition { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .4rem .6rem; align-items: center; margin: .4rem 0; }
   .condition input, .condition select { font: inherit; min-width: 0; padding: .25rem .4rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bg); color: var(--ink); }
@@ -161,13 +170,12 @@ const I18N = {
     saved: '已保存并热重载', savedNoChange: '没有需要保存的更改', reloaded: '已从磁盘重新加载',
     loadError: '磁盘上的配置无法解析，页面暂时显示默认值；保存后即覆盖。',
     sessionExpired: '会话已过期，请用 --print-url 重新打开链接。',
-    strategy: '检索策略', mode: '模式',
     maxResults: '结果上限', concurrency: '并发', overallTimeout: '总超时 (ms)', backendTimeout: '超时 (ms)',
-    query: '查询默认值', language: '语言', region: '地区', recency: '时效', dedup: '去重', fusion: '融合',
+    language: '语言', region: '地区', recency: '时效', dedup: '去重', fusion: '融合',
     safeSearch: '安全搜索', includeDomains: '包含域名', excludeDomains: '排除域名',
     none: '不限制', any: '不限', day: '一天', week: '一周', month: '一月', year: '一年',
     url: '按 URL', urlTitle: '按 URL + 标题', rrf: 'RRF', ordered: '按顺序拼接',
-    advanced: '高级', retry: '重试', cache: '缓存', breaker: '熔断', diagnostics: '诊断记录',
+    retry: '重试', cache: '缓存', breaker: '熔断', diagnostics: '诊断记录',
     browser: '共享浏览器', tools: '输出', compactDefault: '默认精简输出（只返回 URL / 标题 / 日期）',
     webSearchPlus: '启用 web_search_plus 兼容字段',
     enabled: '启用', retryEnabled: '启用重试', statuses: '重试状态码', maxRetries: '最多重试次数',
@@ -193,7 +201,26 @@ const I18N = {
     cleared: '凭证已清除', credSaved: '凭证已保存', missingCred: '缺凭证',
     credBrowserNote: '读取走共享浏览器：端点与令牌在「共享浏览器」一节填写。',
     credAnonymousNote: '当前模式不需要凭证；切换到 key / oauth / session 模式后这里会出现凭证输入框。',
-    tabsLabel: '设置分区', tabSearch: '搜索', tabFetch: '页面抓取',
+    tabsLabel: '设置分区', tabBehavior: '行为', tabReliability: '可靠性', tabDiagnostics: '诊断',
+    tabBackends: '搜索后端', tabBrowser: '浏览器', tabFetch: '页面抓取',
+    helpBehavior: '这些值决定每次搜索的默认行为：返回多少、用什么语言和地区、结果怎么去重和融合。单个调用可以覆盖它们。',
+    helpReliability: '超时、重试、缓存与熔断：一次搜索在失败或变慢时怎么处理。',
+    helpDiagnostics: '记录每次调用的诊断信息，用来回答“为什么这次搜索变慢了”而不是“这次搜到了什么”。',
+    helpBackends: '每个搜索服务端一张卡：启用、访问模式、端点、限流，以及它自己的凭证。',
+    helpBrowser: '你自己托管的浏览器。小红书读取和页面抓取的浏览器路径都用它，令牌只保护这个端点。',
+    helpFetch: '一次抓取按下面三条路径的顺序尝试，规则决定什么时候继续下一条；服务商与凭证沿用搜索侧的配置。',
+    groupSearchDefaults: '检索默认值', groupQueryDefaults: '查询默认值', groupOutput: '输出',
+    groupTimeout: '超时', groupRetry: '重试', groupCache: '缓存', groupBreaker: '熔断',
+    groupRecord: '记录', groupConnection: '连接', groupSession: '会话', groupLimits: '并发',
+    'route.http': 'HTTP 直取', 'route.browser': '浏览器', 'route.provider': '服务商',
+    'routeHelp.http': '最快，但拿不到需要执行脚本才出现的页面',
+    'routeHelp.browser': '真实浏览器渲染，慢一些，能看到脚本生成的内容',
+    'routeHelp.provider': '交给搜索服务商抓取，按它的额度计费',
+    'condition.status': '目标状态码', 'condition.api-status': '服务商接口状态码', 'condition.network': '网络错误',
+    'condition.timeout': '超时', 'condition.error': '失败类型', 'condition.match': '内容匹配',
+    'failure.network': '网络错误', 'failure.timeout': '超时', 'failure.http': 'HTTP 错误',
+    'failure.provider': '服务商失败', 'failure.authentication': '凭证无效', 'failure.protocol': '协议错误',
+    'failure.conversion': '转换失败', 'failure.unsupported-content': '无可用内容', 'failure.limit': '超出上限',
     webExtract: '允许使用 web_extract 工具', webExtractHelp: '关闭后该工具不会注册；抓取配置、凭证和本页仍然可用。',
     fetchReadyTitle: '抓取可用性', fetchReady: '保存的抓取链可以运行。', fetchReadyHelp: '只根据配置与已存凭证判断，不会发起请求。',
     problem: { fetchNoRoutes: '没有启用任何路由，所有页面抓取都会失败。', fetchDelegatedOff: '已启用浏览器或服务商路由，但没有打开委托抓取开关。', fetchBrowserNoEndpoint: '已启用浏览器路由，但没有设置共享浏览器端点。', fetchProviderMissing: '已启用服务商路由，但没有选择支持抓取的服务商。', fetchProviderMode: '{{provider}} 在 {{mode}} 模式下不支持抓取。', fetchProviderEndpoint: '{{provider}} 没有配置抓取端点。', fetchProviderCredential: '{{provider}} 的抓取模式需要已保存的凭证。' },
@@ -215,7 +242,7 @@ const I18N = {
     providerFields: '服务商不返回的字段（标题、目标状态码或 HTML）会让相关条件不可用，测试结果里会逐一列出。',
     fetchMode: '抓取接入模式', fetchEndpoint: '抓取端点', providerTimeout: '服务商调用超时 (ms)', providerCredentialRequired: '该模式需要凭证', providerCredentialOptional: '该模式不需要凭证',
     limitsTitle: '安全与上限',
-    overallTimeout: '抓取总期限 (ms)', maxRedirects: '最大重定向次数', maxBodyBytes: '最大下载字节数', maxOutputChars: '输出最大字符数', maxRuleScanChars: '规则扫描字符数',
+    fetchOverallTimeout: '抓取总期限 (ms)', maxRedirects: '最大重定向次数', maxBodyBytes: '最大下载字节数', maxOutputChars: '输出最大字符数', maxRuleScanChars: '规则扫描字符数',
     allowPrivateNetworks: '允许私有网络目标', browserContext: '浏览器上下文', contextIsolated: '隔离', contextSession: '会话',
     challengeSolver: 'Cloudflare 挑战处理', solverAuto: '尝试一次', solverOff: '不尝试',
     settleMs: '等待稳定延迟 (ms)', selectorWait: '等待的选择器',
@@ -229,13 +256,13 @@ const I18N = {
     saved: 'Saved and hot-reloaded', savedNoChange: 'Nothing to save', reloaded: 'Reloaded from disk',
     loadError: 'The file on disk does not parse, so defaults are shown; saving replaces it.',
     sessionExpired: 'Session expired. Open the link from --print-url again.',
-    strategy: 'Strategy', mode: 'Mode',
+    mode: 'Mode',
     maxResults: 'Max results', concurrency: 'Concurrency', overallTimeout: 'Overall timeout (ms)', backendTimeout: 'Timeout (ms)',
-    query: 'Query defaults', language: 'Language', region: 'Region', recency: 'Recency', dedup: 'Dedup', fusion: 'Fusion',
+    language: 'Language', region: 'Region', recency: 'Recency', dedup: 'Dedup', fusion: 'Fusion',
     safeSearch: 'Safe search', includeDomains: 'Include domains', excludeDomains: 'Exclude domains',
     none: 'Any', any: 'Any', day: 'Day', week: 'Week', month: 'Month', year: 'Year',
     url: 'By URL', urlTitle: 'By URL + title', rrf: 'RRF', ordered: 'Ordered concat',
-    advanced: 'Advanced', retry: 'Retry', cache: 'Cache', breaker: 'Breaker', diagnostics: 'Diagnostics',
+    retry: 'Retry', cache: 'Cache', breaker: 'Breaker', diagnostics: 'Diagnostics',
     browser: 'Shared browser', tools: 'Output', compactDefault: 'Compact output by default (URL / title / date only)',
     webSearchPlus: 'Expose the web_search_plus compatibility fields',
     enabled: 'Enabled', retryEnabled: 'Retry enabled', statuses: 'Retry statuses', maxRetries: 'Max retries',
@@ -261,7 +288,26 @@ const I18N = {
     cleared: 'Credential cleared', credSaved: 'Credential saved', missingCred: 'missing credential',
     credBrowserNote: 'Reads go through the shared browser: set its endpoint and token under Shared browser.',
     credAnonymousNote: 'This mode needs no credential; a key, oauth or session mode adds the field here.',
-    tabsLabel: 'Settings sections', tabSearch: 'Search', tabFetch: 'Page fetch',
+    tabsLabel: 'Settings sections', tabBehavior: 'Behavior', tabReliability: 'Reliability', tabDiagnostics: 'Diagnostics',
+    tabBackends: 'Search backends', tabBrowser: 'Browser', tabFetch: 'Page fetch',
+    helpBehavior: 'Defaults for every search: how many results, which language and region, and how results are deduplicated and fused. A single call can override them.',
+    helpReliability: 'Timeouts, retries, cache and breaker: what a search does when it is slow or failing.',
+    helpDiagnostics: 'Record per-call diagnostics, so “why was this search slow” has an answer that is not another search.',
+    helpBackends: 'One card per search backend: enablement, access mode, endpoint, rate limits and its own credential.',
+    helpBrowser: 'The browser you host. Xiaohongshu reads and the page-fetch browser route both use it; the token protects this endpoint only.',
+    helpFetch: 'One fetch tries these routes in order; the rules decide when the next one runs. Provider and credentials reuse the search-side configuration.',
+    groupSearchDefaults: 'Search defaults', groupQueryDefaults: 'Query defaults', groupOutput: 'Output',
+    groupTimeout: 'Timeout', groupRetry: 'Retry', groupCache: 'Cache', groupBreaker: 'Breaker',
+    groupRecord: 'Recording', groupConnection: 'Connection', groupSession: 'Session', groupLimits: 'Concurrency',
+    'route.http': 'HTTP', 'route.browser': 'Browser', 'route.provider': 'Provider',
+    'routeHelp.http': 'Fastest, but cannot see a page that only appears once its scripts run',
+    'routeHelp.browser': 'Real browser rendering: slower, and it sees what scripts produce',
+    'routeHelp.provider': 'Fetches through the search provider, billed against its own quota',
+    'condition.status': 'Target status', 'condition.api-status': 'Provider API status', 'condition.network': 'Network error',
+    'condition.timeout': 'Timeout', 'condition.error': 'Failure kind', 'condition.match': 'Content match',
+    'failure.network': 'Network error', 'failure.timeout': 'Timeout', 'failure.http': 'HTTP error',
+    'failure.provider': 'Provider failure', 'failure.authentication': 'Credential rejected', 'failure.protocol': 'Protocol error',
+    'failure.conversion': 'Conversion failed', 'failure.unsupported-content': 'No usable content', 'failure.limit': 'Limit exceeded',
     webExtract: 'Expose the web_extract tool', webExtractHelp: 'Off hides the tool entirely; fetch configuration, credentials and this page stay available.',
     fetchReadyTitle: 'Fetch readiness', fetchReady: 'The saved fetch chain can run.', fetchReadyHelp: 'Checked from configuration and stored credentials only; nothing is fetched.',
     problem: { fetchNoRoutes: 'No route is enabled, so every page fetch fails.', fetchDelegatedOff: 'A browser or provider route is enabled without the delegated-fetching opt-in.', fetchBrowserNoEndpoint: 'The browser route is enabled but no shared browser endpoint is set.', fetchProviderMissing: 'The provider route is enabled but no fetch-capable provider is selected.', fetchProviderMode: '{{provider}} cannot fetch in {{mode}} mode.', fetchProviderEndpoint: '{{provider}} has no fetch endpoint configured.', fetchProviderCredential: '{{provider}} needs a stored credential for its fetch mode.' },
@@ -283,7 +329,7 @@ const I18N = {
     providerFields: 'Rules that read title, target status or HTML stay unavailable on a provider that does not return them; the test trace names each unavailable field.',
     fetchMode: 'Fetch access mode', fetchEndpoint: 'Fetch endpoint', providerTimeout: 'Provider call timeout (ms)', providerCredentialRequired: 'This mode needs a credential', providerCredentialOptional: 'No credential needed for this mode',
     limitsTitle: 'Safety and limits',
-    overallTimeout: 'Overall fetch deadline (ms)', maxRedirects: 'Maximum redirects', maxBodyBytes: 'Maximum downloaded bytes', maxOutputChars: 'Maximum output characters', maxRuleScanChars: 'Rule scan characters',
+    fetchOverallTimeout: 'Overall fetch deadline (ms)', maxRedirects: 'Maximum redirects', maxBodyBytes: 'Maximum downloaded bytes', maxOutputChars: 'Maximum output characters', maxRuleScanChars: 'Rule scan characters',
     allowPrivateNetworks: 'Allow private network targets', browserContext: 'Browser context', contextIsolated: 'Isolated', contextSession: 'Session',
     challengeSolver: 'Cloudflare challenge handling', solverAuto: 'Attempt once', solverOff: 'Do not attempt',
     settleMs: 'Settle delay (ms)', selectorWait: 'Selector to wait for',
@@ -296,7 +342,7 @@ const I18N = {
 
 const state = {
   snap: null, draft: null, dirty: false,
-  tab: 'search', fetchUrl: '', fetchFormat: 'markdown', fetchResult: null, fetchBusy: false,
+  tab: 'behavior', fetchUrl: '', fetchFormat: 'markdown', fetchResult: null, fetchBusy: false,
   lang: localStorage.getItem('wsm.lang') || 'zh',
   filter: '', onlyEnabled: false, open: new Set(), closed: new Set(), results: {}, issues: [], probeQuery: '', compactByDefault: false,
 };
@@ -454,27 +500,42 @@ function onModeChange(backendPath, mode) {
   render();
 }
 
-function overview() {
-  const strategy = h('div', { class: 'panel pad' },
-    h('div', { class: 'grid' },
-      field({ path: 'maxResults', type: 'number', label: t('maxResults'), min: 1, max: 50 }),
-      field({ path: 'concurrency', type: 'number', label: t('concurrency'), min: 1, max: 20 }),
-      field({ path: 'overallTimeoutMs', type: 'number', label: t('overallTimeout'), min: 1000, max: 180000, step: 1000 }),
-    ));
+/**
+ * One tab, one subject. Each section is a plain column of panels: a heading that says what the subject
+ * decides, then the fields. Nothing is nested two levels deep, because every setting on this page is
+ * something a person came here to change, not to dig out.
+ */
+function group(title, ...children) {
+  return h('div', { class: 'panel pad' }, h('h3', {}, title), h('div', { class: 'grid', style: 'margin-top:.6rem' }, children));
+}
 
-  const query = h('div', { class: 'panel pad' },
-    h('div', { class: 'grid' },
-      field({ path: 'language', type: 'select', label: t('language'), options: [['', t('none')], ...(state.snap.languages || []).map(code => [code, code])] }),
-      field({ path: 'region', type: 'select', label: t('region'), options: [['', t('none')], ...(state.snap.regions || []).map(code => [code, code])] }),
-      field({ path: 'recency', type: 'select', label: t('recency'), options: [['any', t('any')], ['day', t('day')], ['week', t('week')], ['month', t('month')], ['year', t('year')]] }),
-      field({ path: 'dedup', type: 'select', label: t('dedup'), options: [['url', t('url')], ['url-title', t('urlTitle')]] }),
-      field({ path: 'fusion', type: 'select', label: t('fusion'), options: [['rrf', t('rrf')], ['ordered', t('ordered')]] }),
-      field({ path: 'safeSearch', type: 'check', label: t('safeSearch') }),
-      field({ path: 'includeDomains', type: 'list', label: t('includeDomains'), placeholder: 'example.com, docs.example.org' }),
-      field({ path: 'excludeDomains', type: 'list', label: t('excludeDomains'), placeholder: 'spam.example' }),
-    ));
+function behaviorSection() {
+  const defaults = group(t('groupSearchDefaults'),
+    field({ path: 'maxResults', type: 'number', label: t('maxResults'), min: 1, max: 50 }),
+    field({ path: 'concurrency', type: 'number', label: t('concurrency'), min: 1, max: 20 }));
 
-  const retry = details('retry', t('retry'),
+  const query = group(t('groupQueryDefaults'),
+    field({ path: 'language', type: 'select', label: t('language'), options: [['', t('none')], ...(state.snap.languages || []).map(code => [code, code])] }),
+    field({ path: 'region', type: 'select', label: t('region'), options: [['', t('none')], ...(state.snap.regions || []).map(code => [code, code])] }),
+    field({ path: 'recency', type: 'select', label: t('recency'), options: [['any', t('any')], ['day', t('day')], ['week', t('week')], ['month', t('month')], ['year', t('year')]] }),
+    field({ path: 'dedup', type: 'select', label: t('dedup'), options: [['url', t('url')], ['url-title', t('urlTitle')]] }),
+    field({ path: 'fusion', type: 'select', label: t('fusion'), options: [['rrf', t('rrf')], ['ordered', t('ordered')]] }),
+    field({ path: 'safeSearch', type: 'check', label: t('safeSearch') }),
+    field({ path: 'includeDomains', type: 'list', label: t('includeDomains'), placeholder: 'example.com, docs.example.org' }),
+    field({ path: 'excludeDomains', type: 'list', label: t('excludeDomains'), placeholder: 'spam.example' }));
+
+  const output = group(t('groupOutput'),
+    topLevelCheck(t('compactDefault')),
+    field({ path: 'tools.webSearchPlus', type: 'check', label: t('webSearchPlus') }));
+
+  return tabSection(t('tabBehavior'), t('helpBehavior'), defaults, query, output);
+}
+
+function reliabilitySection() {
+  const timeout = group(t('groupTimeout'),
+    field({ path: 'overallTimeoutMs', type: 'number', label: t('overallTimeout'), min: 1000, max: 180000, step: 1000 }));
+
+  const retry = group(t('groupRetry'),
     field({ path: 'retry.enabled', type: 'check', label: t('retryEnabled') }),
     field({ path: 'retry.maxRetries', type: 'number', label: t('maxRetries'), min: 0, max: 5 }),
     field({ path: 'retry.initialDelayMs', type: 'number', label: t('initialDelay'), min: 0, max: 60000 }),
@@ -483,38 +544,46 @@ function overview() {
     field({ path: 'retry.networkErrors', type: 'check', label: t('networkErrors') }),
     field({ path: 'retry.timeouts', type: 'check', label: t('timeouts') }));
 
-  const cache = details('cache', t('cache'),
+  const cache = group(t('groupCache'),
     field({ path: 'cache.enabled', type: 'check', label: t('cacheEnabled') }),
     field({ path: 'cache.ttlSeconds', type: 'number', label: t('ttl'), min: 1, max: 86400 }),
     field({ path: 'cache.maxEntries', type: 'number', label: t('maxEntries'), min: 1, max: 1000 }));
 
-  const breaker = details('breaker', t('breaker'),
+  const breaker = group(t('groupBreaker'),
     field({ path: 'breaker.enabled', type: 'check', label: t('breakerEnabled') }),
     field({ path: 'breaker.threshold', type: 'number', label: t('threshold'), min: 1, max: 100 }),
     field({ path: 'breaker.cooldownMs', type: 'number', label: t('cooldown'), min: 1000, max: 3600000 }));
 
-  const diagnostics = details('diagnostics', t('diagnostics'),
+  return tabSection(t('tabReliability'), t('helpReliability'), timeout, retry, cache, breaker);
+}
+
+function diagnosticsSection() {
+  const record = group(t('groupRecord'),
     field({ path: 'diagnostics.enabled', type: 'check', label: t('diagEnabled') }),
     field({ path: 'diagnostics.maxEntries', type: 'number', label: t('diagEntries'), min: 1, max: 500 }));
+  return tabSection(t('tabDiagnostics'), t('helpDiagnostics'), record);
+}
 
-  const browser = details('browser', t('browser'),
+function browserSection() {
+  const connection = group(t('groupConnection'),
     field({ path: 'browser.endpoint', type: 'text', label: t('browserEndpoint'), placeholder: 'ws://127.0.0.1:3030/ws' }),
-    field({ path: 'browser.statePath', type: 'text', label: t('statePath'), placeholder: '~/.config/dsh-search/browser/state.json' }),
-    field({ path: 'browser.timeoutMs', type: 'number', label: t('browserTimeout'), min: 1000, max: 120000 }),
-    field({ path: 'browser.maxConcurrentReads', type: 'number', label: t('maxReads'), min: 1, max: 8 }),
-    credentialRow('browser', state.snap.browser, t('browserToken'), t('browserTokenNote')));
+    field({ path: 'browser.timeoutMs', type: 'number', label: t('browserTimeout'), min: 1000, max: 120000 }));
+  const session = group(t('groupSession'),
+    field({ path: 'browser.statePath', type: 'text', label: t('statePath'), placeholder: '~/.config/dsh-search/browser/state.json' }));
+  const limits = group(t('groupLimits'),
+    field({ path: 'browser.maxConcurrentReads', type: 'number', label: t('maxReads'), min: 1, max: 8 }));
+  // credentialRow renders the name, the state chip and the note itself; adding the note here again
+  // printed the same sentence twice.
+  const token = h('div', { class: 'panel pad' }, credentialRow('browser', state.snap.browser, t('browserToken'), t('browserTokenNote')));
+  return tabSection(t('tabBrowser'), t('helpBrowser'), connection, session, limits, token);
+}
 
-  const tools = details('tools', t('tools'),
-    topLevelCheck(t('compactDefault')),
-    field({ path: 'tools.webSearchPlus', type: 'check', label: t('webSearchPlus') }));
-
+/** A tab: what this section decides, then its groups. */
+function tabSection(title, help, ...groups) {
   return h('section', {},
-    h('h2', {}, t('strategy')),
-    h('div', { class: 'cards' }, strategy),
-    h('h2', { style: 'margin-top:1.25rem' }, t('query')),
-    h('div', { class: 'cards' }, query),
-    h('h2', { style: 'margin-top:1.25rem' }, t('advanced')),
-    h('div', { class: 'cards' }, retry, cache, breaker, diagnostics, browser, tools));
+    h('h2', {}, title),
+    h('p', { class: 'note', style: 'margin:-.35rem 0 1rem' }, help),
+    ...groups);
 }
 
 function details(key, title, ...children) {
@@ -680,7 +749,8 @@ function backendsSection() {
   const list = h('div', { class: 'cards', id: 'cards' });
   const summary = h('span', { class: 'chip' }, t('summary', enabled, state.snap.catalog.length, missing));
   const section = h('section', {},
-    h('h2', {}, t('backends'), ' ', summary),
+    h('h2', {}, t('tabBackends'), ' ', summary),
+    h('p', { class: 'note', style: 'margin:-.35rem 0 1rem' }, t('helpBackends')),
     h('div', { class: 'toolbar' }, search, h('label', { class: 'check' }, only, t('onlyEnabled')), probe),
     list);
   fillCards(list);
@@ -713,22 +783,31 @@ function renderBanner() {
 }
 
 
+/** The same six subjects the DSH plugin settings page is split into. */
+const TABS = ['behavior', 'reliability', 'diagnostics', 'backends', 'browser', 'fetch'];
+const TAB_LABELS = {
+  behavior: 'tabBehavior', reliability: 'tabReliability', diagnostics: 'tabDiagnostics',
+  backends: 'tabBackends', browser: 'tabBrowser', fetch: 'tabFetch',
+};
+
 function tabBar() {
   const bar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('tabsLabel') });
-  for (const [id, label] of [['search', t('tabSearch')], ['fetch', t('tabFetch')]]) {
-    const button = h('button', { type: 'button', role: 'tab', class: state.tab === id ? 'tab is-active' : 'tab', 'aria-selected': state.tab === id ? 'true' : 'false' }, label);
-    button.addEventListener('click', () => { state.tab = id; render(); });
+  for (const id of TABS) {
+    const button = h('button', { type: 'button', role: 'tab', class: state.tab === id ? 'tab is-active' : 'tab', 'aria-selected': state.tab === id ? 'true' : 'false' }, t(TAB_LABELS[id]));
+    button.addEventListener('click', () => { state.tab = id; localStorage.setItem('wsm.tab', id); render(); });
     bar.append(button);
   }
   return bar;
 }
 
 function fetchSection() {
+  const tool = h('div', { class: 'panel pad' }, h('h3', {}, t('webExtract')),
+    h('div', { class: 'note', style: 'margin:.35rem 0 .6rem' }, t('webExtractHelp')),
+    field({ path: 'tools.webExtract', type: 'check', label: t('webExtract') }));
   return h('section', {},
     h('h2', {}, t('tabFetch')),
-    h('div', { class: 'panel pad' },
-      field({ path: 'tools.webExtract', type: 'check', label: t('webExtract') }),
-      h('div', { class: 'note' }, t('webExtractHelp'))),
+    h('p', { class: 'note', style: 'margin:-.35rem 0 1rem' }, t('helpFetch')),
+    tool,
     fetchReadyPanel(),
     fetchRoutesSection(),
     fetchProviderPanel(),
@@ -750,7 +829,10 @@ function fetchReadyPanel() {
 
 function fetchRoutesSection() {
   const routes = state.draft.pageFetch.routes;
-  const section = h('section', {}, h('h2', {}, t('routesTitle')), h('p', { class: 'note' }, t('routesHelp')));
+  const section = h('section', {}, h('h2', {}, t('routesTitle')),
+    h('p', { class: 'note', style: 'margin:-.35rem 0 .5rem' }, t('routesHelp')),
+    h('p', { class: 'note', style: 'margin:0 0 .5rem' }, t('rulesHelp')),
+    h('p', { class: 'note', style: 'margin:0 0 .75rem' }, t('presetsHelp')));
   routes.forEach((route, index) => section.append(routeCard(route, index, routes)));
   return section;
 }
@@ -790,7 +872,7 @@ function routeCard(route, index, routes) {
 function rulesEditor(route) {
   const bounds = state.snap.fetch.bounds;
   const rules = route.rules;
-  const box = h('div', {}, h('div', { class: 'note' }, t('rulesHelp')), h('span', { class: 'chip' }, t('rulesCount', rules.length, bounds.rulesPerRoute)));
+  const box = h('div', {}, h('span', { class: 'chip' }, t('rulesCount', rules.length, bounds.rulesPerRoute)));
   rules.forEach((rule, index) => box.append(ruleCard(route, rule, index)));
   const canAdd = rules.length < bounds.rulesPerRoute;
   const actions = h('div', { class: 'toolbar' });
@@ -803,20 +885,31 @@ function rulesEditor(route) {
   const restore = h('button', { class: 'small ghost', type: 'button' }, t('restoreDefaultRules'));
   restore.addEventListener('click', () => { rules.splice(0, rules.length, ...clone(state.snap.fetch.presets.defaults)); touch(); });
   actions.append(add, addStatus, addChallenge, restore);
-  box.append(actions, h('div', { class: 'note' }, t('presetsHelp')));
+  box.append(actions);
   return box;
 }
 
+/**
+ * A rule folds to one row: its name, whether it is on, and how many conditions it carries. Conditions are
+ * the noisy part — three routes times three rules times a condition editor is what made this page a wall.
+ */
 function ruleCard(route, rule, index) {
-  const head = h('div', { class: 'rule-head' },
+  const remove = h('button', { class: 'ghost small', type: 'button' }, t('removeRule'));
+  remove.addEventListener('click', event => { event.preventDefault(); route.rules.splice(index, 1); touch(); });
+  // The summary has to be a direct child of the details element, or the browser renders its own
+  // "Details" label and folds everything below it.
+  const summary = h('summary', { class: 'rule-head' },
     h('label', { class: 'check' }, checkbox(rule.enabled, value => { rule.enabled = value; touch(); }), h('code', {}, rule.id)),
-    h('button', { class: 'ghost small', type: 'button' }, t('removeRule')));
-  head.lastChild.addEventListener('click', () => { route.rules.splice(index, 1); touch(); });
-  const card = h('div', { class: 'rule' }, head);
-  rule.conditions.forEach((condition, conditionIndex) => card.append(conditionEditor(route, rule, conditionIndex)));
+    h('span', { class: 'chip' }, t('rulesCount', rule.conditions.length, state.snap.fetch.bounds.conditionsPerRule)),
+    remove);
+  const body = h('div', { class: 'rule-body' });
+  rule.conditions.forEach((condition, conditionIndex) => body.append(conditionEditor(route, rule, conditionIndex)));
   const addCondition = h('button', { class: 'ghost small', type: 'button', disabled: rule.conditions.length >= state.snap.fetch.bounds.conditionsPerRule }, t('addCondition'));
   addCondition.addEventListener('click', () => { rule.conditions.push({ type: 'network' }); touch(); });
-  card.append(addCondition);
+  body.append(addCondition);
+  const key = `${route.kind}:${rule.id}`;
+  const card = h('details', { class: 'rule', open: state.open.has(key) }, summary, body);
+  card.addEventListener('toggle', () => { if (card.open) state.open.add(key); else state.open.delete(key); });
   return card;
 }
 
@@ -888,7 +981,7 @@ function fetchProviderPanel() {
 function fetchLimitsPanel() {
   const bounds = state.snap.fetch.bounds;
   return h('section', {}, h('h2', {}, t('limitsTitle')), h('div', { class: 'panel pad' }, h('div', { class: 'row' },
-    field({ path: 'pageFetch.overallTimeoutMs', type: 'number', label: t('overallTimeout'), min: bounds.overallTimeoutMs.min, max: bounds.overallTimeoutMs.max }),
+    field({ path: 'pageFetch.overallTimeoutMs', type: 'number', label: t('fetchOverallTimeout'), min: bounds.overallTimeoutMs.min, max: bounds.overallTimeoutMs.max }),
     field({ path: 'pageFetch.maxRedirects', type: 'number', label: t('maxRedirects'), min: bounds.maxRedirects.min, max: bounds.maxRedirects.max }),
     field({ path: 'pageFetch.maxBodyBytes', type: 'number', label: t('maxBodyBytes'), min: bounds.maxBodyBytes.min, max: bounds.maxBodyBytes.max }),
     field({ path: 'pageFetch.maxOutputChars', type: 'number', label: t('maxOutputChars'), min: bounds.maxOutputChars.min, max: bounds.maxOutputChars.max }),
@@ -955,8 +1048,15 @@ function render() {
   document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
   renderBanner();
   const app = document.getElementById('app');
-  if (state.tab === 'fetch') app.replaceChildren(tabBar(), fetchSection());
-  else app.replaceChildren(tabBar(), overview(), backendsSection());
+  const sections = {
+    behavior: behaviorSection,
+    reliability: reliabilitySection,
+    diagnostics: diagnosticsSection,
+    backends: backendsSection,
+    browser: browserSection,
+    fetch: fetchSection,
+  };
+  app.replaceChildren(tabBar(), (sections[state.tab] || behaviorSection)());
   bindFields(app);
   for (const issue of state.issues) {
     const input = app.querySelector(`[data-path="${issue.path}"]`);
@@ -1011,6 +1111,8 @@ async function save() {
 }
 
 function boot() {
+  const remembered = localStorage.getItem('wsm.tab');
+  if (remembered && TABS.includes(remembered)) state.tab = remembered;
   document.getElementById('save').addEventListener('click', save);
   document.getElementById('reload').addEventListener('click', async () => { state.issues = []; await refresh(); markClean(); toast(t('reloaded')); });
   document.getElementById('lang').addEventListener('click', () => {
