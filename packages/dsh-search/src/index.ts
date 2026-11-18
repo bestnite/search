@@ -4,7 +4,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
 import { BROWSER_VERIFICATION_TIMEOUT_MS, BrowserVerificationAborted, catalog, createPageFetchEngine, defaultConfig, fetchProblemText, fetchReadiness, fetchReadinessProviders, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseBrowserEndpoint, parseConfig, parseXCredentials, renderPageFetchReport, revision, SearchEngine, setUserAgent, validateConfig, verifyBrowserDependencies, verifyBrowserEndpoint } from '@nite07/search-core';
-import type { AccessMode, BackendOutcome, ConfigIssue, FetchFormat, PageFetchResult, RedditComment, RedditCredentials, SearchConfig, VerificationConnect } from '@nite07/search-core';
+import type { AccessMode, BackendDefinition, BackendOutcome, ConfigIssue, FetchFormat, PageFetchResult, RedditComment, RedditCredentials, SearchConfig, VerificationConnect } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { xhsBrowserRead } from './browser-read.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
@@ -220,8 +220,24 @@ export function createPlugin(options: HostOptions = {}) {
     const counters = usage.counters();
     const latest = new Map<string, BackendOutcome>();
     for (const outcome of engine.diagnostics()) latest.set(outcome.backend, outcome);
-    const credentialState = async (id: string, mode: AccessMode): Promise<'not-required' | 'present' | 'missing'> =>
-      mode === 'anonymous' || mode === 'browser' ? 'not-required' : ((await ctx.credentials.describe(credentialRef(backendCredentialRef(id)))).configured ? 'present' : 'missing');
+    /** Whether one operation's access mode reads the stored backend credential at all. */
+    const modeNeedsKey = (mode: AccessMode): boolean => mode !== 'anonymous' && mode !== 'browser';
+    /**
+     * The credential state of one backend, judged over every operation it can actually run.
+     *
+     * The search mode alone is not enough: You.com searches keylessly and fetches with a key, so
+     * reporting "not required" from the search mode would be wrong about the key its fetch needs.
+     * The saved fetch mode counts only when the provider really declares it for fetching, so an
+     * inert fetch record can never ask for a key.
+     */
+    const fetchNeedsKey = (definition: BackendDefinition, row: SearchConfig['backends'][string]): boolean => {
+      const mode = row.fetch.mode;
+      return !!definition.fetch && definition.fetch.modes.includes(mode) && mode !== 'anonymous';
+    };
+    const credentialState = async (definition: BackendDefinition, row: SearchConfig['backends'][string]): Promise<'not-required' | 'present' | 'missing'> => {
+      if (!modeNeedsKey(row.mode) && !fetchNeedsKey(definition, row)) return 'not-required';
+      return (await ctx.credentials.describe(credentialRef(backendCredentialRef(definition.id)))).configured ? 'present' : 'missing';
+    };
     const lastOutcome = (id: string) => {
       const outcome = latest.get(id);
       if (!outcome) return undefined;
@@ -234,10 +250,14 @@ export function createPlugin(options: HostOptions = {}) {
       const definition = catalog.find(d => d.id === args.backend);
       if (!definition) throw new Error(`Unknown backend id: ${args.backend}`);
       const row = config.backends[definition.id]!;
-      const credential = await credentialState(definition.id, row.mode);
+      const credential = await credentialState(definition, row);
       const last = lastOutcome(definition.id);
       const lines = [`${definition.title} (${definition.id}) — ${row.enabled ? 'enabled' : 'disabled'} in ${row.mode} mode`];
       for (const mode of definition.modes) lines.push(`- ${mode.mode}: ${mode.tier}${mode.mode === row.mode ? ' (current)' : ''}`);
+      if (definition.fetch) {
+        // The fetch operation is a second way to spend the same key, so the read names it.
+        lines.push(`- fetch: ${row.fetch.mode}${fetchNeedsKey(definition, row) ? ' (needs the stored key)' : ' (no key)'}`);
+      }
       if (definition.options.length) lines.push(`Options: ${definition.options.map(o => `${o.key}=${String(row.options[o.key] ?? o.default)}`).join(', ')}`);
       lines.push(`Credential: ${credential}; today ${attemptsToday(definition.id, row.mode)} calls; ${lastLine(last)}`);
       lines.push(`Docs: ${definition.docs} (verified ${definition.verifiedAt}, evidence ${definition.evidence})`);
@@ -259,11 +279,15 @@ export function createPlugin(options: HostOptions = {}) {
     for (const definition of catalog) {
       const row = config.backends[definition.id]!;
       if (!row.enabled) continue;
-      const credential = await credentialState(definition.id, row.mode);
+      const credential = await credentialState(definition, row);
       const last = lastOutcome(definition.id);
       const tier = definition.modes.find(m => m.mode === row.mode)?.tier ?? 'unverified';
-      enabled.push({ id: definition.id, title: definition.title, mode: row.mode, tier, credential, attemptsToday: attemptsToday(definition.id, row.mode), ...(last ? { last } : {}) });
-      if (credential === 'missing') problems.push(`${definition.id} is enabled in ${row.mode} mode but no credential is stored, so every call fails until one is added.`);
+      // A key needed only by the fetch operation is not a search problem: the reason a key is
+      // reported here is named, so "present" for a keyless search mode never reads as required.
+      const keyOnlyForFetch = fetchNeedsKey(definition, row) && !modeNeedsKey(row.mode);
+      enabled.push({ id: definition.id, title: definition.title, mode: row.mode, tier, credential, ...(keyOnlyForFetch ? { credentialUsedBy: 'fetch' } : {}), attemptsToday: attemptsToday(definition.id, row.mode), ...(last ? { last } : {}) });
+      if (credential === 'missing' && modeNeedsKey(row.mode)) problems.push(`${definition.id} is enabled in ${row.mode} mode but no credential is stored, so every call fails until one is added.`);
+      if (credential === 'missing' && keyOnlyForFetch) problems.push(`${definition.id} fetches in ${row.fetch.mode} mode and no credential is stored, so its fetch fails until one is added.`);
       if (row.mode === 'browser' && !browserToken) problems.push(`${definition.id} reads through the shared browser and no endpoint token is stored, so it only works against an endpoint that accepts unauthenticated clients.`);
     }
     let searchProvider: string | undefined;

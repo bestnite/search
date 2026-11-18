@@ -196,7 +196,7 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   each with the formats it can return, its own fetch access mode, transport, endpoint, timeout,
   options and the cost and quota of every mode it offers. Every provider card stays collapsed and
   only a click opens it; selecting a provider in the select never unfolds a card, the badge says
-  which one is selected. Four providers also fetch keylessly — Exa and Parallel over MCP, Tavily over
+  which one is selected. Five providers also fetch keylessly — Exa and Parallel over MCP, Tavily over
   its keyless header, Keenable and AnySearch over their anonymous paths — and only those modes were
   observed live; every keyed mode is documented-only (no paid call was made) and the card labels it
   that way. A keyed fetch uses the provider's one stored search key; with no stored key it sends

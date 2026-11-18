@@ -85,7 +85,7 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 - **服务商**：只显示具备抓取能力的服务商（本版本有 11 家：Exa、Parallel、DeepSeek、Serpex、Linkup、
   Tavily、You.com、Keenable、AnySearch、豆包，以及自建的 open-websearch），列出可返回的格式，并单独保存
   抓取的接入模式、传输方式、端点、超时、选项，以及每种模式各自的费用与额度。服务商卡片默认收起，只有你
-  自己点击才会展开；在上方下拉里选服务商不会顺带展开卡片，选中状态由卡片上的标签表示。有四家还支持无 Key
+  自己点击才会展开；在上方下拉里选服务商不会顺带展开卡片，选中状态由卡片上的标签表示。有五家还支持无 Key
   抓取——Exa 与 Parallel 走 MCP，Tavily 用其无 Key 请求头，Keenable 与 AnySearch 走各自的匿名路径——只有
   这些模式经过实测，有 Key 的模式一律只有文档核实（没有付费调用），卡片上会标明；有 Key 抓取复用该服务商
   唯一的那份搜索密钥，没有密钥时不发请求、记为 authentication 失败，回退规则可以命中它并交给下一条路由。

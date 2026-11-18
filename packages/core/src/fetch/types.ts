@@ -87,14 +87,14 @@ export interface FetchOperationDefinition {
   evidence?: Partial<Record<AccessMode, FetchModeEvidence>>;
   /** Cost and quota per access mode, so the settings page shows what a mode spends before enabling it. */
   modeConstraints?: Partial<Record<AccessMode, FetchModeConstraint>>;
-  /** Formats the operation can satisfy for a caller. A Markdown-only provider cannot serve HTML. */
+  /**
+   * Formats the operation can satisfy for a caller. A Markdown-only provider cannot serve HTML, and
+   * a provider that can return the page's own HTML says so here. The representation of one response
+   * is decided by the adapter that produced it and reported on the attempt, never by this metadata.
+   */
   serves: FetchFormat[];
-  /** The representation its response is labelled with. */
-  representation: FetchRepresentation;
   /** Operation-specific options, kept separate from the search options of the same provider. */
   options: import('../types.js').OptionField[];
-  /** Provider field that bounds characters per page, and the default the adapter sends. */
-  characterOption?: { key: string; default: number };
   /** Documentation of the operation itself, distinct from the provider's search documentation. */
   docs: string;
   /** Date this operation's anonymous contract was last observed live, or last read when none was. */

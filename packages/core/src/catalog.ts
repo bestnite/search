@@ -98,9 +98,7 @@ const exaFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown'],
-  representation: 'provider-markdown',
   options: [fetchOption('maxCharacters', 'number', 'Characters per page', '每页字符上限', 50000, 'Characters the provider may return per page. Its own default is 3000; a page fetch asks for more because the page itself is the result.', '供应商每页最多返回的字符数。其默认值是 3000；页面抓取要的是整页内容，所以这里请求更多。')],
-  characterOption: { key: 'maxCharacters', default: 50000 },
   docs: 'https://exa.ai/docs/get-started/exa-mcp',
   verifiedAt: '2026-11-18',
   notes: text('Returns native Markdown. The keyless MCP mode reports no page title and no target HTTP status; the keyed REST mode reports both. Markdown only: HTML is skipped before any request.', '返回原生 Markdown。无 Key 的 MCP 模式不提供页面标题与目标 HTTP 状态码；有 Key 的 REST 模式两者都会返回。仅支持 Markdown：请求 HTML 时不会发出请求而是直接跳过。'),
@@ -134,7 +132,6 @@ const parallelFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown'],
-  representation: 'provider-markdown',
   options: [fetchOption('full_content', 'boolean', 'Full page content', '返回整页正文', true, 'Ask for the complete page rather than objective-focused excerpts. Excerpt mode is cheaper but is not the page.', '请求完整页面，而不是按目标筛选的摘要。摘要模式更省，但不是整页。')],
   docs: 'https://docs.parallel.ai/integrations/mcp/quickstart',
   verifiedAt: '2026-11-18',
@@ -164,7 +161,6 @@ const deepseekFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown'],
-  representation: 'provider-markdown',
   options: [],
   docs: 'https://api-docs.deepseek.com/guides/search/',
   verifiedAt: '2026-11-18',
@@ -196,7 +192,6 @@ const serpexFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown', 'html'],
-  representation: 'provider-markdown',
   options: [],
   docs: 'https://serpex.dev/docs/api/extract',
   verifiedAt: '2026-11-18',
@@ -228,7 +223,6 @@ const linkupFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown', 'html'],
-  representation: 'provider-markdown',
   options: [
     fetchOption('mode', 'select', 'Fetch mode', '抓取模式', 'standard', 'standard retrieves regular pages; pro is documented to succeed more often on hard-to-retrieve pages and costs $0.005 per call.', 'standard 用于普通页面；pro 在难以抓取的页面上成功率更高，按 $0.005/次计费。', { choices: ['standard', 'pro'] }),
     fetchOption('renderJs', 'boolean', 'Render JavaScript', '渲染 JavaScript', false, 'Render the page JavaScript before extraction. Needed for client-side-rendered pages and billed at $0.005 per call.', '抽取前先执行页面 JavaScript。客户端渲染的页面需要它，按 $0.005/次计费。'),
@@ -278,7 +272,6 @@ const tavilyFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown'],
-  representation: 'provider-markdown',
   options: [
     fetchOption('format', 'select', 'Extracted format', '抽取格式', 'markdown', 'markdown returns page content as Markdown; text returns plain text and is documented to be slower.', 'markdown 返回 Markdown 正文；text 返回纯文本，文档说明其更慢。', { choices: ['markdown', 'text'] }),
     fetchOption('extract_depth', 'select', 'Extraction depth', '抽取深度', 'basic', 'advanced retrieves more data including tables and embedded content at 2 credits per 5 URLs; basic is 1 credit per 5.', 'advanced 会取更多内容（含表格与嵌入内容），每 5 个 URL 计 2 credits；basic 每 5 个计 1 credit。', { choices: ['basic', 'advanced'] }),
@@ -315,7 +308,6 @@ const youFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown', 'html'],
-  representation: 'provider-markdown',
   options: [],
   docs: 'https://you.com/docs/api-reference/extract.md',
   verifiedAt: '2026-11-18',
@@ -362,13 +354,11 @@ const keenableFetch: FetchOperationDefinition = {
     },
   },
   serves: ['markdown'],
-  representation: 'provider-markdown',
   options: [
     fetchOption('clientTitle', 'string', 'Application title', '调用方名称', 'dsh-search', 'Sent as X-Keenable-Title on the public fetch path, which requires an application name. The keyed path ignores it.', '在公开抓取路径上作为 X-Keenable-Title 发送，该路径要求调用方名称；有 Key 的路径不使用它。'),
     fetchOption('max_chars', 'number', 'Characters per page', '每页字符上限', 50000, 'Hard cap on the returned content. The response says when it truncated, and the note reports that.', '返回正文的硬上限。被截断时响应会标明，抓取记录里会说明。', { min: 1, max: 1000000 }),
     fetchOption('live', 'boolean', 'Fetch live', '实时抓取', false, 'Fetch the page from the source now instead of returning the indexed copy when one exists.', '直接从源站抓取，而不是在存在索引副本时返回副本。'),
   ],
-  characterOption: { key: 'max_chars', default: 50000 },
   docs: 'https://docs.keenable.ai/api-reference/fetch.md',
   verifiedAt: '2026-11-18',
   notes: text(
@@ -413,7 +403,6 @@ const anysearchFetch: FetchOperationDefinition = {
   },
   serves: ['markdown'],
   // Cleaned text with no format choice: it is labelled text, never page HTML and never native Markdown.
-  representation: 'response-text',
   options: [],
   docs: 'https://www.anysearch.com/docs/api-endpoints/v1-extract.md',
   verifiedAt: '2026-11-18',
@@ -446,7 +435,6 @@ const doubaoFetch: FetchOperationDefinition = {
   },
   serves: ['markdown'],
   // Plain text only, up to 50,000 characters; it is labelled text, never page HTML.
-  representation: 'response-text',
   options: [],
   docs: 'https://docs.volcengine.com/docs/zh/networked-search/doubao-search-web-analysis-fetch.md',
   verifiedAt: '2026-11-18',
@@ -479,12 +467,10 @@ const openWebsearchFetch: FetchOperationDefinition = {
   },
   serves: ['markdown'],
   // The daemon returns extracted page text; it is labelled text, never page HTML.
-  representation: 'response-text',
   options: [
     fetchOption('maxChars', 'number', 'Characters per page', '每页字符上限', 30000, 'Maximum returned content length the daemon accepts: 1,000 to 200,000.', 'daemon 允许返回的最大内容长度：1000 到 200000。', { min: 1000, max: 200000 }),
     fetchOption('renderMode', 'select', 'Render mode', '抓取方式', 'auto', 'request uses HTTP only, auto adds browser fallback when the daemon has one, browser renders directly and needs a working Playwright target.', 'request 仅用 HTTP；auto 在 daemon 具备浏览器能力时回退；browser 直接渲染，需要可用的 Playwright 目标。', { choices: ['request', 'auto', 'browser'] }),
   ],
-  characterOption: { key: 'maxChars', default: 30000 },
   docs: 'https://raw.githubusercontent.com/Aas-ee/open-webSearch/main/docs/http-api.md',
   verifiedAt: '2026-11-18',
   notes: text(

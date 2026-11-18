@@ -261,6 +261,49 @@ test('each fetch mode states its cost before it is enabled, and the readiness ca
   assert.match(zh.fetchModeCostsHelp, /启用之前/);
 });
 
+test('the status read judges a backend credential over every keyed mode it can run', async () => {
+  const h = harness();
+  const config = defaultConfig();
+  // You.com searches keylessly and fetches with a key: the key is needed by the fetch mode, so the
+  // read must not report "not required" from the search mode alone.
+  config.backends.you!.mode = 'anonymous';
+  config.backends.you!.fetch.mode = 'key';
+  config.backends.you!.fetch.endpoint = '';
+  await apply(h.ctx, config);
+
+  const manage = h.tool('search_manage');
+  const missing: any = await h.tool('backend_status').execute({ backend: 'you' }, { signal: signal() });
+  assert.equal(missing.credential, 'missing', 'the key the fetch mode needs is reported');
+  assert.match(missing.text, /fetch: key \(needs the stored key\)/, 'the read names the fetch mode and its key');
+
+  // Providers whose every mode is keyless stay "not required".
+  const openWeb: any = await h.tool('backend_status').execute({ backend: 'open-websearch' }, { signal: signal() });
+  assert.equal(openWeb.credential, 'not-required');
+  const keenable: any = await h.tool('backend_status').execute({ backend: 'keenable' }, { signal: signal() });
+  assert.equal(keenable.credential, 'not-required');
+
+  // An enabled keyless-search backend with a keyed fetch is reported by the list view, once, and the
+  // fetch readiness form is still part of the same answer.
+  const withYouEnabled = structuredClone(config);
+  withYouEnabled.backends.you!.enabled = true;
+  const h2 = harness();
+  await apply(h2.ctx, withYouEnabled);
+  const list: any = await h2.tool('backend_status').execute({}, { signal: signal() });
+  const row = list.enabled.find((item: any) => item.id === 'you');
+  assert.equal(row.credential, 'missing');
+  assert.equal(row.credentialUsedBy, 'fetch', 'the reason the key is reported is stated');
+  assert.ok(list.problems.some((problem: string) => /you fetches in key mode and no credential is stored/.test(problem)), 'the missing fetch key is a stated problem');
+  assert.deepEqual(Object.keys(list.fetch).sort(), ['problems', 'providerId', 'providerServes', 'ready', 'routes', 'toolExposed'], 'fetch readiness is still reported');
+  const searchProblem = list.problems.some((problem: string) => /you is enabled in anonymous mode but no credential/.test(problem));
+  assert.equal(searchProblem, false, 'a key only the fetch needs is never reported as a search failure');
+
+  // Storing the key flips the same read to present.
+  await manage.execute({ action: 'credential', backendId: 'you', value: 'ydc-key' }, { signal: signal() });
+  const present: any = await h.tool('backend_status').execute({ backend: 'you' }, { signal: signal() });
+  assert.equal(present.credential, 'present');
+  assert.ok(h.secrets.has(backendCredentialRef('you')), 'the same fixed credential reference is used');
+});
+
 test('the snapshot carries the doubao key-type caveat where the provider is listed', async () => {
   const h = harness();
   await apply(h.ctx, defaultConfig());

@@ -47,7 +47,7 @@ targets only by default, with the connection pinned to the address that was vali
 remote browser resolves the target elsewhere, so those routes need an explicit delegated-fetching
 opt-in. Eleven providers can fetch: Exa, Parallel, DeepSeek, Serpex, Linkup, Tavily, You.com, Keenable,
 AnySearch, Doubao and the self-hosted open-websearch. Each declares its own access modes, transport,
-endpoint and per-mode cost; four of them also fetch keylessly (Exa and Parallel over MCP, Tavily over
+endpoint and per-mode cost; five of them also fetch keylessly (Exa and Parallel over MCP, Tavily over
 its keyless header, Keenable and AnySearch over their anonymous paths). Only the modes this deployment
 actually exercised anonymously are labelled live; every keyed mode is implemented from the official
 API reference and labelled documented-only, because no paid keyed call was made. A keyed fetch uses the

@@ -40,7 +40,7 @@ web_extract(url, format)   format 必填：markdown 用来读，html 用来看�
 命中的规则与脱敏后的错误。默认只允许公网目标，并把连接绑定到已校验的地址；浏览器或服务商在别处解析
 目标地址，所以这类路由必须显式打开「委托抓取」。能抓取的服务商有 11 家：Exa、Parallel、DeepSeek、
 Serpex、Linkup、Tavily、You.com、Keenable、AnySearch、豆包，以及自建的 open-websearch。每家的接入模式、
-传输方式、端点与每种模式的费用都各自声明；其中四家还能无 Key 抓取（Exa 与 Parallel 走 MCP，Tavily 用其
+传输方式、端点与每种模式的费用都各自声明；其中五家还能无 Key 抓取（Exa 与 Parallel 走 MCP，Tavily 用其
 无 Key 请求头，Keenable 与 AnySearch 走各自的匿名路径）。只有本机实测过的匿名模式标注为实测，所有有 Key
 模式都依据官方 API 文档实现并标注「仅文档核实」，因为没有做过付费的有 Key 调用。有 Key 抓取复用该服务商
 唯一的那份搜索密钥。Serpex、Linkup、You.com 能返回页面自身的 HTML，其余只返回 Markdown 或纯文本，请求

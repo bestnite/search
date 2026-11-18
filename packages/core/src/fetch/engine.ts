@@ -188,7 +188,8 @@ export class PageFetchEngine {
           durationMs: 0,
           outcome: 'unsupported-format',
           rules: [],
-          unavailable: [`markdown: ${provider.id} cannot produce page HTML; it returns Markdown or plain text`],
+          // Neutral wording: this branch is the format the provider cannot serve, whichever it is.
+          unavailable: [`provider ${provider.id} cannot produce ${format}`],
         });
         notes.push(`The selected provider cannot produce ${format}; its request was skipped without being sent.`);
         continue;

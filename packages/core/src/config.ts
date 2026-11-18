@@ -194,14 +194,20 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   return issues;
 }
 
-/** Fetch endpoints are MCP or HTTP(S) endpoints; a WebSocket URL makes no sense for a page fetch. */
+/**
+ * Fetch endpoints are MCP or HTTP(S) endpoints; a WebSocket URL makes no sense for a page fetch.
+ *
+ * A query string is refused for the same reason the search endpoint refuses one: a documented
+ * GET-with-query fetch operation appends its own parameters to this URL, so a saved query would make
+ * the request ambiguous — its parameters would mix with, or be overwritten by, the adapter's.
+ */
 function checkHttpEndpoint(endpoint: string, path: string, fail: IssueSink, params?: ConfigIssueParams): void {
   try {
     const url = new URL(endpoint);
-    if (url.username || url.password || url.hash) throw 0;
+    if (url.username || url.password || url.hash || url.search) throw 0;
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw 0;
   } catch {
-    fail(path, 'Use an HTTP(S) endpoint without credentials or fragment.', 'backend.fetch.endpoint.invalid', params);
+    fail(path, 'Use an HTTP(S) endpoint without credentials, query, or fragment.', 'backend.fetch.endpoint.invalid', params);
   }
 }
 
@@ -352,6 +358,13 @@ export function parseConfig(value:unknown):SearchConfig{
       const fallback = defaults.backends[definition.id]!.fetch;
       row.mode = fallback.mode;
       row.endpoint = fallback.endpoint;
+      // The record now names options it never carried. The general migration above already fills a
+      // missing option key, so this is a guard: the migrated record must be complete on the first
+      // read, not depend on the order the two migrations happen to run in.
+      if (!row.options || typeof row.options !== 'object' || Array.isArray(row.options)) row.options = {};
+      for (const [key, value] of Object.entries(fallback.options)) {
+        if (!Object.hasOwn(row.options as Record<string, unknown>, key)) (row.options as Record<string, unknown>)[key] = structuredClone(value);
+      }
     }
     value=raw;
   }

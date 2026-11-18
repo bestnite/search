@@ -610,6 +610,9 @@ test('an HTML request is skipped before a request for providers that cannot retu
       assert.equal(attempt.outcome, 'unsupported-format', `${definition.id}: a text-only provider cannot serve HTML`);
       assert.equal(calls.length, 0, `${definition.id}: nothing is sent when the format cannot be served`);
       assert.equal(result.content, undefined);
+      // The diagnostic names the format and the provider, instead of saying "markdown" on a branch
+      // that only runs for an HTML request.
+      assert.deepEqual(attempt.unavailable, [`provider ${definition.id} cannot produce html`]);
     }
   }
 });
@@ -649,7 +652,7 @@ test('every declared provider mode validates, and a saved record reloads in the 
   }
 });
 
-test('an inert fetch record from an older release becomes the operation default, and a configured one is not reset', () => {
+test('an inert fetch record from an older release migrates completely, and a configured one is not reset', () => {
   // The shape an older release wrote for a provider that had no fetch operation: its first search
   // mode, no endpoint and no options. You.com now fetches with a key only, so that mode is gone.
   const saved = structuredClone(defaultConfig()) as unknown as Record<string, any>;
@@ -658,12 +661,43 @@ test('an inert fetch record from an older release becomes the operation default,
   assert.equal(reloaded.backends.you!.fetch.mode, 'key', 'the inert record takes the operation default');
   assert.equal(reloaded.backends.you!.fetch.endpoint, 'https://ydc-index.io/v1/extract');
   assert.equal(reloaded.backends.you!.mode, 'anonymous', 'the search row is untouched');
+  assert.deepEqual(
+    Object.keys(reloaded.backends.you!.fetch.options).sort(),
+    catalog.find(item => item.id === 'you')!.fetch!.options.map(option => option.key).sort(),
+    'the migrated record carries every option the new operation declares',
+  );
+  assert.deepEqual(validateConfig(reloaded), [], 'the migrated record validates as saved');
+
+  // A provider whose operation declares options keeps them complete through the same read, and a
+  // value the user already saved is never replaced by the default.
+  const keyed = structuredClone(defaultConfig()) as unknown as Record<string, any>;
+  keyed.backends.tavily.fetch = { mode: 'key', endpoint: '', timeoutMs: 15_000, options: { format: 'text' } };
+  const reloadedKeyed = parseConfig(keyed);
+  assert.equal(reloadedKeyed.backends.tavily!.fetch.options.format, 'text', 'a saved option value survives');
+  assert.equal(reloadedKeyed.backends.tavily!.fetch.options.extract_depth, 'basic', 'a missing option takes the default');
+  assert.deepEqual(validateConfig(reloadedKeyed), [], 'the completed record validates');
 
   // A record somebody actually configured is never rewritten: validation reports it instead.
   const configured = structuredClone(defaultConfig()) as unknown as Record<string, any>;
   configured.backends.you.fetch = { mode: 'anonymous', endpoint: 'https://example.com/custom-fetch', timeoutMs: 15_000, options: {} };
   const issues = validateConfig(configured);
   assert.ok(issues.some(issue => issue.path === 'backends.you.fetch.mode'), 'an unsupported configured mode is reported');
+});
+
+test('a fetch endpoint carrying a query string is refused, and no declared endpoint has one', () => {
+  // A documented GET-with-query operation appends its own parameters to the configured endpoint, so a
+  // saved query would make the request ambiguous.
+  const config = structuredClone(defaultConfig()) as unknown as Record<string, any>;
+  config.backends.keenable.fetch.endpoint = 'https://api.keenable.ai/v1/fetch?url=fixed';
+  const issues = validateConfig(config);
+  assert.ok(issues.some(issue => issue.path === 'backends.keenable.fetch.endpoint'), 'a fetch endpoint with a query is an issue');
+  assert.match(issues.find(issue => issue.path === 'backends.keenable.fetch.endpoint')!.message, /query/i);
+
+  for (const definition of catalog) {
+    for (const endpoint of Object.values(definition.fetch?.endpoints ?? {})) {
+      assert.equal(new URL(endpoint).search, '', `${definition.id}: a declared fetch endpoint carries no query`);
+    }
+  }
 });
 
 test('the doubao caveat is stated where a user selects it, in both languages', () => {
