@@ -1,0 +1,87 @@
+{
+  "name": "@nite07/dsh-search",
+  "version": "0.1.11",
+  "description": "Explicit-mode multi-backend search with transparent costs and complete Web settings for DSH",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.nite07.com/nite/dsh-search.git"
+  },
+  "homepage": "https://git.nite07.com/nite/dsh-search",
+  "bugs": {
+    "url": "https://git.nite07.com/nite/dsh-search/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "web-search",
+    "search",
+    "cordis",
+    "llm"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "locale",
+    "docs",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "README.zh.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@nite07/search-core": "0.1.6"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-web": "*",
+    "@deepseek-ai/dsh-credentials": "*",
+    "@deepseek-ai/dsh-config-editor": "*",
+    "@deepseek-ai/dsh-storage-domain": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.20.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
