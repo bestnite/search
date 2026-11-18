@@ -199,7 +199,7 @@ export function createClient(React: any) {
           const props = { id, disabled: !!pending || disabled, 'aria-invalid': errors.length > 0, 'aria-describedby': `${id}-help${errors.length ? ` ${id}-error` : ''}` };
           return <div className={`ns-field ${type === 'checkbox' ? 'ns-check' : ''}`} key={path}>
             <label htmlFor={id}>{customLabel || label(path)}</label>
-            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
+            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path === 'pageFetch.browser.context' ? t(`browserContext.${choice}`) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
             <small id={`${id}-help`}>{help || t(`help.${path.replace(/^backends\.[^.]+\./, 'backend.')}`)}{type === 'number' && min !== undefined && max !== undefined ? ` (${min}–${max})` : ''}</small>
             {!!errors.length && <small className="ns-error" id={`${id}-error`}>{issueText(errors[0]!)}<button type="button" className="ns-link" onClick={() => focusIssue(errors[0]!)}>{t('showField')}</button></small>}
           </div>;
@@ -564,11 +564,15 @@ export function createClient(React: any) {
                 <p className={selectedFetchProvider.credentialRequired && !selectedFetchProvider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{selectedFetchProvider.credentialRequired ? t(selectedFetchProvider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
                 <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(`backends.${selectedFetchProvider.id}.fetch.mode`)}>{t('openSetting')}</button><a href={selectedFetchProvider.docs} target="_blank" rel="noreferrer">{t('docs')}</a></div>
               </div>}
-              <div className="ns-radio-list" id={fieldId('pageFetch.providerId')} tabIndex={-1} role="radiogroup" aria-label={t('fetchProviderSelect')}>
-                <label className="ns-radio">
-                  <input type="radio" name="fetch-provider" checked={!draft.pageFetch.providerId} disabled={!!pending} onChange={() => update('pageFetch.providerId', '')} />
-                  <span>{t('fetchProviderNone')}</span><small>{t('fetchProviderNoneHelp')}</small>
-                </label>
+              <div className="ns-field">
+                <label htmlFor={fieldId('pageFetch.providerId')}>{t('fetchProviderSelect')}</label>
+                <select id={fieldId('pageFetch.providerId')} value={draft.pageFetch.providerId} disabled={!!pending} onChange={(event: any) => update('pageFetch.providerId', event.target.value)}>
+                  <option value="">{t('fetchProviderNone')}</option>
+                  {fetchProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.title}</option>)}
+                </select>
+                <small>{t('fetchProviderSelectionHelp')}</small>
+              </div>
+              <div className="ns-provider-list">
               {fetchProviders.map((provider: FetchProviderInfo) => {
                 const def = definitions.find(item => item.id === provider.id)!;
                 const backend = draft.backends[def.id]!;
@@ -577,7 +581,6 @@ export function createClient(React: any) {
                 const fetchMode = def.fetch?.modes.find(item => item === modeLabel);
                 return <details className="ns-card ns-backend ns-provider-card" key={`fetch-${def.id}`} open={selected || undefined}>
                   <summary>
-                    <input type="radio" name="fetch-provider" className="ns-provider-select" aria-label={tr('fetchUseProvider', { provider: def.title })} checked={selected} disabled={!!pending} onClick={(event: any) => event.stopPropagation()} onChange={() => update('pageFetch.providerId', def.id)} />
                     <span className="ns-backend-title">{def.title}</span>
                     <span className="ns-chips">
                       {provider.modes.map(mode => <span key={mode} className={`ns-chip ${mode === modeLabel ? 'is-on' : ''}`} title={t(`choice.${mode}`)}>{t(`choice.${mode}`)}</span>)}

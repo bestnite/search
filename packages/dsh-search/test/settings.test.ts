@@ -462,11 +462,13 @@ test('English and Chinese locales carry the same keys, including every issue cod
   }
 });
 
-test('the settings client keeps one provider anatomy, a browser tab and a radio fetch choice', async () => {
+test('the settings client keeps all provider cards and a separate select choice', async () => {
   const { readFile } = await import('node:fs/promises');
   const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
   assert.match(client, /const TABS = \['behavior', 'reliability', 'diagnostics', 'backends', 'browser', 'fetch'\]/);
-  assert.match(client, /name="fetch-provider"/, 'the fetch provider is a fixed radio choice');
+  assert.match(client, /<select id=\{fieldId\('pageFetch\.providerId'\)\}/, 'the fixed provider is chosen with a select');
+  assert.doesNotMatch(client, /name="fetch-provider"/, 'provider cards contain no radio choice');
+  assert.match(client, /fetchProviders\.map\(\(provider: FetchProviderInfo\)/, 'every provider still has its own configuration card');
   assert.match(client, /id=\{fieldId\('pageFetch\.providerId'\)\}/, 'the fetch provider group is a focus target');
   assert.match(client, /ns-provider-summary/, 'the selected provider has a summary');
   assert.doesNotMatch(client, /id="ns-fetch-provider"/, 'the old dropdown editor is gone');
