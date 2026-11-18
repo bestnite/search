@@ -2,7 +2,7 @@
 // like Playwright where it matters: closing a page, context or connection rejects every call still
 // in flight. Gates are deferred promises, so no test depends on a sleep to order work.
 
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,6 +26,13 @@ class Deferred<T> {
 }
 
 const flush = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+// The idle tests wait for a release the session schedules on an unref'd timer. Not holding the
+// process open is right for a library, but it lets the test process exit while one of those tests is
+// still waiting, which the runner reports as `cancelledByParent` / "the event loop has already
+// resolved" (Node 22 does this; Node 26 keeps the loop alive on its own). Pin the loop for the file.
+const loopPin = setInterval(() => {}, 60_000);
+after(() => clearInterval(loopPin));
 
 interface PageCall {
   readonly source: string;
