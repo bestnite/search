@@ -474,6 +474,13 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
           if (await untilAborted(box.count()) === 0) return false;
           const bounds = await untilAborted(box.boundingBox());
           if (!bounds || bounds.width < 10 || bounds.height < 8) return false;
+          // Move to the target first, then press. A managed challenge scores the pointer trail it sees,
+          // and a click that appears from nowhere in an otherwise untouched page is what it expects from
+          // an automation client; a short move into the widget is the cheapest honest improvement.
+          if (typeof box.hover === 'function') {
+            await untilAborted(box.hover({ timeout: timeoutMs })).catch(() => undefined);
+            await abortableWait(120, request.signal);
+          }
           await untilAborted(box.click({ timeout: timeoutMs }));
           return true;
         } catch (error) {
