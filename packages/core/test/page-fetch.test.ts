@@ -336,7 +336,7 @@ test('the Cloudflare preset combines title and HTML markers and ignores a bare m
   const challenge = fakeFetch(() => htmlResponse('<html><head><title>Just a moment...</title></head><body><script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script></body></html>'));
   const challenged = await engineFor(build(), { fetcher: challenge.fetcher, browser: fakeBrowser().fetcher }).fetchPage({ url: 'https://example.com', format: 'markdown' });
   assert.equal(challenged.contentRoute, 'browser', 'a real 200 challenge page falls through');
-  assert.deepEqual(challenged.attempts[0]!.rules, ['cloudflare-challenge']);
+  assert.deepEqual(challenged.attempts[0]!.rules, ['empty-content', 'cloudflare-challenge']);
 
   const falsePositive = fakeFetch(() => htmlResponse('<html><head><title>Just a moment of Cloudflare history</title></head><body>Cloudflare is a company; nothing here is a challenge.</body></html>'));
   const accepted = await engineFor(build(), { fetcher: falsePositive.fetcher, browser: fakeBrowser().fetcher }).fetchPage({ url: 'https://example.com', format: 'markdown' });

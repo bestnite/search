@@ -151,6 +151,9 @@ export const CLOUDFLARE_CHALLENGE_PRESET: FetchFallbackRule = {
 export const DEFAULT_FALLBACK_RULES: FetchFallbackRule[] = [
   { id: 'network', enabled: true, conditions: [{ type: 'network' }] },
   { id: 'timeout', enabled: true, conditions: [{ type: 'timeout' }] },
+  // A client-rendered site answers a plain HTTP request with a shell and no readable text. That is not
+  // an answer to give back: it is the reason the next route exists.
+  { id: 'empty-content', enabled: true, conditions: [{ type: 'error', kinds: ['unsupported-content'] }] },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
