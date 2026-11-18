@@ -169,6 +169,7 @@ const I18N = {
     save: '保存', reload: '重新加载', dirty: '有未保存的更改', clean: '已保存',
     saved: '已保存并热重载', savedNoChange: '没有需要保存的更改', reloaded: '已从磁盘重新加载',
     loadError: '磁盘上的配置无法解析，页面暂时显示默认值；保存后即覆盖。',
+    sectionFailed: '这个分区无法显示，其它分区不受影响。',
     sessionExpired: '会话已过期，请用 --print-url 重新打开链接。',
     maxResults: '结果上限', concurrency: '并发', overallTimeout: '总超时 (ms)', backendTimeout: '超时 (ms)',
     language: '语言', region: '地区', recency: '时效', dedup: '去重', fusion: '融合',
@@ -255,6 +256,7 @@ const I18N = {
     save: 'Save', reload: 'Reload', dirty: 'Unsaved changes', clean: 'Saved',
     saved: 'Saved and hot-reloaded', savedNoChange: 'Nothing to save', reloaded: 'Reloaded from disk',
     loadError: 'The file on disk does not parse, so defaults are shown; saving replaces it.',
+    sectionFailed: 'This section could not be rendered; the other sections are unaffected.',
     sessionExpired: 'Session expired. Open the link from --print-url again.',
     mode: 'Mode',
     maxResults: 'Max results', concurrency: 'Concurrency', overallTimeout: 'Overall timeout (ms)', backendTimeout: 'Timeout (ms)',
@@ -961,8 +963,13 @@ function fetchProviderPanel() {
   const picker = selectInput([['', t('providerNone')], ...providers.map(provider => [provider.id, `${provider.title} · ${provider.serves.join('/')}`])], selected, value => { state.draft.pageFetch.providerId = value; touch(); });
   const panel = h('div', { class: 'panel pad' }, h('label', { class: 'field' }, h('span', {}, t('providerTitle')), picker));
   const provider = providers.find(item => item.id === selected);
+  // The readiness entry says whether a provider can be used; the catalog entry carries what its fetch
+  // operation offers. Reading the first one for `options` threw, and a section that throws takes the
+  // whole tab with it — which is how this tab stopped opening at all.
+  const operation = state.snap.catalog.find(item => item.id === provider?.id)?.fetch;
   if (!provider) return h('section', {}, h('h2', {}, t('providerTitle')), h('p', { class: 'note' }, t('providerHelp')), panel);
-  panel.append(h('div', { class: 'note' }, `${t('providerServes', provider.serves.join(', '))} · ${provider.docs} · ${provider.verifiedAt}`));
+  const origin = [provider.serves.join(', '), operation?.docs, operation?.verifiedAt].filter(Boolean).join(' · ');
+  panel.append(h('div', { class: 'note' }, t('providerServes', origin)));
   panel.append(h('div', { class: 'note' }, provider.credentialRequired ? (provider.credentialConfigured ? t('provCredOk') : t('provCredMissing')) : t('providerCredentialOptional')));
   panel.append(h('div', { class: 'note' }, t('providerMarkdownOnly')));
   panel.append(h('div', { class: 'note' }, t('providerFields')));
@@ -970,9 +977,10 @@ function fetchProviderPanel() {
     field({ path: `backends.${provider.id}.fetch.mode`, type: 'select', label: t('fetchMode'), options: provider.modes.map(mode => [mode, mode]) }),
     field({ path: `backends.${provider.id}.fetch.endpoint`, type: 'text', label: t('fetchEndpoint') }),
     field({ path: `backends.${provider.id}.fetch.timeoutMs`, type: 'number', label: t('providerTimeout'), min: state.snap.fetch.bounds.routeTimeoutMs.min, max: state.snap.fetch.bounds.routeTimeoutMs.max })));
-  if (provider.options.length) {
+  const options = operation?.options ?? [];
+  if (options.length) {
     const grid = h('div', { class: 'row' });
-    for (const option of provider.options) grid.append(fetchOptionField(provider.id, option));
+    for (const option of options) grid.append(fetchOptionField(provider.id, option));
     panel.append(grid);
   }
   return h('section', {}, h('h2', {}, t('providerTitle')), h('p', { class: 'note' }, t('providerHelp')), panel);
@@ -1056,7 +1064,19 @@ function render() {
     browser: browserSection,
     fetch: fetchSection,
   };
-  app.replaceChildren(tabBar(), (sections[state.tab] || behaviorSection)());
+  // A section that throws must not leave the reader on the previous tab wondering why the button did
+  // nothing: the tab still switches and the failure is visible, with its message.
+  let body;
+  try {
+    body = (sections[state.tab] || behaviorSection)();
+  } catch (error) {
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(`section ${state.tab} failed`, error);
+    body = h('section', {}, h('h2', {}, t(TAB_LABELS[state.tab] || 'tabBehavior')),
+      h('div', { class: 'panel pad' }, h('strong', {}, t('sectionFailed')),
+        h('pre', { class: 'out', style: 'margin-top:.5rem' }, message)));
+  }
+  app.replaceChildren(tabBar(), body);
   bindFields(app);
   for (const issue of state.issues) {
     const input = app.querySelector(`[data-path="${issue.path}"]`);

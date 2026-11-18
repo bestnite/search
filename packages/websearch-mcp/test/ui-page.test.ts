@@ -54,3 +54,20 @@ test('the search timeout and the fetch deadline no longer share one label', () =
   assert.equal(definitions('fetchOverallTimeout'), 2, 'the fetch deadline has its own');
   assert.match(page, /pageFetch\.overallTimeoutMs', type: 'number', label: t\('fetchOverallTimeout'\)/, 'and the fetch field uses it');
 });
+
+/**
+ * The fetch tab once read `provider.options`, `provider.docs` and `provider.verifiedAt` off the
+ * readiness entry, which only carries id, title, serves, modes, endpoint and the two credential flags.
+ * The undefined read threw while rendering, the tab swap aborted, and the button looked dead.
+ */
+test('the fetch provider panel reads only fields the readiness entry actually has', () => {
+  const allowed = new Set(['id', 'title', 'serves', 'modes', 'endpoint', 'credentialRequired', 'credentialConfigured']);
+  const read = [...page.matchAll(/\bprovider\.([A-Za-z]+)/g)].map(match => match[1]!);
+  assert.ok(read.length >= 5, 'the page still reads a provider');
+  for (const field of new Set(read)) assert.ok(allowed.has(field), `provider.${field} is not part of the readiness entry`);
+});
+
+test('a section that throws is reported instead of silently keeping the previous tab', () => {
+  assert.match(page, /catch \(error\) \{\s*\n\s*const message = error instanceof Error/, 'the section render is guarded');
+  assert.equal(definitions('sectionFailed'), 2, 'and says so in both languages');
+});
