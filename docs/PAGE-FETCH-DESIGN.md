@@ -203,6 +203,8 @@ HTTP safety must account for resolved addresses, redirects, IPv4/IPv6 literals, 
 
 A remote browser/provider may resolve DNS elsewhere. Do not claim local preflight proves its actual destination policy. If equivalent enforcement cannot be guaranteed, expose the trust boundary clearly and require explicit operator opt-in for delegated fetching rather than silently weakening public-only protection. Document the enforcement and residual limitations.
 
+Decision (2026-11-18): the delegated opt-in is the route switch itself. Enabling a browser or provider route is that deliberate decision; the separate `pageFetch.allowDelegatedFetching` record was retired because it duplicated the route state and could contradict it. A saved switch is dropped on load, literal private/local targets are still refused before any route runs, and every result a delegated route produces carries the trust note.
+
 Resource safety, cancellation, and policy errors cannot trigger another route. Do not persist full content in diagnostics, and do not log secrets. Any GUI preview is escaped text/code, never executable remote HTML. Preserve existing search/backend endpoint support for local self-hosted services; target-fetch policy must not retroactively block trusted search endpoints.
 
 ## 12. Settings UX in both hosts

@@ -16,6 +16,7 @@ export {
 } from './config.js';
 export { SearchEngine } from './engine.js';
 export { revision } from './engine.js';
+export { canonicalJson, sameConfig } from './canonical.js';
 export type { ConfigIssue, ConfigIssueAction, ConfigIssueParams, SearchOverrides, SearchResult, BackendOutcome } from './types.js';
 export type {
   AccessMode,

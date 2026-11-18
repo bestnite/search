@@ -1,4 +1,4 @@
-import { parseBrowserEndpoint } from '@nite07/search-core/static';
+import { parseBrowserEndpoint, parseConfig, sameConfig } from '@nite07/search-core/static';
 import type { ConfigIssue, SearchConfig } from '@nite07/search-core/static';
 
 /**
@@ -44,6 +44,41 @@ export function focusForPath(path: string): { tab: SettingsTab; target: string }
 /** The HTTP answer to a save request, or the fact that the request never produced one. */
 export interface SaveResponse { status: number; payload: any }
 export type SaveReadback = { ok: true; matches: boolean } | { ok: false };
+
+/**
+ * Whether the saved state read back after a save attempt is the configuration that attempt wrote.
+ *
+ * This replaces comparing the two configurations as JSON text. A saved row written by an older
+ * release carries its newer blocks at the end; the running instance holds them in schema order, so
+ * both shapes describe the same configuration while their text differs. Comparing that text
+ * announced a conflict for a write that had landed, and the user was told to review a draft that was
+ * already saved.
+ *
+ * The revision the server returns for the written candidate is authoritative when both sides supply
+ * one: a read-back reporting that revision is the written configuration, and any other revision is a
+ * genuinely different saved state (a later save, a refusal, or a restart that did not apply it). When
+ * only the values are available they are compared canonically, with array order kept intact.
+ *
+ * A value that cannot be canonicalized throws: a read-back that cannot be represented is reported as
+ * unknown by the caller, never as equal.
+ */
+export function readbackMatches(input: { saved: SearchConfig; intended: SearchConfig; savedRevision?: string; writtenRevision?: string }): boolean {
+  if (input.writtenRevision !== undefined && input.savedRevision !== undefined) return input.writtenRevision === input.savedRevision;
+  let normalized = input.intended;
+  try { normalized = parseConfig(input.intended); } catch { /* the served configuration is still compared, never skipped */ }
+  return sameConfig(input.saved, normalized);
+}
+
+/**
+ * Whether a draft still differs from the served configuration, regardless of key order.
+ *
+ * Both sides come from JSON, so canonicalization cannot fail in practice. If it ever did, the draft
+ * is reported as different rather than as saved: a page that cannot compare its own state must not
+ * claim there is nothing left to save.
+ */
+export function sameDraft(draft: SearchConfig, saved: SearchConfig): boolean {
+  try { return sameConfig(draft, saved); } catch { return false; }
+}
 
 /**
  * What a save attempt actually proved. A definite rejection (400) happens before any write; a 5xx or

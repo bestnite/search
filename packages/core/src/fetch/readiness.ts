@@ -28,9 +28,6 @@ export function fetchReadiness(config: SearchConfig, providers: readonly FetchRe
   const problems: FetchReadinessProblem[] = [];
   const enabled = page.routes.filter(route => route.enabled);
   if (!enabled.length) problems.push({ key: 'fetchNoRoutes' });
-  if (!page.allowDelegatedFetching && enabled.some(route => route.kind === 'browser' || route.kind === 'provider')) {
-    problems.push({ key: 'fetchDelegatedOff' });
-  }
   if (enabled.some(route => route.kind === 'browser') && !config.browser.endpoint) problems.push({ key: 'fetchBrowserNoEndpoint' });
   if (enabled.some(route => route.kind === 'provider')) {
     const provider = providers.find(item => item.id === page.providerId);
@@ -52,8 +49,6 @@ export function fetchProblemText(problem: FetchReadinessProblem): string {
   switch (problem.key) {
     case 'fetchNoRoutes':
       return 'No page-fetch route is enabled, so every page fetch fails.';
-    case 'fetchDelegatedOff':
-      return 'A browser or provider route is enabled without the delegated-fetching opt-in, so a fetch is refused as a configuration error.';
     case 'fetchBrowserNoEndpoint':
       return 'The browser route is enabled but no shared browser endpoint is configured.';
     case 'fetchProviderMissing':

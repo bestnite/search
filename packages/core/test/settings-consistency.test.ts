@@ -57,7 +57,6 @@ test('route issues keep their index path, name the route kind and point at the b
   config.pageFetch.routes = [config.pageFetch.routes[1], config.pageFetch.routes[0], config.pageFetch.routes[2]];
   assert.equal(config.pageFetch.routes[0].kind, 'browser');
   config.pageFetch.routes[0].enabled = true; // the browser route now sits first
-  config.pageFetch.allowDelegatedFetching = true;
   config.pageFetch.providerId = 'exa';
   const issues = validateConfig(config);
   const browserRoute = issues.find(issue => issue.path === 'pageFetch.routes.0.enabled' && issue.code === 'pageFetch.route.browserEndpointMissing');
@@ -66,14 +65,11 @@ test('route issues keep their index path, name the route kind and point at the b
   assert.equal(browserRoute.action?.target, 'browser.endpoint', 'the fix target is the shared browser endpoint');
   assert.match(browserRoute.message, /browser endpoint/i, 'the plain message stays complete without localization');
 
-  const delegated = issues.find(issue => issue.path === 'pageFetch.routes.0.enabled' && issue.code === 'pageFetch.route.delegatedOff');
-  assert.ok(!delegated, 'the delegated opt-in is on in this fixture');
-
-  const missingOptIn = structuredClone(config);
-  missingOptIn.pageFetch.allowDelegatedFetching = false;
-  const optInIssue = validateConfig(missingOptIn).find(issue => issue.code === 'pageFetch.route.delegatedOff');
-  assert.equal(optInIssue?.params?.kind, 'browser');
-  assert.equal(optInIssue?.action?.target, 'pageFetch.allowDelegatedFetching');
+  // Enabling the route is the delegated decision: there is no second switch to leave off, and no
+  // issue may send the user to one.
+  const delegated = issues.find(issue => issue.code === 'pageFetch.route.delegatedOff');
+  assert.equal(delegated, undefined, 'a delegated route has no separate opt-in to satisfy');
+  assert.equal(validateConfig(config).some(issue => issue.action?.target === 'pageFetch.allowDelegatedFetching'), false);
 });
 
 test('invalid rule paths stay deep and carry a condition code plus the route kind', () => {
@@ -89,7 +85,6 @@ test('invalid rule paths stay deep and carry a condition code plus the route kin
 test('provider fetch operation issues name the provider, mode and endpoint field', () => {
   const config = defaultConfig() as unknown as Record<string, any>;
   config.pageFetch.routes[2].enabled = true;
-  config.pageFetch.allowDelegatedFetching = true;
   config.pageFetch.providerId = 'exa';
   config.backends.exa.fetch.mode = 'key';
   const issue = validateConfig(config).find(item => item.path === 'backends.exa.fetch.mode');
@@ -138,7 +133,6 @@ test('enabled browser search and fetch dependents share one grouped probe', asyn
   const state = track();
   const config = browserEnabled(inner => {
     inner.pageFetch.routes[1]!.enabled = true;
-    inner.pageFetch.allowDelegatedFetching = true;
   });
   assert.equal(collectBrowserDependencies(config).length, 2, 'one search backend and the fetch route');
   const result = await verifyBrowserDependencies(config, { connect: connectFor(state) });
@@ -182,7 +176,6 @@ test('the fetch browser route never borrows a search backend fallback', async ()
   xhs(config).mode = 'browser';
   xhs(config).endpoint = 'ws://127.0.0.1:4040/ws';
   config.pageFetch.routes[1]!.enabled = true;
-  config.pageFetch.allowDelegatedFetching = true;
   const result = await verifyBrowserDependencies(config, { connect: connectFor(state) });
   assert.deepEqual(state.endpoints, ['ws://127.0.0.1:4040/ws'], 'only the search backend can use its own fallback');
   const routeIssue = result.issues.find(issue => issue.path === 'pageFetch.routes.1.enabled');
@@ -194,7 +187,6 @@ test('the fetch browser route never borrows a search backend fallback', async ()
 test('a rejected token is a structured authentication issue on every dependent', async () => {
   const config = browserEnabled(inner => {
     inner.pageFetch.routes[1]!.enabled = true;
-    inner.pageFetch.allowDelegatedFetching = true;
   });
   const result = await verifyBrowserDependencies(config, {
     resolveToken: () => 'SUPER_SECRET_TOKEN',

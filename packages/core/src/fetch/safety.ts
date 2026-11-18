@@ -153,8 +153,8 @@ const localHostname = (hostname: string): boolean => {
  *
  * With `allowPrivateNetworks` off, a literal private address or a private name is refused locally and
  * every resolved address has to be public. A remote browser or provider resolves the name elsewhere,
- * so this preflight cannot prove its destination: that boundary is documented and needs the explicit
- * delegated-fetching opt-in instead of a weaker check passing for a stronger one.
+ * so this preflight cannot prove its destination: enabling such a route is the delegated decision,
+ * its result says so, and no weaker check is reported as a stronger one.
  */
 export async function assertTargetPolicy(url: URL, allowPrivateNetworks: boolean, resolver: AddressResolver): Promise<void> {
   if (allowPrivateNetworks) return;

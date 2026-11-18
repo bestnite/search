@@ -121,10 +121,12 @@ test('readiness reasons are the same keys the page localizes, with English text 
 
   const browserRoute = structuredClone(config);
   browserRoute.pageFetch.routes[1]!.enabled = true;
-  assert.deepEqual(fetchReadiness(browserRoute, providers).map(problem => problem.key), ['fetchDelegatedOff', 'fetchBrowserNoEndpoint']);
+  // The enabled route is the delegated decision itself: readiness asks only for what is still missing.
+  assert.deepEqual(fetchReadiness(browserRoute, providers).map(problem => problem.key), ['fetchBrowserNoEndpoint']);
+  browserRoute.browser.endpoint = 'ws://127.0.0.1:3030/ws';
+  assert.deepEqual(fetchReadiness(browserRoute, providers), [], 'an enabled browser route with an endpoint is ready');
 
   const providerRoute = structuredClone(config);
-  providerRoute.pageFetch.allowDelegatedFetching = true;
   providerRoute.pageFetch.routes[2]!.enabled = true;
   assert.deepEqual(fetchReadiness(providerRoute, providers).map(problem => problem.key), ['fetchProviderMissing']);
 
@@ -147,7 +149,6 @@ test('one shared draft keeps search and fetch edits from overwriting each other'
   draft.tools.webExtract = true;
   draft.pageFetch.routes = [draft.pageFetch.routes[2], draft.pageFetch.routes[0], draft.pageFetch.routes[1]];
   draft.pageFetch.providerId = 'exa';
-  draft.pageFetch.allowDelegatedFetching = true;
   draft.pageFetch.routes[0].enabled = true;
   draft.pageFetch.routes[0].rules = [{ id: 'keep-me', enabled: true, conditions: [{ type: 'match', field: 'text', operator: 'contains', value: 'boom', caseSensitive: false }] }];
   await h.tool('search_manage').execute({ action: 'save', config: draft, expectedRevision: snapshot.revision }, { signal: signal() });
@@ -185,10 +186,10 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'fetchConditionOperator', 'fetchConditionValue', 'fetchConditionCase', 'credentialNotRequired',
     'field.pageFetch.overallTimeoutMs', 'field.pageFetch.maxRedirects', 'field.pageFetch.maxBodyBytes',
     'field.pageFetch.maxOutputChars', 'field.pageFetch.maxRuleScanChars', 'field.pageFetch.allowPrivateNetworks',
-    'field.pageFetch.allowDelegatedFetching', 'field.pageFetch.browser.context', 'field.pageFetch.browser.settleMs',
+    'field.pageFetch.browser.context', 'field.pageFetch.browser.settleMs',
     'field.pageFetch.browser.selectorWait',
   ];
-  const problemKeys = ['fetchNoRoutes', 'fetchDelegatedOff', 'fetchBrowserNoEndpoint', 'fetchProviderMissing', 'fetchProviderMode', 'fetchProviderEndpoint', 'fetchProviderCredential'];
+  const problemKeys = ['fetchNoRoutes', 'fetchBrowserNoEndpoint', 'fetchProviderMissing', 'fetchProviderMode', 'fetchProviderEndpoint', 'fetchProviderCredential'];
   const conditionKeys = ['condition.network', 'condition.timeout', 'condition.status', 'condition.api-status', 'condition.error', 'condition.match'];
   const matchFieldKeys = ['matchField.title', 'matchField.html', 'matchField.text', 'matchField.markdown'];
   const matchOperatorKeys = ['matchOperator.contains', 'matchOperator.equals', 'matchOperator.regex'];

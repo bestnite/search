@@ -202,8 +202,10 @@ when one is known, and no matched rejection rule.
 Safety defaults are public-only targets. The HTTP transport resolves each name inside the socket
 lookup, applies the address policy to every answer and connects to the address it validated, so a
 rebinding window between check and connect does not exist. Redirects are followed manually, one bounded
-hop at a time, and re-checked. A browser or provider resolves the target elsewhere; those routes
-require `allowDelegatedFetching`, and the result notes the trust boundary.
+hop at a time, and re-checked. A browser or provider route resolves the target elsewhere, so the local
+address policy cannot prove its destination: enabling such a route is that decision, there is no second
+switch to keep in step with it, and every result such a route produces carries the trust-boundary note.
+Literal private and local targets are still refused before a route runs.
 
 Fetch adapters are catalog metadata, not user toggles: this release ships Exa (`web_fetch_exa`) and
 Parallel (`web_fetch`), both returning native Markdown. Asking a Markdown-only provider for HTML skips

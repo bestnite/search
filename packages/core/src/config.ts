@@ -1,4 +1,5 @@
 import { catalog } from './catalog.js';
+import { orderLike } from './canonical.js';
 import { LANGUAGES, REGIONS } from './locale-map.js';
 import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
 import { DEFAULT_FALLBACK_RULES, validateRuleIssues } from './fetch/rules.js';
@@ -60,7 +61,6 @@ export function defaultPageFetchConfig(): PageFetchConfig {
     maxOutputChars: DEFAULT_MAX_OUTPUT_CHARS,
     maxRuleScanChars: DEFAULT_MAX_RULE_SCAN_CHARS,
     allowPrivateNetworks: false,
-    allowDelegatedFetching: false,
     browser: { context: 'isolated', settleMs: 0, selectorWait: '' },
   };
 }
@@ -231,20 +231,13 @@ function validatePageFetch(c: SearchConfig, fail: IssueSink): void {
     if (route.kind === 'browser' && route.enabled && !c.browser.endpoint) {
       fail(`${path}.enabled`, 'The browser route needs a shared browser endpoint before it can be enabled.', 'pageFetch.route.browserEndpointMissing', { kind: route.kind }, { target: 'browser.endpoint' });
     }
-    if ((route.kind === 'browser' || route.kind === 'provider') && route.enabled && !page.allowDelegatedFetching) {
-      fail(
-        `${path}.enabled`,
-        'A browser or provider route resolves the target outside this process, so the public-only check cannot prove its destination. Enable allowDelegatedFetching deliberately to use it.',
-        'pageFetch.route.delegatedOff',
-        { kind: route.kind },
-        { target: 'pageFetch.allowDelegatedFetching' },
-      );
-    }
+    // Enabling a browser or provider route is itself the delegated-fetching decision: those routes
+    // resolve the target outside this process, and their results say so in a note. There is no
+    // second switch to keep in step with the route, and a saved one is dropped on load.
   });
   const enabled = page.routes.filter(route => route.enabled);
   if (!enabled.length) fail('pageFetch.routes', 'At least one route has to be enabled.', 'pageFetch.routes.none');
   if (typeof page.allowPrivateNetworks !== 'boolean') fail('pageFetch.allowPrivateNetworks', 'Expected a boolean.', 'field.boolean');
-  if (typeof page.allowDelegatedFetching !== 'boolean') fail('pageFetch.allowDelegatedFetching', 'Expected a boolean.', 'field.boolean');
   num(page.overallTimeoutMs, MIN_FETCH_OVERALL_TIMEOUT_MS, MAX_FETCH_OVERALL_TIMEOUT_MS, 'pageFetch.overallTimeoutMs');
   num(page.maxRedirects, 0, MAX_FETCH_REDIRECTS, 'pageFetch.maxRedirects');
   if (!Number.isInteger(page.maxBodyBytes) || page.maxBodyBytes < MIN_FETCH_BODY_BYTES || page.maxBodyBytes > MAX_FETCH_BODY_BYTES) {
@@ -329,6 +322,9 @@ export function parseConfig(value:unknown):SearchConfig{
     // is filled: an explicit null, wrong type or out-of-range value is left for validation to reject,
     // and unknown sibling keys stay unknown.
     if(raw.browser&&typeof raw.browser==='object'&&!Array.isArray(raw.browser)&&!Object.hasOwn(raw.browser,'maxConcurrentReads'))raw.browser.maxConcurrentReads=defaults.browser.maxConcurrentReads;
+    // A browser or provider fetch route is its own delegated decision now: the retired switch is
+    // dropped on load instead of failing the whole file, so an enabled route keeps working.
+    if(raw.pageFetch&&typeof raw.pageFetch==='object'&&!Array.isArray(raw.pageFetch))delete raw.pageFetch.allowDelegatedFetching;
     // How many backends a search runs is decided by the call, not by a saved mode: `mode` and
     // `singleBackend` are retired fields, dropped on load instead of failing the whole file.
     delete raw.mode;delete raw.singleBackend;
@@ -339,5 +335,8 @@ export function parseConfig(value:unknown):SearchConfig{
   }
   const issues=validateConfig(value);
   if(issues.length)throw new Error(issues.map(x=>`${x.path}: ${x.message}`).join('\n'));
-  return structuredClone(value) as SearchConfig;
+  // A value filled from an older save lands at the end of its object; rebuilding it in the order of
+  // the defaults keeps one saved configuration serialized the same way wherever it is read, so a
+  // revision comparison can never see a key move and call it an edit.
+  return orderLike(defaults, structuredClone(value)) as SearchConfig;
 }

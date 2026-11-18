@@ -20,7 +20,8 @@ import { utf8ByteLength } from './bytes.js';
  * being stored for a teardown that already finished.
  *
  * The remote browser resolves the target outside this process, so the local address policy cannot
- * prove where it lands; the configuration requires an explicit delegated-fetching opt-in.
+ * prove where it lands. Enabling the route is that decision, and every result it produces carries
+ * {@link DELEGATED_NOTE} so a caller is told exactly what could not be checked here.
  */
 export interface BrowserRouteRequest {
   url: URL;

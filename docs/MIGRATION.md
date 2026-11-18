@@ -48,7 +48,10 @@ The page-fetch feature is additive to the saved configuration. Loading an older 
 the fields it lacks:
 
 - `pageFetch` with three route records (HTTP enabled, browser and provider off), no selected provider,
-  the documented time/size/redirect limits and `allowPrivateNetworks` / `allowDelegatedFetching` off.
+  the documented time/size/redirect limits and `allowPrivateNetworks` off.
+- A saved `pageFetch.allowDelegatedFetching` is dropped on load. Enabling a browser or provider route is
+  the delegated decision itself, so the separate switch was retired instead of being kept in sync with
+  the routes it gated; the private-address policy and the per-result trust-boundary note are unchanged.
 - `fetch` on every backend record, holding the operation's access mode, endpoint, timeout and options.
   Search settings, endpoints, options, browser settings and credential names are untouched.
 - `tools.webExtract`, defaulting to `false`: the agent tool stays hidden until a user turns it on.

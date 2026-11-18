@@ -60,7 +60,11 @@ and options, and the card says so.
 
 ## Saving and the browser gate
 
-**Save settings** validates first, then writes. The outcomes are distinct:
+**Save settings** validates first, then writes. The result appears in a floating card above the
+settings panel instead of a line at the top of a long page: a success dismisses itself after a few
+seconds without touching the keyboard focus, while a refusal stays until it is dismissed and links
+each cause straight to its field. A save in progress has its own neutral card, so it is never
+mistaken for a refusal. The outcomes are distinct:
 
 - **Rejected validation**: nothing is written. The draft keeps every edit, and the page lists the
   localized cause with a link that switches to the owning tab, unfolds the provider card or fallback
@@ -80,6 +84,11 @@ and options, and the card says so.
   was written.
 - **Unconfirmed response**: only a transport failure that left the saved state different is reported
   this way, after reading it back. A request this page sends is never replayed automatically.
+
+A read-back counts as the written configuration when the revision the server reported for the write is
+the revision the running instance serves. Configurations are compared by value, not by JSON text, so a
+key order (a saved row from an older release carries its newer blocks at the end) is never reported as
+a difference.
 
 When an enabled search backend reads through a browser (Xiaohongshu) or the fetch browser route is on,
 the server proves the effective endpoint before writing. It reads the stored token, attaches once per
@@ -185,14 +194,14 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   return native Markdown; asking for HTML skips that route without a request and the next enabled
   route serves the page instead.
 - **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
-  width, public-only/private-network policy, and the delegated-fetching opt-in a browser or provider
-  route needs because the remote side resolves the target itself.
+  width and the public-only/private-network policy. A browser or provider route resolves the target
+  itself, so switching that route on is the delegated-fetching decision; there is no separate switch,
+  and every result from such a route carries the trust-boundary note.
 - **Test** — a URL, a required format and one user-triggered run against the *saved* configuration.
   It can reach the network (and a provider may meter it); nothing runs on render or save.
 
 Readiness problems are shown before a test: no enabled route, a browser route without an endpoint, a
-provider route without a provider, a missing provider credential, or a delegated route with the opt-in
-off.
+provider route without a provider, or a missing provider credential.
 
 ## Troubleshooting
 

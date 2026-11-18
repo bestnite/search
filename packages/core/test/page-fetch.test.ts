@@ -211,7 +211,6 @@ test('a configuration with every route disabled is refused before execution', as
 test('routes run one at a time in the configured order and disabled routes are skipped', async () => {
   const order: string[] = [];
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     page.routes = [routeOf(page, 'provider'), routeOf(page, 'browser'), routeOf(page, 'http')];
     for (const route of page.routes) route.enabled = true;
@@ -247,7 +246,6 @@ test('routes run one at a time in the configured order and disabled routes are s
 
 test('the provider route calls exactly the selected provider and no other', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'parallel';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -283,7 +281,6 @@ test('rules are OR across a route and AND inside one rule', async () => {
       rule('other', { type: 'status', statuses: [418] }),
     ];
     page.routes = [routeOf(page, 'http'), ...page.routes.filter(route => route.kind === 'browser')];
-    page.allowDelegatedFetching = true;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
   });
@@ -297,7 +294,6 @@ test('rules are OR across a route and AND inside one rule', async () => {
 
 test('an AND rule with an unavailable field does not match and says why', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -316,7 +312,6 @@ test('an AND rule with an unavailable field does not match and says why', async 
 
 test('string conditions honour explicit case sensitivity and never invent an empty field', async () => {
   const build = (caseSensitive: boolean) => pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').rules = [rule('moment', { type: 'match', field: 'title', operator: 'contains', value: 'just a moment', caseSensitive })];
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
@@ -333,7 +328,6 @@ test('string conditions honour explicit case sensitivity and never invent an emp
 
 test('the Cloudflare preset combines title and HTML markers and ignores a bare mention', async () => {
   const build = () => pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').rules = [...DEFAULT_FALLBACK_RULES, structuredClone(CLOUDFLARE_CHALLENGE_PRESET)];
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
@@ -352,7 +346,6 @@ test('the Cloudflare preset combines title and HTML markers and ignores a bare m
 test('the status preset is an ordinary editable rule, not hidden behaviour', async () => {
   const config = pageConfig(page => {
     routeOf(page, 'http').rules = [...DEFAULT_FALLBACK_RULES, structuredClone(STATUS_ERROR_PRESET)];
-    page.allowDelegatedFetching = true;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
   });
@@ -395,7 +388,6 @@ test('a target 404 and 500 stop the chain with ok:false and no implicit retry', 
 test('a matching rule on a 404 continues the chain instead of accepting the error page', async () => {
   const config = pageConfig(page => {
     routeOf(page, 'http').rules = [...DEFAULT_FALLBACK_RULES, structuredClone(STATUS_ERROR_PRESET)];
-    page.allowDelegatedFetching = true;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
   });
@@ -407,7 +399,6 @@ test('a matching rule on a 404 continues the chain instead of accepting the erro
 
 test('target status stays separate from provider API status', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'parallel';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -426,7 +417,6 @@ test('target status stays separate from provider API status', async () => {
 
 test('a provider failure without a target status never invents one, and its body is not echoed', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -443,7 +433,6 @@ test('a provider failure without a target status never invents one, and its body
 
 test('a provider protocol failure produces a sanitized error', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'parallel';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -457,7 +446,6 @@ test('a provider protocol failure produces a sanitized error', async () => {
 
 test('a provider API rejection reports the API status, not a target status', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -476,7 +464,6 @@ test('a provider API rejection reports the API status, not a target status', asy
 
 test('format capability is preflighted: a Markdown-only provider is skipped without a request', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     page.routes = [routeOf(page, 'provider'), routeOf(page, 'http'), routeOf(page, 'browser')];
     routeOf(page, 'provider').enabled = true;
@@ -494,7 +481,6 @@ test('format capability is preflighted: a Markdown-only provider is skipped with
 test('native provider Markdown is returned verbatim, never reconverted', async () => {
   const native = '# Title\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```js\nconst x = 1;\n```';
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -573,7 +559,6 @@ test('output truncation is reported separately from an acquisition limit', async
 
 test('the last acquired page is preserved once when a later route has a network failure', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').rules = [structuredClone(CLOUDFLARE_CHALLENGE_PRESET)];
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
@@ -592,7 +577,6 @@ test('the last acquired page is preserved once when a later route has a network 
 
 test('an exhausted chain with no page at all is not reported as success', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').rules = DEFAULT_FALLBACK_RULES;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
@@ -622,7 +606,6 @@ test('a per-route timeout falls back, while caller cancellation and the overall 
   }) as typeof fetch;
 
   const fallbackConfig = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').timeoutMs = 40;
     routeOf(page, 'http').rules = DEFAULT_FALLBACK_RULES;
     routeOf(page, 'browser').enabled = true;
@@ -635,7 +618,6 @@ test('a per-route timeout falls back, while caller cancellation and the overall 
   assert.equal(fallback.attempts[0]!.outcome, 'timeout');
 
   const cancelledConfig = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = DEFAULT_FALLBACK_RULES;
   });
@@ -648,7 +630,6 @@ test('a per-route timeout falls back, while caller cancellation and the overall 
   assert.equal(cancelled.attempts.length, 1, 'a caller abort is fatal and never reaches the next route');
 
   const deadlineConfig = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.overallTimeoutMs = 40;
     routeOf(page, 'http').timeoutMs = 5_000;
     routeOf(page, 'browser').enabled = true;
@@ -659,12 +640,19 @@ test('a per-route timeout falls back, while caller cancellation and the overall 
   assert.equal(deadline.stopReason, 'deadline');
 });
 
-test('a browser route that is enabled without the delegated opt-in is a configuration error', async () => {
+test('enabling a browser route is the delegated decision, with no second switch to satisfy', async () => {
   const config = pageConfig(page => {
     routeOf(page, 'browser').enabled = true;
+    routeOf(page, 'http').enabled = false;
   });
   config.browser.endpoint = 'ws://127.0.0.1:3030/ws';
-  await assert.rejects(() => engineFor(config).fetchPage({ url: 'https://example.com', format: 'markdown' }), (error: unknown) => error instanceof PageFetchError && /delegated/i.test(error.message));
+  assert.equal('allowDelegatedFetching' in config.pageFetch, false, 'the retired switch is not part of a configuration');
+  assert.deepEqual(validateConfig(config), [], 'an enabled browser route validates on its own');
+  const browser = fakeBrowser();
+  const result = await engineFor(config, { browser: browser.fetcher }).fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.equal(result.ok, true, 'the route runs without a separate opt-in');
+  assert.equal(result.contentRoute, 'browser');
+  assert.ok(result.notes.some(note => /outside this process/.test(note)), 'the delegated trust boundary is still disclosed');
 });
 
 // --- target policy ----------------------------------------------------------------------------
@@ -728,7 +716,6 @@ test('redirects are followed manually, bounded, and re-checked against the polic
 test('the browser route captures the main document and cleans up everything it created', async () => {
   const browser = fakeBrowser({ html: '<html><head><title>Rendered</title></head><body><p>dom</p></body></html>', finalUrl: 'https://example.com/final' });
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.browser.selectorWait = '#ready';
     page.browser.settleMs = 0;
     routeOf(page, 'http').enabled = false;
@@ -757,7 +744,6 @@ test('the browser route reuses the stored session only when asked, and closes on
   writeFileSync(statePath, '{}');
   const browser = fakeBrowser({ html: '<html><body>session page</body></html>' });
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.browser.context = 'session';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
@@ -778,7 +764,6 @@ test('the browser route reuses the stored session only when asked, and closes on
 test('a browser route reports only the main-document status, so subresource failures cannot match a rule', async () => {
   const browser = fakeBrowser({ status: 200, html: '<html><body><img src="/missing.png"><p>ok</p></body></html>' });
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
     routeOf(page, 'browser').rules = [rule('subresource', { type: 'status', statuses: [404] })];
@@ -791,7 +776,6 @@ test('a browser route reports only the main-document status, so subresource fail
 
 test('browser cancellation releases the context and stops the chain', async () => {
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.browser.settleMs = 1_000;
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
@@ -836,13 +820,33 @@ test('an older saved configuration keeps its values and gains only the new fetch
   assert.deepEqual(loaded.backends.keenable!.fetch, defaultConfig().backends.keenable!.fetch);
 });
 
+test('the retired delegated-fetching switch is dropped on load and an enabled route keeps working', () => {
+  const saved = structuredClone(defaultConfig()) as unknown as Record<string, any>;
+  // Exactly what an older release wrote: the record-and-enable switch next to the route it gated.
+  saved.pageFetch.allowDelegatedFetching = true;
+  saved.pageFetch.routes[1].enabled = true;
+  saved.browser.endpoint = 'ws://127.0.0.1:3030/ws';
+  const loaded = parseConfig(saved);
+  assert.equal('allowDelegatedFetching' in loaded.pageFetch, false, 'the field is gone from the configuration');
+  assert.equal(loaded.pageFetch.routes[1]!.enabled, true, 'an enabled browser route stays enabled');
+  assert.deepEqual(validateConfig(loaded), [], 'the migrated configuration validates');
+  // Dropping the switch changes nothing else: the same row without it loads to the same configuration.
+  const withoutSwitch = structuredClone(saved);
+  delete withoutSwitch.pageFetch.allowDelegatedFetching;
+  assert.deepEqual(loaded, parseConfig(withoutSwitch));
+
+  // A row that carried the switch but no longer needs it must not lose the safety switches beside it.
+  const privateOn = structuredClone(saved);
+  privateOn.pageFetch.allowPrivateNetworks = true;
+  assert.equal(parseConfig(privateOn).pageFetch.allowPrivateNetworks, true);
+});
+
 test('saved rules and route order survive a load unchanged', () => {
   const saved = structuredClone(defaultConfig()) as unknown as Record<string, any>;
   const customRules = [rule('keep-me', { type: 'match', field: 'text', operator: 'equals', value: 'exact', caseSensitive: true })];
   saved.pageFetch.routes[0].rules = customRules;
   saved.pageFetch.routes = [saved.pageFetch.routes[2], saved.pageFetch.routes[0], saved.pageFetch.routes[1]];
   saved.pageFetch.routes[0].enabled = true;
-  saved.pageFetch.allowDelegatedFetching = true;
   saved.pageFetch.providerId = 'exa';
   saved.tools.webExtract = true;
   const loaded = parseConfig(saved);
@@ -860,9 +864,11 @@ test('invalid new values fail validation instead of being reset', () => {
     ['pageFetch.routes.0.rules', config => { config.pageFetch.routes[0].rules = Array.from({ length: 9 }, (_unused, index) => rule(`r${index}`, { type: 'network' })); }],
     ['pageFetch.routes.0.rules.0.conditions.0.statuses', config => { config.pageFetch.routes[0].rules[0].conditions[0] = { type: 'status', statuses: [99] }; }],
     ['pageFetch.routes.0.rules.0.extra', config => { config.pageFetch.routes[0].rules[0].extra = true; }],
-    ['pageFetch.providerId', config => { config.pageFetch.providerId = 'tavily'; config.pageFetch.routes[2].enabled = true; config.pageFetch.allowDelegatedFetching = true; }],
+    ['pageFetch.providerId', config => { config.pageFetch.providerId = 'tavily'; config.pageFetch.routes[2].enabled = true; }],
     ['pageFetch.routes.1.enabled', config => { config.pageFetch.routes[1].enabled = true; }],
-    ['pageFetch.routes.1.enabled', config => { config.browser.endpoint = 'ws://127.0.0.1:3030/ws'; config.pageFetch.routes[1].enabled = true; }],
+    // The retired delegated-fetching switch is not a field any more: a hand-edited file carrying it is
+    // rejected, while `parseConfig()` drops it from an older save (see the migration test below).
+    ['pageFetch.allowDelegatedFetching', config => { config.pageFetch.allowDelegatedFetching = true; }],
     ['backends.exa.fetch.mode', config => { config.backends.exa.fetch.mode = 'key'; }],
     ['backends.exa.fetch.options.unknown', config => { config.backends.exa.fetch.options.unknown = 1; }],
     ['pageFetch.overallTimeoutMs', config => { config.pageFetch.overallTimeoutMs = 10; }],
@@ -1026,7 +1032,6 @@ test('the default transport resolves inside the lookup, fetches a real local pag
 test('an abort while the browser connection is still arriving closes the late connection', async () => {
   const browser = delayedBrowser({ step: 'connect', delayMs: 40 });
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
   });
@@ -1047,7 +1052,6 @@ test('an abort while the context or page is being created closes the late resour
   for (const step of ['context', 'page'] as const) {
     const browser = delayedBrowser({ step, delayMs: 40 });
     const config = pageConfig(page => {
-      page.allowDelegatedFetching = true;
       routeOf(page, 'http').enabled = false;
       routeOf(page, 'browser').enabled = true;
     });
@@ -1067,7 +1071,6 @@ test('a rendered document over the acquisition bound is a fatal limit, not a par
   const huge = `<html><body>${'x'.repeat(500)}</body></html>`;
   const browser = fakeBrowser({ html: huge });
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.maxBodyBytes = 128;
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
@@ -1312,7 +1315,6 @@ test('a provider representation over the configured byte bound is a fatal limit 
   // A provider call injected by a host bypasses the wire, so the adapter applies the same bound.
   const injected = fakeProvider([exaMarkdown(huge)]);
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     page.maxBodyBytes = 256;
     routeOf(page, 'http').enabled = false;
@@ -1331,7 +1333,6 @@ test('the shared transport byte guard becomes a fatal limit on the fetch path, n
     throw new SearchError('protocol', 'Response exceeds the 4 MiB limit.', 200, 1);
   };
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'provider').enabled = true;
@@ -1364,7 +1365,6 @@ test('the browser capture bound counts UTF-8 bytes, remotely and as a local rech
   // 900 bytes, 300 characters: a character bound would let this through, a byte bound must not.
   const remote = fakeBrowser({ html: multibyte, capture: 'limit' });
   const remoteConfig = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.maxBodyBytes = 512;
     routeOf(page, 'http').enabled = false;
     routeOf(page, 'browser').enabled = true;
@@ -1385,7 +1385,6 @@ test('the provider acquisition bound counts UTF-8 bytes, not characters', async 
   const multibyte = '汉'.repeat(800);
   const injected = fakeProvider([exaMarkdown(multibyte)]);
   const config = pageConfig(page => {
-    page.allowDelegatedFetching = true;
     page.providerId = 'exa';
     page.maxBodyBytes = 1024;
     routeOf(page, 'http').enabled = false;

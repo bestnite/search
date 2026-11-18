@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply as productionApply, createPlugin, defaultConfig } from '../src/index.js';
-import { backendIdForPath, browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
-import { catalog, revision } from '@nite07/search-core';
+import { backendIdForPath, browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, readbackMatches, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
+import { catalog, parseConfig, revision } from '@nite07/search-core';
 import type { SearchConfig, VerificationConnect } from '@nite07/search-core';
 
 /**
@@ -166,7 +166,34 @@ test('a backend filter is reset before focusing a hidden backend card', () => {
   assert.equal(shouldResetBackendFilter('selfRef', 'keen', 'enabled'), false);
 });
 
-test('save outcomes are classified from the response and a read-back, never guessed', () => {
+test('the read-back is compared as a configuration, not as two JSON texts', () => {
+  const saved = parseConfig(defaultConfig());
+  // The same configuration with its keys inserted in another order: the exact shape a saved row from
+  // an older release produces after `fillMissing()` appends the blocks it predates.
+  const reordered: any = {};
+  for (const key of Object.keys(saved).reverse()) reordered[key] = (saved as any)[key];
+  assert.equal(readbackMatches({ saved: reordered, intended: saved }), true, 'a key order is not a difference');
+
+  const changed = structuredClone(saved);
+  changed.maxResults = 9;
+  assert.equal(readbackMatches({ saved: changed, intended: saved }), false, 'a changed value is a conflict');
+  assert.equal(readbackMatches({ saved: saved, intended: changed }), false);
+
+  // The route order is meaningful, so an array reorder is a real difference.
+  const swapped = structuredClone(saved);
+  [swapped.pageFetch.routes[0], swapped.pageFetch.routes[1]] = [swapped.pageFetch.routes[1]!, swapped.pageFetch.routes[0]!];
+  assert.equal(readbackMatches({ saved: swapped, intended: saved }), false, 'route order is not a difference to ignore');
+
+  // The revision the server wrote is authoritative when both sides carry one.
+  assert.equal(readbackMatches({ saved: saved, intended: changed, savedRevision: 'r1', writtenRevision: 'r1' }), true);
+  assert.equal(readbackMatches({ saved: saved, intended: saved, savedRevision: 'r1', writtenRevision: 'r2' }), false, 'a later save is a real conflict');
+
+  // A value that cannot be represented is an unreadable read-back, never a silent match.
+  const unrepresentable = { ...structuredClone(saved), maxResults: { nested: 1n } } as unknown as SearchConfig;
+  assert.throws(() => readbackMatches({ saved: unrepresentable, intended: saved }), /bigint|not JSON-shaped/);
+});
+
+test('the save outcomes are classified from the response and a read-back, never guessed', () => {
   const issue = { path: 'maxResults', message: 'bad', code: 'field.range' };
   const rejected = classifySaveOutcome({ response: { status: 400, payload: { error: { code: 'validation-failed', message: 'rejected', issues: [issue] } } } });
   assert.deepEqual(rejected, { kind: 'rejected', code: 'validation-failed', issues: [issue] });
@@ -199,7 +226,6 @@ test('the front-end gate explains a missing endpoint only while a browser depend
 
   const fetch = defaultConfig();
   fetch.pageFetch.routes[1]!.enabled = true;
-  fetch.pageFetch.allowDelegatedFetching = true;
   const fetchIssues = browserGateIssues(fetch);
   assert.ok(fetchIssues.some(issue => issue.code === 'pageFetch.route.browserEndpointMissing' && issue.action?.target === 'browser.endpoint'));
 
@@ -385,7 +411,6 @@ test('enabled browser dependents are checked once, with the stored token, before
   h.secrets.set('DSH_SEARCH_BROWSER_TOKEN', 'ENDPOINT_TOKEN');
   const config = browserConfig();
   config.pageFetch.routes[1]!.enabled = true;
-  config.pageFetch.allowDelegatedFetching = true;
   const snapshot = await snapshotOf(h);
   const response = await post(h.routes.get('/api/nite-search/settings'), { config, expectedRevision: snapshot.revision });
   assert.equal(response.status, 200);
@@ -404,7 +429,6 @@ test('a browser route without the shared endpoint is rejected by validation and 
   await h.apply(defaultConfig());
   const config = defaultConfig();
   config.pageFetch.routes[1]!.enabled = true;
-  config.pageFetch.allowDelegatedFetching = true;
   const snapshot = await snapshotOf(h);
   const response = await post(h.routes.get('/api/nite-search/settings'), { config, expectedRevision: snapshot.revision });
   assert.equal(response.status, 400);
@@ -481,7 +505,6 @@ test('browser dependencies are exactly the enabled search browser backends and t
   const { collectBrowserDependencies } = await import('@nite07/search-core');
   const config = browserConfig();
   config.pageFetch.routes[1]!.enabled = true;
-  config.pageFetch.allowDelegatedFetching = true;
   const dependencies = collectBrowserDependencies(config);
   assert.deepEqual(dependencies.map(dependency => dependency.kind).sort(), ['fetch-browser-route', 'search-backend']);
   assert.ok(dependencies.every(dependency => dependency.endpoint === 'ws://127.0.0.1:3030/ws'));

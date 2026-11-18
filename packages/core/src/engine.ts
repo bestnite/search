@@ -3,8 +3,17 @@ import { catalog } from './catalog.js';
 import { runAdapter } from './adapters.js';
 import { abortError, SearchError } from './transport.js';
 import { backendCredentialRef, browserCredentialRef } from './config.js';
+import { canonicalJson } from './canonical.js';
 import type { BackendOutcome, SearchConfig, SearchInput, SearchOverrides, SearchResult, Source } from './types.js';
-export function revision(config:SearchConfig):string{return createHash('sha256').update(JSON.stringify(config)).digest('hex');}
+/**
+ * The identity of a saved configuration. Hashing stops a settings page from reading the whole
+ * configuration out of the answer: only a stale value can be told apart, never a value.
+ *
+ * The text is canonical, so two shapes that carry the same values under a different key order have
+ * one revision. That matters because the running instance, the saved row and the normalized config
+ * reach `parseConfig()` through different paths, and a key-order difference is not an edit.
+ */
+export function revision(config:SearchConfig):string{return createHash('sha256').update(canonicalJson(config)).digest('hex');}
 /**
  * A result crosses a JSON boundary before any host or tool sees it, and an explicit undefined does
  * not survive that crossing. Adapters are meant to omit absent fields, but one gap there breaks a

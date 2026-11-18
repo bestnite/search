@@ -12,14 +12,17 @@ import type {
   FetchRouteConfig, SearchConfig,
 } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
-import { browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, routeKindForPath, shouldResetBackendFilter } from './presenter';
+import { browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
 import type { SaveReadback, SaveResponse } from './presenter';
+import { feedbackAutoDismissMs, feedbackForSave } from './feedback';
+import type { SaveFeedback } from './feedback';
 import { blockersOf, visible } from './visibility';
 import type { FetchProviderInfo, SettingsSnapshot } from './types';
 
 const API = '/api/nite-search';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** The served configuration and the draft are the same configuration when their values agree. */
+const same = (a: unknown, b: unknown) => sameDraft(a as SearchConfig, b as SearchConfig);
 const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS] };
 const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 function get(value: any, path: string): any { return path.split('.').reduce((v, k) => v?.[k], value); }
@@ -52,8 +55,13 @@ async function request(path: string, body?: unknown): Promise<any> {
   return payload;
 }
 
-/** The build wraps this module once in the DSH lazy module factory. */
-export function createClient(React: any) {
+/**
+ * The build wraps this module once in the DSH lazy module factory, which hands over the host's React
+ * and ReactDOM. ReactDOM renders the save feedback into a fixed layer on `document.body`: the settings
+ * surface lives inside a fixed modal (z-index 1000), so a message rendered inside the page is both
+ * below the modal's own scroll container and clipped by it.
+ */
+export function createClient(React: any, ReactDOM?: any) {
   function ListInput({ value, onCommit, numeric, ...props }: any) {
     const formatted = value.join(', ');
     const [text, setText] = React.useState(formatted);
@@ -95,8 +103,31 @@ export function createClient(React: any) {
         const [pendingFocus, setPendingFocus] = React.useState(null as { path: string; nonce: number } | null);
         const [verification, setVerification] = React.useState(null as { endpoint: string; tokenEpoch: number; source: 'manual' | 'save'; ok: boolean; code?: string; durationMs: number; at: number } | null);
         const [tokenEpoch, setTokenEpoch] = React.useState(0);
-        const [saveError, setSaveError] = React.useState(null as { code: string; message: string } | null);
+        const [feedback, setFeedback] = React.useState(null as SaveFeedback | null);
         const summary = React.useRef(null as HTMLDivElement | null);
+        const feedbackCard = React.useRef(null as HTMLDivElement | null);
+        const feedbackTimer = React.useRef(null as ReturnType<typeof setTimeout> | null);
+        const clearFeedbackTimer = () => { if (feedbackTimer.current) { clearTimeout(feedbackTimer.current); feedbackTimer.current = null; } };
+        /** A success message is transient and never takes focus; an error stays until the user closes it. */
+        function showFeedback(card: SaveFeedback) {
+          clearFeedbackTimer();
+          setFeedback(card);
+          const dismissAfter = feedbackAutoDismissMs(card);
+          if (dismissAfter === undefined) return;
+          feedbackTimer.current = setTimeout(() => { feedbackTimer.current = null; setFeedback(null); }, dismissAfter);
+        }
+        function dismissFeedback() { clearFeedbackTimer(); setFeedback(null); }
+        React.useEffect(() => () => clearFeedbackTimer(), []);
+        // An error card takes focus so a screen reader announces it; a success toast never does, so a
+        // save that just succeeded cannot pull the keyboard away from the next edit. Escape closes
+        // either card, and neither makes the page behind it unusable.
+        React.useEffect(() => {
+          if (!feedback) return;
+          if (feedback.kind === 'error') feedbackCard.current?.focus();
+          const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); dismissFeedback(); } };
+          document.addEventListener('keydown', onKey);
+          return () => document.removeEventListener('keydown', onKey);
+        }, [feedback]);
         const dirty = !!snapshot && !same(draft, snapshot.config);
         const definitions: BackendDefinition[] = snapshot?.catalog || catalog;
         const enabledSaved = definitions.filter(def => def.status === 'documented' && snapshot?.config.backends[def.id]?.enabled);
@@ -186,7 +217,12 @@ export function createClient(React: any) {
           }
           setPendingFocus(null);
         }, [pendingFocus, tab, backendQuery, backendFilter]);
-        React.useEffect(() => { if (issues.length) summary.current?.focus(); }, [issues]);
+        // The summary takes focus when a new list of issues arrives, unless the floating card is the
+        // thing announcing them. It must not take focus back when the card is dismissed: that click is
+        // usually a field link, and the field it just moved to has to keep the focus.
+        const feedbackKind = React.useRef('');
+        React.useEffect(() => { feedbackKind.current = feedback?.kind ?? ''; }, [feedback]);
+        React.useEffect(() => { if (issues.length && feedbackKind.current !== 'error') summary.current?.focus(); }, [issues]);
         React.useEffect(() => {
           if (!enabledSaved.length) { if (testBackend) setTestBackend(''); return; }
           if (!enabledSaved.some(def => def.id === testBackend)) setTestBackend(enabledSaved[0]!.id);
@@ -198,9 +234,9 @@ export function createClient(React: any) {
           const min = options.min ?? range?.[0]; const max = options.max ?? range?.[1];
           const props = { id, disabled: !!pending || disabled, 'aria-invalid': errors.length > 0, 'aria-describedby': `${id}-help${errors.length ? ` ${id}-error` : ''}` };
           return <div className={`ns-field ${type === 'checkbox' ? 'ns-check' : ''}`} key={path}>
-            <label htmlFor={id}>{customLabel || label(path)}</label>
+            <label className="ns-label" htmlFor={id}>{customLabel || label(path)}</label>
             {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path === 'pageFetch.browser.context' ? t(`browserContext.${choice}`) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
-            <small id={`${id}-help`}>{help || t(`help.${path.replace(/^backends\.[^.]+\./, 'backend.')}`)}{type === 'number' && min !== undefined && max !== undefined ? ` (${min}–${max})` : ''}</small>
+            <small className="ns-help" id={`${id}-help`}>{help || t(`help.${path.replace(/^backends\.[^.]+\./, 'backend.')}`)}{type === 'number' && min !== undefined && max !== undefined ? ` (${min}–${max})` : ''}</small>
             {!!errors.length && <small className="ns-error" id={`${id}-error`}>{issueText(errors[0]!)}<button type="button" className="ns-link" onClick={() => focusIssue(errors[0]!)}>{t('showField')}</button></small>}
           </div>;
         }
@@ -210,7 +246,7 @@ export function createClient(React: any) {
         }
         function section(title: string, ids: string[], paths: string[], options: Record<string, any> = {}) {
           const shown = fields(paths, options);
-          return shown.length ? <section className="ns-card" aria-labelledby={ids[0]}><h3 id={ids[0]}>{t(title)}</h3><div className="ns-grid">{shown}</div></section> : null;
+          return shown.length ? <section className="ns-card" aria-labelledby={ids[0]}><h3 id={ids[0]} className="ns-section-title">{t(title)}</h3><div className="ns-grid">{shown}</div></section> : null;
         }
         async function refresh() { const next = await request('settings') as SettingsSnapshot; setSnapshot(next); return next; }
 
@@ -245,7 +281,7 @@ export function createClient(React: any) {
           }),
           ...(browserRoute?.enabled ? [{
             key: 'fetch-browser', kind: 'fetch' as const, title: t('fetchRoute.browser'), endpoint: draft.browser.endpoint, source: draft.browser.endpoint ? 'shared' as const : 'missing' as const,
-            jump: `${fetchRoutesPath}.${browserRouteIndex}.enabled`, fix: draft.browser.endpoint ? undefined : 'browser.endpoint', delegated: draft.pageFetch.allowDelegatedFetching,
+            jump: `${fetchRoutesPath}.${browserRouteIndex}.enabled`, fix: draft.browser.endpoint ? undefined : 'browser.endpoint',
           }] : []),
         ];
         async function save() {
@@ -253,7 +289,7 @@ export function createClient(React: any) {
           const errors = merged.filter((issue, index) => merged.findIndex(other => other.path === issue.path && other.code === issue.code) === index);
           setIssues(errors); if (errors.length || !snapshot) return;
           const intended = clone(draft); const revision = snapshot.revision;
-          setPending('save'); setNotice('saving'); setFailed(false); setSaveError(null);
+          setPending('save'); setNotice('saving'); setFailed(false); dismissFeedback();
           let response: SaveResponse | undefined;
           let transportError = false;
           try {
@@ -269,45 +305,40 @@ export function createClient(React: any) {
           let next: SettingsSnapshot | undefined;
           let readback: SaveReadback | undefined;
           if (!response || response.status === 200 || response.status === 409 || response.status >= 500) {
-            try { next = await refresh(); readback = { ok: true, matches: same(next.config, intended) }; } catch { readback = { ok: false }; }
+            try {
+              next = await refresh();
+              // The server names the revision it wrote; a read-back that reports it is the written
+              // configuration, and a read-back that cannot be represented stays unknown.
+              const writtenRevision = typeof response?.payload?.revision === 'string' ? String(response.payload.revision) : undefined;
+              readback = { ok: true, matches: readbackMatches({ saved: next.config, intended, savedRevision: next.revision, ...(writtenRevision ? { writtenRevision } : {}) }) };
+            } catch { readback = { ok: false }; }
           }
           const outcome = classifySaveOutcome({
             ...(response ? { response } : {}),
             ...(transportError ? { transportError: true } : {}),
             ...(readback ? { readback } : {}),
           });
+          const verified = Boolean(response?.payload?.verified);
           switch (outcome.kind) {
             case 'saved': {
+              // Adopting the served configuration is what keeps a following save from claiming a
+              // difference that only comes from the write's normalization.
               if (next) setDraft(clone(next.config));
-              setIssues([]); setSaveError(null);
-              const verified = Boolean(response?.payload?.verified);
-              setNotice(verified ? 'savedVerified' : 'saved');
+              setIssues([]); setNotice('');
               if (verified) setVerification({ endpoint: intended.browser.endpoint.trim(), tokenEpoch, source: 'save', ok: true, durationMs: 0, at: Date.now() });
               break;
             }
-            case 'rejected': {
-              setFailed(true); setIssues(outcome.issues);
-              setSaveError({ code: outcome.code, message: String(response?.payload?.error?.message || '') });
-              setNotice(outcome.code === 'browser-verification-failed' ? 'browserVerificationFailed' : outcome.code === 'save-cancelled' ? 'saveCancelled' : 'saveRejected');
-              break;
-            }
-            case 'conflict': {
-              setFailed(true); setIssues([]); setSaveError(null); setNotice('conflict');
-              break;
-            }
-            case 'write-failed': {
-              setFailed(true); setSaveError({ code: outcome.code, message: outcome.message }); setNotice('saveFailed');
-              break;
-            }
-            case 'unconfirmed': {
-              setFailed(true); setSaveError(null); setNotice('saveUnconfirmed');
-              break;
-            }
-            case 'state-unknown': {
-              setFailed(true); setSaveError(null); setNotice('saveStateUnknown');
-              break;
-            }
+            case 'rejected': setFailed(true); setIssues(outcome.issues); setNotice(''); break;
+            case 'conflict':
+            case 'write-failed':
+            case 'unconfirmed':
+            case 'state-unknown': setFailed(true); setNotice(''); break;
           }
+          // One card explains the result, and it is the same one in both languages: the reason, the
+          // field links, and nothing asserted beyond what the outcome proved.
+          const serverMessage = typeof response?.payload?.error?.message === 'string' ? String(response.payload.error.message) : '';
+          const card = feedbackForSave(outcome, { known, t, tr }, { ...(verified ? { verified } : {}), ...(serverMessage ? { serverMessage } : {}) });
+          if (card) showFeedback(card); else dismissFeedback();
           setPending('');
         }
         async function action(actionName: string, extra: Record<string, unknown> = {}) {
@@ -419,12 +450,10 @@ export function createClient(React: any) {
           if (route.kind === 'browser') {
             return <p className="ns-muted ns-dependency">
               {draft.browser.endpoint ? tr('routeBrowserEndpoint', { endpoint: draft.browser.endpoint }) : <>{t('routeBrowserEndpointMissing')} <button type="button" className="ns-link" onClick={() => focusPath('browser.endpoint')}>{t('fixIt')}</button></>}
-              {!draft.pageFetch.allowDelegatedFetching && <> · {t('routeDelegatedMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.allowDelegatedFetching')}>{t('fixIt')}</button></>}
             </p>;
           }
           if (route.kind === 'provider') {
             return <p className="ns-muted ns-dependency">{selectedFetchProvider ? tr('routeProviderSelected', { provider: selectedFetchProvider.title, mode: draft.backends[selectedFetchProvider.id]?.fetch.mode || '' }) : <>{t('routeProviderMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.providerId')}>{t('fixIt')}</button></>}
-              {!draft.pageFetch.allowDelegatedFetching && <> · {t('routeDelegatedMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.allowDelegatedFetching')}>{t('fixIt')}</button></>}
             </p>;
           }
           return null;
@@ -520,12 +549,42 @@ export function createClient(React: any) {
         const TABS = ['behavior', 'reliability', 'diagnostics', 'backends', 'browser', 'fetch'] as const;
         const verificationCurrent = !!verification && verification.endpoint === draft.browser.endpoint.trim() && verification.tokenEpoch === tokenEpoch && !secrets.browser;
         const verificationStale = !!verification && !verificationCurrent;
+        // The floating error card is the alert surface while it is open; the in-page list would be a
+        // second copy of the same banner and is shown again once the card is dismissed.
+        const showingError = feedback?.kind === 'error';
+        const statusText = notice ? t(notice) : !snapshot ? t('loading') : dirty ? tr('unsavedWithErrors', { errors: issues.length }) : t('upToDate');
+        /**
+         * Save feedback floats above the settings modal instead of sitting at the top of a scrolled
+         * page. It is portalled to `document.body` because this page is rendered inside a fixed modal
+         * with its own scroll container: an in-page banner can be scrolled out of view, and a host
+         * slot would render below the modal (the frame's overlay layer is z-index 20, the modal 1000).
+         * The portal disappears with this component, so nothing outlives the page.
+         */
+        function feedbackLayer() {
+          const titleId = 'ns-feedback-title';
+          const describeId = 'ns-feedback-body';
+          if (!feedback && pending !== 'save') return null;
+          const described = feedback && (feedback.text || feedback.detail) ? { 'aria-describedby': describeId } : {};
+          const card = !feedback
+            ? <div className="ns-feedback ns-feedback--pending" role="status" aria-live="polite"><p className="ns-feedback-text">{t('saving')}</p></div>
+            : feedback.kind === 'success'
+              ? <div className="ns-feedback ns-feedback--success" role="status" aria-live="polite"><p className="ns-feedback-text">{feedback.text}</p><button type="button" className="ns-link" onClick={dismissFeedback}>{t('feedbackDismiss')}</button></div>
+              : <div className="ns-feedback ns-feedback--error" role="alertdialog" aria-labelledby={titleId} {...described} tabIndex={-1} ref={feedbackCard}>
+                  <h4 id={titleId}>{feedback.title}</h4>
+                  <div id={describeId}>
+                    {feedback.text && <p className="ns-feedback-text">{feedback.text}</p>}
+                    {feedback.detail && <p className="ns-feedback-detail">{feedback.detail}</p>}
+                    {!!feedback.issues.length && <ul className="ns-feedback-list">{feedback.issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><button type="button" className="ns-link" onClick={() => { dismissFeedback(); focusIssue(issue); }}>{pathLabel(issue.path)} — {issueText(issue)}</button></li>)}</ul>}
+                  </div>
+                  <div className="ns-actions"><button type="button" onClick={dismissFeedback}>{t('feedbackDismiss')}</button></div>
+                </div>;
+          const layer = <div className="ns-feedback-layer" data-nite-search-feedback="">{card}</div>;
+          return typeof document === 'undefined' || !ReactDOM?.createPortal ? layer : ReactDOM.createPortal(layer, document.body);
+        }
         return <div className="ns-page" aria-busy={!!pending}>
           <style>{styles}{overrides}</style>
-          <header className="ns-header"><div><h2>{t('title')}</h2><p>{tr('intro', { enabled: enabledCount, total: definitions.length })}</p></div></header>
-          <div className="ns-status" role="status" aria-live="polite"><span className={failed ? 'ns-error' : ''}>{notice ? t(notice) : !snapshot ? t('loading') : dirty ? t('unsaved') : t('upToDate')}</span>{!!pending && <span>{t('pending')}</span>}</div>
-          {!!saveError && (!issues.length || saveError.code.startsWith('save-')) && <div className="ns-save-error" role="alert"><strong>{known(`saveError.${saveError.code}`) ? t(`saveError.${saveError.code}`) : t('saveRejected')}</strong>{saveError.message && !issues.length && <p className="ns-muted">{tr('saveServerDetail', { message: saveError.message })}</p>}</div>}
-          {!!issues.length && <div className="ns-summary" role="alert" tabIndex={-1} ref={summary}><h3>{t('validationTitle')}</h3><ul>{issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><a href={`#${fieldId(issue.action?.target || issue.path)}`} onClick={(event: any) => { event.preventDefault(); focusIssue(issue); }}>{pathLabel(issue.path)} <code>{issue.path}</code> — {issueText(issue)}</a></li>)}</ul></div>}
+          <header className="ns-header"><div><h2 className="ns-page-title">{t('title')}</h2><p>{tr('intro', { enabled: enabledCount, total: definitions.length })}</p></div></header>
+          {!!issues.length && !showingError && <div className="ns-summary" role="alert" tabIndex={-1} ref={summary}><h3>{t('validationTitle')}</h3><ul>{issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><a href={`#${fieldId(issue.action?.target || issue.path)}`} onClick={(event: any) => { event.preventDefault(); focusIssue(issue); }}>{pathLabel(issue.path)} <code>{issue.path}</code> — {issueText(issue)}</a></li>)}</ul></div>}
           {snapshot && !snapshot.active.isSelf && <div className="ns-blockers ns-blockers--info" role="status"><h3>{t('activeTitle')}</h3><p>{tr('activeOther', { provider: snapshot.active.searchProvider || t('notSpecified') })}</p><button type="button" disabled={!!pending} onClick={() => action('activate')}>{t('activateSelf')}</button></div>}
           {!!blockers.length && <div className="ns-blockers" role="status" aria-live="polite"><h3>{t('blockersTitle')}</h3><ul>{blockers.map(blocker => <li key={blocker.key}>{tr(blocker.key, blocker.vars)} <button type="button" className="ns-link" onClick={() => focusPath(blocker.jump)}>{t('fixIt')}</button></li>)}</ul></div>}
           {!snapshot ? <button disabled={!!pending} onClick={async () => { setPending('load'); try { const next = await refresh(); setDraft(clone(next.config)); setNotice(''); setFailed(false); } catch { setFailed(true); setNotice('loadFailed'); } finally { setPending(''); } }}>{t('reload')}</button> : <>
@@ -607,14 +666,13 @@ export function createClient(React: any) {
               })}
               </div>
             </section>
-            {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.allowDelegatedFetching', 'pageFetch.browser.context', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
+            {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.browser.context', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
               'pageFetch.overallTimeoutMs': { type: 'number', min: FETCH_BOUNDS.overallTimeoutMs.min, max: FETCH_BOUNDS.overallTimeoutMs.max },
               'pageFetch.maxRedirects': { type: 'number', min: FETCH_BOUNDS.maxRedirects.min, max: FETCH_BOUNDS.maxRedirects.max },
               'pageFetch.maxBodyBytes': { type: 'number', min: FETCH_BOUNDS.maxBodyBytes.min, max: FETCH_BOUNDS.maxBodyBytes.max },
               'pageFetch.maxOutputChars': { type: 'number', min: FETCH_BOUNDS.maxOutputChars.min, max: FETCH_BOUNDS.maxOutputChars.max },
               'pageFetch.maxRuleScanChars': { type: 'number', min: FETCH_BOUNDS.maxRuleScanChars.min, max: FETCH_BOUNDS.maxRuleScanChars.max },
               'pageFetch.allowPrivateNetworks': { type: 'checkbox' },
-              'pageFetch.allowDelegatedFetching': { type: 'checkbox' },
               'pageFetch.browser.context': { choices: ['isolated', 'session'] },
               'pageFetch.browser.settleMs': { type: 'number', min: FETCH_BOUNDS.settleMs.min, max: FETCH_BOUNDS.settleMs.max },
             })}
@@ -639,7 +697,6 @@ export function createClient(React: any) {
                 <span className={`ns-dot ${dependent.source === 'missing' ? 'is-off' : 'is-on'}`} aria-hidden="true" />
                 <strong>{dependent.title}</strong>
                 <span className="ns-muted">{dependent.source === 'shared' ? tr('browserDependencyShared', { endpoint: dependent.endpoint }) : dependent.source === 'own' ? tr('browserDependencyOwn', { endpoint: dependent.endpoint }) : t('browserDependencyMissing')}</span>
-                {dependent.kind === 'fetch' && <span className={dependent.delegated ? 'ns-muted' : 'ns-warning'}>{dependent.delegated ? t('browserDependencyDelegated') : t('browserDependencyDelegatedOff')}</span>}
                 <span className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(dependent.jump)}>{t('openSetting')}</button>{dependent.fix && <button type="button" className="ns-link" onClick={() => focusPath(dependent.fix!)}>{t('fixIt')}</button>}</span>
               </li>)}</ul> : <p className="ns-muted">{t('browserNoDependents')}</p>}
               <div className="ns-test-actions">
@@ -686,8 +743,9 @@ export function createClient(React: any) {
               {!definitions.some(matches) && <p className="ns-muted">{t('noMatch')}</p>}
             </section>
           </div>}
-          <footer className="ns-footer"><span aria-live="polite">{dirty ? tr('unsavedWithErrors', { errors: issues.length }) : t('upToDate')}</span><div className="ns-actions"><button disabled={!!pending || !dirty} onClick={() => setConfirming({ kind: 'discard' })}>{t('discard')}</button><button className="ns-primary" disabled={!!pending || !dirty} onClick={save}>{t(pending === 'save' ? 'saving' : 'save')}</button></div>{confirmRow('discard', 'discardConfirm', () => { setDraft(clone(snapshot.config)); setIssues([]); setNotice(''); })}</footer>
+          <footer className="ns-footer"><span aria-live="polite" className={failed ? 'ns-error' : ''}>{statusText}</span><div className="ns-actions"><button disabled={!!pending || !dirty} onClick={() => setConfirming({ kind: 'discard' })}>{t('discard')}</button><button className="ns-primary" disabled={!!pending || !dirty} onClick={save}>{t(pending === 'save' ? 'saving' : 'save')}</button></div>{confirmRow('discard', 'discardConfirm', () => { setDraft(clone(snapshot.config)); setIssues([]); setNotice(''); })}</footer>
           </>}
+          {feedbackLayer()}
         </div>;
       }
       ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'nite-search', order: 16, label: () => t('title') }, Page));

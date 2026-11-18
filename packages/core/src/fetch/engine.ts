@@ -117,14 +117,6 @@ export class PageFetchEngine {
     if (!settings || !Array.isArray(settings.routes)) throw new PageFetchError('configuration', 'The page-fetch configuration is missing.');
     const routes = settings.routes.filter(route => route.enabled);
     if (!routes.length) throw new PageFetchError('configuration', 'Every page-fetch route is disabled, so no fetch can run.');
-    for (const route of routes) {
-      if ((route.kind === 'browser' || route.kind === 'provider') && !settings.allowDelegatedFetching) {
-        throw new PageFetchError(
-          'configuration',
-          'A browser or provider route is enabled without allowDelegatedFetching. Those routes resolve the target outside this process, so the public-only policy cannot be proven; enable the delegated opt-in deliberately.',
-        );
-      }
-    }
     const provider = routes.some(route => route.kind === 'provider') ? this.providerSetup() : undefined;
     const browserEndpoint = routes.some(route => route.kind === 'browser') ? this.browserEndpoint() : undefined;
 

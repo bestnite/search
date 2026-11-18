@@ -9,4 +9,4 @@ await build({ entryPoints: ['src/index.ts'], outfile: 'dist/index.js', bundle: t
  // bundle keeps bundling its browser-safe /static entry, which has no Node imports.
   external: ['@deepseek-ai/*', 'react', 'react-dom', 'zod', '@nite07/search-core'], sourcemap: true, define: { __PACKAGE_VERSION__: JSON.stringify(version) } });
 const client = await build({ entryPoints: ['src/client.tsx'], bundle: true, platform: 'browser', format: 'iife', globalName: 'NiteSearchClient', target: 'es2022', loader: { '.css': 'text' }, write: false });
-await writeFile('dist/client.js', `window.__ModuleLoader__.load({id:'@nite07/dsh-search',factory(require){\n${client.outputFiles[0].text}\nreturn NiteSearchClient.createClient(require('react'));\n}});\n`);
+await writeFile('dist/client.js', `window.__ModuleLoader__.load({id:'@nite07/dsh-search',factory(require){\n${client.outputFiles[0].text}\nreturn NiteSearchClient.createClient(require('react'), require('react-dom'));\n}});\n`);

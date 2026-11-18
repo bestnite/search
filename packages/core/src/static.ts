@@ -6,6 +6,7 @@
 export { catalog } from './catalog.js';
 export { backendCredentialRef, browserCredentialRef, defaultConfig, defaultFetchBackendConfig, defaultFetchRoutes, defaultPageFetchConfig, parseConfig, validateConfig } from './config.js';
 export { parseBrowserEndpoint } from './browser-endpoint.js';
+export { sameConfig } from './canonical.js';
 export { fetchReadiness, fetchProblemText, fetchReadinessProviders } from './fetch/readiness.js';
 export { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
 export { LANGUAGES, REGIONS } from './locale-map.js';

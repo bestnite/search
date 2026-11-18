@@ -123,10 +123,10 @@ export interface PageFetchConfig {
   /** Default public-only. Explicitly opting in exposes the local network to fetched targets. */
   allowPrivateNetworks: boolean;
   /**
-   * A remote browser or provider resolves the target URL outside this process, so local
-   * address checks cannot prove its destination policy. Delegated routes need this explicit opt-in.
+   * A browser or provider route resolves the target URL outside this process, so the local address
+   * checks cannot prove its destination policy. Enabling such a route is that decision; there is no
+   * separate switch, and every delegated result carries the trust note.
    */
-  allowDelegatedFetching: boolean;
   browser: {
     context: FetchBrowserContextMode;
     settleMs: number;
