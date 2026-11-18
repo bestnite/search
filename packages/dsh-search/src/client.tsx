@@ -181,8 +181,11 @@ export function createClient(React: any, ReactDOM?: any) {
             if (fetchMode) {
               const definition = definitions.find(def => def.id === fetchMode[1]);
               const current = get(next, `backends.${fetchMode[1]}.fetch.endpoint`);
-              const declared = definition?.modes.map(mode => mode.fetchEndpoint).filter((item): item is string => !!item) ?? [];
-              const endpoint = definition?.modes.find(mode => mode.mode === value)?.fetchEndpoint;
+              // A fetch mode declares its endpoint on its search record when it has one, and on the
+              // fetch operation itself when it is a fetch-only mode (a keyless fetch path beside a
+              // keyed search, for example).
+              const declared = [...(definition?.modes.map(mode => mode.fetchEndpoint) ?? []), ...Object.values(definition?.fetch?.endpoints ?? {})].filter((item): item is string => !!item);
+              const endpoint = definition?.modes.find(mode => mode.mode === value)?.fetchEndpoint ?? definition?.fetch?.endpoints?.[value as AccessMode];
               if (endpoint && (!current || declared.includes(String(current)))) next = set(next, `backends.${fetchMode[1]}.fetch.endpoint`, endpoint);
             }
             return next;
@@ -336,6 +339,12 @@ export function createClient(React: any, ReactDOM?: any) {
           const definition = definitions.find(item => item.id === selectedFetchProvider.id);
           return definition ? evidenceLabel(definition, draft.backends[selectedFetchProvider.id]?.fetch.mode || '') : '';
         })();
+        // What the selected mode costs, from the mode's own metadata: cost is shown before anything
+        // is enabled, not discovered on a bill.
+        const selectedFetchMode = selectedFetchProvider ? draft.backends[selectedFetchProvider.id]?.fetch.mode || '' : '';
+        const selectedFetchCost = selectedFetchProvider
+          ? definitions.find(item => item.id === selectedFetchProvider.id)?.fetch?.modeConstraints?.[selectedFetchMode as AccessMode]
+          : undefined;
         const browserRouteIndex = draft.pageFetch.routes.findIndex((route: FetchRouteConfig) => route.kind === 'browser');
         const browserRoute = browserRouteIndex >= 0 ? draft.pageFetch.routes[browserRouteIndex]! : undefined;
         const browserSearchDependents = definitions.filter(def => draft.backends[def.id]?.enabled && draft.backends[def.id]?.mode === 'browser');
@@ -692,6 +701,13 @@ export function createClient(React: any, ReactDOM?: any) {
             <section className="ns-card" aria-labelledby="sec-fetch-ready"><h3 id="sec-fetch-ready">{t('fetchReadyTitle')}</h3>
               {fetchReady ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{fetchProblems.map(problem => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}</li>)}</ul>}
               <p className="ns-muted">{t('fetchReadyHelp')}</p>
+              {/* Readiness is read before a test is run, so the selected provider's own warning and
+                  the cost of its mode belong here rather than only inside the collapsed card. */}
+              {selectedFetchProvider && <div className="ns-fetch-selected">
+                <p className="ns-muted">{tr('fetchReadinessProvider', { provider: selectedFetchProvider.title, mode: selectedFetchMode || t('notSpecified') })}</p>
+                {selectedFetchProvider.notes && <p className="ns-muted">{selectedFetchProvider.notes[lang]}</p>}
+                {selectedFetchCost && <p className="ns-muted">{t('fetchModeCosts')}: {selectedFetchCost.limits[lang]}{selectedFetchCost.pricingUrl ? <> · <a href={selectedFetchCost.pricingUrl} target="_blank" rel="noreferrer">{t('source')}</a></> : null}</p>}
+              </div>}
             </section>
             <section className="ns-card" aria-labelledby="sec-fetch-routes"><h3 id="sec-fetch-routes">{t('fetchRoutesTitle')}</h3><p className="ns-muted">{t('fetchRoutesHelp')}</p><div id={fetchRoutesPath}>{fetchRouteRows()}</div></section>
             <section className="ns-card" aria-labelledby="sec-fetch-provider"><h3 id="sec-fetch-provider">{t('fetchProviderTitle')}</h3><p className="ns-muted">{t('fetchProviderHelp')}</p>
@@ -742,6 +758,15 @@ export function createClient(React: any, ReactDOM?: any) {
                       return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={evidenceLabel(def, mode)}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
                     })}</p>
                     {modeEvidence?.evidence === 'documented' && <p className="ns-warning">{t('fetchModeDocumentedOnly')}{modeEvidence.source && <> <a href={modeEvidence.source} target="_blank" rel="noreferrer">{t('docs')}</a></>}</p>}
+                    {/* Cost and quota per mode, so the price of a mode is visible before it is chosen. */}
+                    {def.fetch?.modeConstraints && <div className="ns-fetch-costs">
+                      <p className="ns-muted">{t('fetchModeCostsHelp')}</p>
+                      <ul>{provider.modes.map(mode => {
+                        const costs = def.fetch!.modeConstraints?.[mode as AccessMode];
+                        if (!costs) return null;
+                        return <li key={mode} className={mode === modeLabel ? 'is-on' : ''}><strong>{t(`choice.${mode}`)}</strong> · {costs.limits[lang]}{costs.pricingUrl ? <> · <a href={costs.pricingUrl} target="_blank" rel="noreferrer">{t('source')}</a></> : null}</li>;
+                      })}</ul>
+                    </div>}
                     {provider.notes && <p className="ns-muted">{provider.notes[lang]}</p>}
                     <p className={provider.credentialRequired && !provider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{provider.credentialRequired ? t(provider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
                     {!provider.serves.includes('html') && <p className="ns-muted">{t('fetchProviderMarkdownOnly')}</p>}

@@ -146,9 +146,14 @@ console.log(page.stopReason, page.attempts);
 解析目标地址，本地地址策略无法证明其实际去向：启用这条路由本身就是这个决定，不再有第二个需要跟着同步的
 开关，这类路由的每条结果都会写明这个信任边界。本机与私有目标仍然在任何路由执行前被拒绝。
 
-抓取适配器是 catalog 元数据而不是用户开关：本版本提供 Exa（`web_fetch_exa`）与 Parallel
-（`web_fetch`），两者都返回原生 Markdown。向只支持 Markdown 的服务商请求 HTML 会在不发送请求的情况下
-跳过，并继续下一条启用的路由。证据见
+抓取适配器是 catalog 元数据而不是用户开关。本版本有 11 家服务商提供抓取操作：Exa 与 Parallel
+（无 Key 的 MCP 模式加有 Key 的 REST 模式）、DeepSeek、Serpex、Linkup、Tavily（无 Key 请求头加有 Key 的
+REST）、You.com、Keenable（公开 GET 路径加有 Key 的 GET）、AnySearch、豆包，以及自建的 open-websearch。
+传输方式按接入模式声明，所以服务商路由仍然只有一条：`mcp` 调用文档中的工具，`rest` 发送文档中的 HTTP
+操作——带 JSON 请求体的 POST，或服务商文档规定的 GET 查询形式。`serves` 只写该操作真正返回的内容：
+Serpex、Linkup、You.com 能返回页面自身的 HTML，其余只返回 Markdown 或纯文本，请求 HTML 时会在不发送请求
+的情况下跳过，并继续下一条启用的路由。只有本部署实测过的模式标记为实测；所有有 Key 模式都只有文档核实并
+各自标明出处（没有付费调用）。费用与额度按抓取模式声明，设置页在启用前就能看到该模式的花费。证据见
 [docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md)。
 
 ## 字段映射

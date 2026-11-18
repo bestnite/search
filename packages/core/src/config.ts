@@ -72,7 +72,11 @@ export function defaultPageFetchConfig(): PageFetchConfig {
  */
 export function defaultFetchBackendConfig(definition: BackendDefinition): FetchBackendConfig {
   const mode = definition.fetch?.modes[0] ?? definition.modes[0]!.mode;
-  const endpoint = definition.fetch ? (definition.modes.find(item => item.mode === mode)?.fetchEndpoint ?? '') : '';
+  // The mode's declared fetch endpoint, whether that mode also exists as a search mode or only as a
+  // fetch mode. A provider with no fetch operation keeps an empty endpoint.
+  const endpoint = definition.fetch
+    ? (definition.modes.find(item => item.mode === mode)?.fetchEndpoint ?? definition.fetch.endpoints?.[mode] ?? '')
+    : '';
   return {
     mode,
     endpoint,
@@ -274,7 +278,9 @@ function validatePageFetch(c: SearchConfig, fail: IssueSink): void {
     if (!operation.modes.includes(saved.fetch.mode)) {
       fail(`backends.${providerDefinition.id}.fetch.mode`, `This provider does not fetch in ${saved.fetch.mode} mode.`, 'backend.fetch.mode.unsupported', { provider: providerDefinition.id, mode: saved.fetch.mode, allowed: operation.modes.join(', ') });
     }
-    const endpoint = saved.fetch.endpoint || providerDefinition.modes.find(mode => mode.mode === saved.fetch.mode)?.fetchEndpoint;
+    const endpoint = saved.fetch.endpoint
+      || providerDefinition.modes.find(mode => mode.mode === saved.fetch.mode)?.fetchEndpoint
+      || operation.endpoints?.[saved.fetch.mode];
     if (!endpoint) fail(`backends.${providerDefinition.id}.fetch.endpoint`, 'A fetch endpoint is required for the selected provider.', 'backend.fetch.endpoint.required', { provider: providerDefinition.id });
   } else if (selected && providerDefinition?.fetch) {
     // Selecting a provider without the route enabled is allowed, but a broken fetch mode is still a
@@ -331,6 +337,22 @@ export function parseConfig(value:unknown):SearchConfig{
     // Fetch fields arrived after search fields: a configuration saved by an older release gets the
     // page-fetch block and the per-provider fetch settings added, and nothing else is touched.
     fillMissing(raw, defaults);
+    // A provider that had no fetch operation in an older release kept an inert fetch record: the
+    // provider's first search mode, no endpoint, no options. When such a provider becomes
+    // fetch-capable without declaring that search mode (You.com fetches with a key but searches
+    // keylessly), the inert record is replaced by the operation's own default. That record was never
+    // a fetch configuration, so no user choice is overwritten; a record that was actually configured
+    // — a custom endpoint or any option — is left exactly as saved for validation to report.
+    for (const definition of catalog) {
+      const operation = definition.fetch;
+      const row = raw.backends?.[definition.id]?.fetch;
+      if (!operation || !row || typeof row !== 'object' || operation.modes.includes(row.mode)) continue;
+      const inert = row.mode === definition.modes[0]?.mode && row.endpoint === '' && Object.keys(row.options ?? {}).length === 0;
+      if (!inert) continue;
+      const fallback = defaults.backends[definition.id]!.fetch;
+      row.mode = fallback.mode;
+      row.endpoint = fallback.endpoint;
+    }
     value=raw;
   }
   const issues=validateConfig(value);

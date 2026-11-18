@@ -91,14 +91,43 @@ test('the settings snapshot carries fetch providers and readiness without spendi
   const config = defaultConfig();
   await apply(h.ctx, config);
   const snapshot: any = await h.tool('search_manage').execute({ action: 'settings' }, { signal: signal() });
-  assert.deepEqual(snapshot.fetch.providers.map((provider: any) => provider.id).sort(), ['exa', 'parallel'], 'only providers with a declared fetch operation are offered');
-  const endpoints: Record<string, string> = { exa: 'https://mcp.exa.ai/mcp', parallel: 'https://mcp.parallel.ai/mcp' };
+  assert.deepEqual(
+    snapshot.fetch.providers.map((provider: any) => provider.id).sort(),
+    ['anysearch', 'deepseek', 'doubao', 'exa', 'keenable', 'linkup', 'open-websearch', 'parallel', 'serpex', 'tavily', 'you'],
+    'only providers with a declared fetch operation are offered',
+  );
+  const endpoints: Record<string, string> = {
+    exa: 'https://mcp.exa.ai/mcp',
+    parallel: 'https://mcp.parallel.ai/mcp',
+    tavily: 'https://api.tavily.com/extract',
+    keenable: 'https://api.keenable.ai/v1/fetch/public',
+    anysearch: 'https://api.anysearch.com/v1/extract',
+    'open-websearch': 'http://127.0.0.1:3210/fetch-web',
+    deepseek: 'https://api.deepseek.com/v1/tools/fetch',
+    serpex: 'https://api.serpex.dev/api/crawl',
+    linkup: 'https://api.linkup.so/v1/fetch',
+    you: 'https://ydc-index.io/v1/extract',
+    doubao: 'https://open.feedcoopapi.com/search_api/fetch',
+  };
   for (const provider of snapshot.fetch.providers) {
-    assert.deepEqual(provider.serves, ['markdown'], 'both providers return native Markdown only');
-    assert.deepEqual(provider.modes, ['anonymous', 'key'], 'each provider offers a keyless and a documented keyed mode');
-    assert.equal(provider.credentialRequired, false, 'the default mode is the keyless one');
-    assert.equal(provider.endpoint, endpoints[provider.id], 'the default endpoint is the keyless MCP one');
+    assert.ok(provider.serves.length > 0, `${provider.id}: the offered formats are stated`);
+    assert.ok(provider.modes.length > 0, `${provider.id}: the access modes are stated`);
+    // The default mode is the first declared one; a keyless default must not ask for a credential.
+    assert.equal(provider.credentialRequired, provider.modes[0] !== 'anonymous', `${provider.id}: credential need follows the default mode`);
+    assert.equal(provider.endpoint, endpoints[provider.id], `${provider.id}: the default endpoint is the declared one`);
     assert.match(provider.verifiedAt, /^\d{4}-\d{2}-\d{2}$/);
+  }
+  const fetchProvider = (id: string) => snapshot.fetch.providers.find((provider: any) => provider.id === id)!;
+  assert.deepEqual(fetchProvider('exa').serves, ['markdown'], 'Exa returns native Markdown only');
+  assert.deepEqual(fetchProvider('tavily').modes, ['anonymous', 'key'], 'Tavily fetches keylessly and with a key');
+  assert.deepEqual(fetchProvider('you').modes, ['key'], 'You.com fetch is keyed only');
+  assert.deepEqual(fetchProvider('open-websearch').modes, ['anonymous'], 'the self-hosted daemon takes no credential');
+  assert.deepEqual(fetchProvider('open-websearch').serves, ['markdown']);
+  for (const id of ['serpex', 'linkup', 'you']) {
+    assert.deepEqual(fetchProvider(id).serves, ['markdown', 'html'], `${id}: page HTML is declared where the contract returns it`);
+  }
+  for (const id of ['deepseek', 'keenable', 'anysearch', 'doubao']) {
+    assert.deepEqual(fetchProvider(id).serves, ['markdown'], `${id}: Markdown or plain text only, never page HTML`);
   }
   assert.equal(snapshot.fetch.providerId, '');
   assert.deepEqual(snapshot.fetch.problems, [], 'the default chain (HTTP only) is ready');
@@ -191,6 +220,7 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'fetchProviderTitle', 'fetchProviderHelp', 'fetchProviderSelect', 'fetchProviderNone', 'fetchProviderServes',
     'fetchProviderMarkdownOnly', 'fetchMode', 'fetchModeHelp', 'fetchEndpoint', 'fetchEndpointHelp', 'fetchProviderTimeoutHelp',
     'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchEvidenceBadge', 'fetchModeDocumentedOnly', 'fetchCredentialShared', 'openCredential',
+    'fetchModeCosts', 'fetchModeCostsHelp', 'fetchReadinessProvider',
     'fetchLimitsTitle', 'fetchTestTitle', 'fetchTestHelp', 'fetchTestUrl', 'fetchTestFormat', 'fetchTestResult',
     'fetchFormat.markdown', 'fetchFormat.html', 'fetchConditionType', 'fetchConditionStatuses', 'fetchConditionField',
     'fetchConditionOperator', 'fetchConditionValue', 'fetchConditionCase', 'credentialNotRequired',
@@ -210,6 +240,37 @@ test('every fetch label the page uses exists in both locales, and the readiness 
       assert.ok(String(table[key]).trim() !== '', `${lang} supplies a non-empty ${key}`);
     }
   }
+});
+
+test('each fetch mode states its cost before it is enabled, and the readiness card repeats the selected provider warning', async () => {
+  const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
+  assert.match(client, /def\.fetch\?\.modeConstraints/, 'the card reads the per-mode cost metadata');
+  assert.match(client, /t\('fetchModeCostsHelp'\)/, 'the cost block explains itself');
+  assert.match(client, /\{t\('fetchModeCosts'\)\}/, 'the selected mode cost is labelled on the readiness card');
+  assert.match(client, /tr\('fetchReadinessProvider'/, 'readiness names the selected provider and mode');
+  assert.match(client, /selectedFetchProvider\.notes && <p className="ns-muted">\{selectedFetchProvider\.notes\[lang\]\}/, 'the selected provider note is visible before a test');
+  const en = JSON.parse(await readFile(new URL('../locale/en.json', import.meta.url), 'utf8'));
+  const zh = JSON.parse(await readFile(new URL('../locale/zh.json', import.meta.url), 'utf8'));
+  for (const [lang, table] of [['en', en], ['zh', zh]] as const) {
+    for (const key of ['fetchModeCosts', 'fetchModeCostsHelp', 'fetchReadinessProvider']) {
+      assert.equal(typeof table[key], 'string', `${lang} supplies ${key}`);
+      assert.ok(String(table[key]).trim() !== '', `${lang} supplies a non-empty ${key}`);
+    }
+  }
+  assert.match(en.fetchModeCostsHelp, /before the mode is enabled/i);
+  assert.match(zh.fetchModeCostsHelp, /启用之前/);
+});
+
+test('the snapshot carries the doubao key-type caveat where the provider is listed', async () => {
+  const h = harness();
+  await apply(h.ctx, defaultConfig());
+  const snapshot: any = await h.tool('search_manage').execute({ action: 'settings' }, { signal: signal() });
+  const doubao = snapshot.fetch.providers.find((provider: any) => provider.id === 'doubao');
+  assert.ok(doubao, 'doubao is offered as a fetch provider');
+  assert.match(doubao.notes.en, /pay-as-you-go/i, 'the English note says which key type fetches');
+  assert.match(doubao.notes.en, /subscription/i);
+  assert.match(doubao.notes.zh, /按量后付费/);
+  assert.match(doubao.notes.zh, /订阅套餐/);
 });
 
 test('the fetch provider card is never opened by selection, and shows the selection through its badge', async () => {

@@ -65,13 +65,15 @@ export function fetchProblemText(problem: FetchReadinessProblem): string {
 }
 
 /** Build the provider rows a readiness check needs from a catalog-backed configuration. */
-export function fetchReadinessProviders(config: SearchConfig, catalog: ReadonlyArray<{ id: string; title: string; fetch?: { serves: string[]; modes: string[]; docs: string; verifiedAt: string }; modes: Array<{ mode: string; fetchEndpoint?: string }> }>, isConfigured: (id: string) => boolean): FetchReadinessProvider[] {
+export function fetchReadinessProviders(config: SearchConfig, catalog: ReadonlyArray<{ id: string; title: string; fetch?: { serves: string[]; modes: string[]; docs: string; verifiedAt: string; endpoints?: Partial<Record<string, string>> }; modes: Array<{ mode: string; fetchEndpoint?: string }> }>, isConfigured: (id: string) => boolean): FetchReadinessProvider[] {
   const providers: FetchReadinessProvider[] = [];
   for (const definition of catalog) {
     if (!definition.fetch) continue;
     const row = config.backends[definition.id]?.fetch;
     if (!row) continue;
-    const endpoint = row.endpoint || definition.modes.find(mode => mode.mode === row.mode)?.fetchEndpoint || '';
+    // Same resolution the engine uses: the saved endpoint, then the mode's declared one — including a
+    // fetch mode the provider has no search record for.
+    const endpoint = row.endpoint || definition.modes.find(mode => mode.mode === row.mode)?.fetchEndpoint || definition.fetch.endpoints?.[row.mode] || '';
     const credentialRequired = row.mode !== 'anonymous';
     providers.push({
       id: definition.id,

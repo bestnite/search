@@ -191,16 +191,18 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   (↑/↓ buttons, keyboard reachable) and fallback rules. Rules are OR, conditions inside one rule are
   AND, and a condition is true/false/unavailable; a missing field is never an empty string. Presets
   add an ordinary editable status rule or a heuristic challenge-page rule.
-- **Provider** — the fetch-capable providers only (Exa and Parallel in this release), each with the
-  formats it can return, its own fetch access mode, transport, endpoint, timeout and options. Every
-  provider card stays collapsed and only a click opens it; selecting a provider in the select never
-  unfolds a card, the badge says which one is selected. Both providers offer a keyless MCP mode and a
-  keyed REST mode: the keyless modes were observed live, the keyed modes are documented-only (no paid
-  call was made) and the card labels them that way. A keyed fetch uses the provider's one stored
-  search key; with no stored key it sends nothing and reports an authentication attempt, which a
-  fallback rule can match so the next enabled route still serves the page.
-  Both return native Markdown; asking for HTML skips that route without a request and the next
-  enabled route serves the page instead.
+- **Provider** — the fetch-capable providers only (eleven in this release: Exa, Parallel, DeepSeek,
+  Serpex, Linkup, Tavily, You.com, Keenable, AnySearch, Doubao and the self-hosted open-websearch),
+  each with the formats it can return, its own fetch access mode, transport, endpoint, timeout,
+  options and the cost and quota of every mode it offers. Every provider card stays collapsed and
+  only a click opens it; selecting a provider in the select never unfolds a card, the badge says
+  which one is selected. Four providers also fetch keylessly — Exa and Parallel over MCP, Tavily over
+  its keyless header, Keenable and AnySearch over their anonymous paths — and only those modes were
+  observed live; every keyed mode is documented-only (no paid call was made) and the card labels it
+  that way. A keyed fetch uses the provider's one stored search key; with no stored key it sends
+  nothing and reports an authentication attempt, which a fallback rule can match so the next enabled
+  route still serves the page. Serpex, Linkup and You.com can return the page's own HTML; the rest
+  return Markdown or plain text, so asking them for HTML skips that route without a request.
 - **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
   width and the public-only/private-network policy. A browser or provider route resolves the target
   itself, so switching that route on is the delegated-fetching decision; there is no separate switch,

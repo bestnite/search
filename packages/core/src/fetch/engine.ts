@@ -1,6 +1,6 @@
 import { backendById } from '../catalog.js';
 import { backendCredentialRef, browserCredentialRef } from '../config.js';
-import type { SearchConfig } from '../types.js';
+import type { AccessMode, SearchConfig } from '../types.js';
 import { htmlToMarkdown } from './html.js';
 import { fetchOverHttp, type HttpTransportFactory } from './http.js';
 import { fetchWithBrowser, type BrowserFetcher } from './browser-route.js';
@@ -62,7 +62,7 @@ interface ProviderSetup {
   tool: string;
   transport: FetchTransport;
   endpoint: string;
-  mode: string;
+  mode: AccessMode;
   options: Record<string, string | number | boolean>;
   timeoutMs: number;
 }
@@ -188,7 +188,7 @@ export class PageFetchEngine {
           durationMs: 0,
           outcome: 'unsupported-format',
           rules: [],
-          unavailable: [`markdown: ${provider.id} returns native Markdown only and cannot produce page HTML`],
+          unavailable: [`markdown: ${provider.id} cannot produce page HTML; it returns Markdown or plain text`],
         });
         notes.push(`The selected provider cannot produce ${format}; its request was skipped without being sent.`);
         continue;
@@ -351,7 +351,13 @@ export class PageFetchEngine {
     if (!operation.modes.includes(fetchConfig.mode)) {
       throw new PageFetchError('configuration', `"${id}" does not support the ${fetchConfig.mode} access mode for fetching.`);
     }
-    const endpoint = fetchConfig.endpoint || definition.modes.find(mode => mode.mode === fetchConfig.mode)?.fetchEndpoint || '';
+    // The saved endpoint wins; otherwise the mode's own declared fetch endpoint. A fetch mode the
+    // provider has no search record for (a keyless fetch path beside a keyed search, for example) is
+    // declared by the operation itself, so that declaration is the endpoint rather than an empty one.
+    const endpoint = fetchConfig.endpoint
+      || definition.modes.find(mode => mode.mode === fetchConfig.mode)?.fetchEndpoint
+      || operation.endpoints?.[fetchConfig.mode]
+      || '';
     if (!endpoint) throw new PageFetchError('configuration', `"${id}" has no fetch endpoint configured.`);
     if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
       throw new PageFetchError('configuration', `The fetch endpoint for "${id}" must be an HTTP(S) endpoint.`);
@@ -360,7 +366,8 @@ export class PageFetchEngine {
     // the behaviour it had before a REST mode existed.
     return {
       id,
-      tool: operation.tool,
+      // A REST-only fetch operation has no MCP tool; the empty string says so instead of inventing one.
+      tool: operation.tool ?? '',
       transport: operation.transport?.[fetchConfig.mode] ?? 'mcp',
       endpoint,
       mode: fetchConfig.mode,
@@ -440,6 +447,8 @@ export class PageFetchEngine {
       transport: provider.transport,
       endpoint: provider.endpoint,
       tool: provider.tool,
+      // The saved mode decides whether a credential is required at all.
+      mode: provider.mode,
       options: provider.options,
       routeTimeoutMs: Math.min(route.timeoutMs, provider.timeoutMs),
       signal: routeSignal,

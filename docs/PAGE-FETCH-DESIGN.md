@@ -10,6 +10,18 @@ The user subsequently authorized merging the repaired, reviewed core and DSH cha
 
 Deferred request: improve the MCP settings frontend's excessive page length and grouping/navigation with a Gemini frontend subagent. This is recorded only: do not start that delegation or UI redesign yet. The user described the currently used page as long and lacking tab grouping; do not assume uninstalled worktree changes have addressed the live-page complaint. Revisit after the DSH test gate and an explicit request to proceed.
 
+### Provider scope update (2026-11-18, batch 2)
+
+The parent agent extended the provider set beyond §2's initial limit of two (optionally three)
+providers. Nine further providers were added under the same research gate: an official contract for
+the endpoint, method, auth header, request and response fields; live anonymous observation wherever a
+keyless mode exists; `documented` evidence with its own source and date for every keyed mode; and, per
+mode, a declared transport, endpoint and cost. The eleven fetch-capable providers, what was actually
+called and what remains unverified are recorded in [PAGE-FETCH-PROVIDERS.md](PAGE-FETCH-PROVIDERS.md).
+The §2 sentence "target two verified providers … Do not broaden beyond three" is **superseded** by
+that record; nothing else in this specification changes — still one URL per call, one provider per
+route, no crawl, no paid call, no MCP host edit.
+
 ## 1. Objective and ownership
 
 Add bounded, single-URL page fetching to `@nite07/search-core`, with shared integration in the DSH plugin and standalone MCP server. The parent agent owns this specification and integration review. A DeepSeek implementation agent owns implementation, tests, migration, and supporting documentation. No DSH core modifications, profile installation, service restart, publication, push, or merge are authorized.
@@ -27,7 +39,7 @@ Deliver:
 - Shared provider catalog/configuration/credential references, with operation-specific settings.
 - Separate Search and Fetch settings tabs in DSH and the MCP resident settings UI.
 - An agent-facing tool in both hosts using the same core implementation.
-- A small initial set of provider adapters: target two verified providers; a third is optional only if necessary to cover a materially different format capability. Do not broaden beyond three.
+- A small initial set of provider adapters: target two verified providers; a third is optional only if necessary to cover a materially different format capability. Do not broaden beyond three. *(Superseded 2026-11-18 by the batch-2 provider scope update above: the parent agent requested nine more providers; the count, evidence and unverified list live in [PAGE-FETCH-PROVIDERS.md](PAGE-FETCH-PROVIDERS.md).)*
 - Backward-compatible loading of current saved configurations and regression tests.
 
 Non-goals: recursive crawling, bulk URL fetching, parallel route/provider execution, article-only extraction, resource archives, arbitrary scripts or headers supplied by the agent, autonomous CAPTCHA solving, changing installed DSH artifacts, or redesigning unrelated settings.

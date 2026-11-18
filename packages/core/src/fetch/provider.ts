@@ -2,11 +2,12 @@ import { callMcp } from '../mcp.js';
 import { utf8ByteLength } from './bytes.js';
 import type { TransportOptions } from '../transport.js';
 import { SearchError } from '../transport.js';
+import type { AccessMode } from '../types.js';
 import type { FetchFormat, FetchTransport } from './types.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { DEFAULT_MAX_OUTPUT_CHARS } from './limits.js';
 import { delegatedNote } from './notes.js';
-import { postProviderJson } from './rest.js';
+import { getProviderJson, postProviderJson } from './rest.js';
 
 /** Byte allowance for the JSON-RPC envelope around a page representation. */
 export const PROVIDER_PROTOCOL_OVERHEAD_BYTES = 64 * 1024;
@@ -35,6 +36,12 @@ export interface ProviderRouteRequest {
   options: Record<string, string | number | boolean>;
   routeTimeoutMs: number;
   signal: AbortSignal;
+  /**
+   * The saved access mode. It decides whether a credential is required at all: an `anonymous` mode
+   * sends none and is never refused for lacking one. Absent means the conservative reading, a mode
+   * that needs the key.
+   */
+  mode?: AccessMode;
   /** Key for modes that use one; the anonymous endpoints take none and are refused one anyway. */
   credential?: string;
   /** Acquisition bound in UTF-8 bytes for the returned representation; exceeding it is fatal. */
@@ -152,8 +159,17 @@ interface McpAdapterShape {
 
 /** An adapter that speaks the provider's documented REST operation. */
 interface RestAdapterShape {
-  /** Headers and JSON body for one target URL. The credential is read from the request, never logged. */
-  request: (request: ProviderRouteRequest) => { headers: Record<string, string>; body: Record<string, unknown> };
+  /** The documented HTTP method; POST with a JSON body unless a provider documents a GET query. */
+  method?: 'post' | 'get';
+  /**
+   * Headers and the documented parameters for one target URL: a JSON body for `post`, query
+   * parameters for `get`. The credential is read from the request, never logged.
+   */
+  request: (request: ProviderRouteRequest) => {
+    headers: Record<string, string>;
+    body?: Record<string, unknown>;
+    query?: Record<string, string | number | boolean | undefined>;
+  };
   interpret: (payload: Record<string, unknown>, request: ProviderRouteRequest, apiStatus: number | undefined, notes: string[]) => RouteResult;
 }
 
@@ -169,6 +185,15 @@ const records = (value: unknown): Array<Record<string, unknown>> =>
 /** A provider tag such as CRAWL_NOT_FOUND is safe to name; the provider's body is not echoed. */
 const providerTag = (value: unknown): string | undefined =>
   typeof value === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(value) && /[A-Za-z]/.test(value) ? value : undefined;
+
+/**
+ * A stable provider error code: an alphanumeric tag such as `robots_disallowed`, or a short numeric
+ * code such as `10409`. Anything longer or odd-shaped is dropped rather than echoed.
+ */
+const errorCode = (tag: unknown, numeric?: unknown): string | undefined =>
+  providerTag(tag)
+  ?? (typeof numeric === 'number' && Number.isInteger(numeric) ? String(numeric) : undefined)
+  ?? (typeof tag === 'string' && /^\d{1,8}$/.test(tag) ? tag : undefined);
 
 /** A target HTTP status reported by a provider, or undefined when it reported none. */
 const targetStatus = (value: unknown): number | undefined =>
@@ -227,6 +252,50 @@ const interpretParallelDocument = (
   const finalUrl = typeof page.url === 'string' && page.url !== '' ? page.url : request.url;
   return routeOk({ representation: 'provider-markdown', markdown, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
 };
+
+/** A string field of a provider document, or the empty string when it is absent or not a string. */
+const stringField = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** A trimmed, non-empty title. An empty title is unavailable, never an empty string. */
+const titleValue = (value: unknown): string | undefined => {
+  const title = stringField(value).trim();
+  return title === '' ? undefined : title;
+};
+
+/** The final URL a provider reported, or the requested one when it reported none. */
+const finalUrlValue = (value: unknown, request: ProviderRouteRequest): string => {
+  const url = stringField(value);
+  return url === '' ? request.url : url;
+};
+
+/** A bearer header for the modes whose contract documents one. */
+const bearerHeader = (request: ProviderRouteRequest): Record<string, string> => ({ authorization: `Bearer ${request.credential ?? ''}` });
+
+/** The documented JSON body of one target URL, for providers whose request carries only that. */
+const urlBody = (request: ProviderRouteRequest): Record<string, unknown> => ({ url: request.url });
+
+/** A page the provider returned with no usable representation of the requested kind. */
+const noContent = (notes: string[], apiStatus: number | undefined, message: string): RouteResult =>
+  routeFailure('unsupported-content', { kind: 'unsupported-content', message }, { apiStatus, notes });
+
+/** A target status the provider reported is the target's failure when it is 400 or above. */
+const reportedTargetFailure = (
+  target: number,
+  apiStatus: number | undefined,
+  notes: string[],
+): RouteResult =>
+  routeFailure(
+    target >= 400 ? 'http-error' : 'provider-error',
+    {
+      kind: target >= 400 ? 'http' : 'provider',
+      message: target >= 400
+        ? `The target answered HTTP ${target} according to the provider.`
+        : `The provider could not fetch this URL; the target answered ${target} according to the provider.`,
+      ...(target >= 400 ? { status: target } : {}),
+    },
+    // The target status itself is always the one the provider reported, never a guess.
+    { statusCode: target, apiStatus, notes },
+  );
 
 const adapters: Record<string, ProviderAdapters> = {
   // Exa fetches in two documented ways. The keyless MCP tool returns clean Markdown per URL and no
@@ -331,6 +400,269 @@ const adapters: Record<string, ProviderAdapters> = {
       interpret: (payload, request, apiStatus, notes) => interpretParallelDocument(payload, request, apiStatus, notes),
     },
   },
+  // DeepSeek documents one REST Fetch operation beside its Search operation: the request is the URL
+  // alone, the answer is `{title, content}` with Markdown content, and the API reports no target
+  // status. Its 404 means "Fetch could not retrieve usable page content", which is the API's own
+  // answer and is never written to the attempt as the target's status.
+  deepseek: {
+    rest: {
+      request: request => ({ headers: bearerHeader(request), body: urlBody(request) }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const markdown = stringField(payload.content);
+        if (!markdown) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        const title = titleValue(payload.title);
+        return routeOk({ representation: 'provider-markdown', markdown, finalUrl: request.url, apiStatus, ...(title ? { title } : {}), notes });
+      },
+    },
+  },
+  // Serpex documents one Crawl operation: URLs plus a format, and `results[].status_code` is the
+  // target's status while the API itself answered 200. `format: html` returns the full rendered HTML
+  // of the page, so this adapter can serve both formats without wrapping one as the other.
+  serpex: {
+    rest: {
+      request: request => ({
+        headers: bearerHeader(request),
+        body: { urls: [request.url], format: request.format === 'html' ? 'html' : 'markdown' },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const page = records(payload.results)[0];
+        if (!page) {
+          notes.push('The provider returned no result for this URL.');
+          return routeFailure('protocol', { kind: 'protocol', message: 'The provider returned no result for this URL.' }, { apiStatus, notes });
+        }
+        const target = targetStatus(page.status_code);
+        if (page.success !== true) {
+          const tag = providerTag(page.error_type);
+          notes.push(tag ? `The provider reported ${tag}.` : 'The provider could not fetch this URL.');
+          if (target !== undefined) return reportedTargetFailure(target, apiStatus, notes);
+          return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
+        }
+        const content = request.format === 'html' ? stringField(page.html) : stringField(page.markdown);
+        if (!content) return noContent(notes, apiStatus, `The provider returned no ${request.format === 'html' ? 'page HTML' : 'page content'} for this URL.`);
+        return routeOk({
+          representation: request.format === 'html' ? 'provider-html' : 'provider-markdown',
+          ...(request.format === 'html' ? { html: content } : { markdown: content }),
+          finalUrl: finalUrlValue(page.url, request),
+          ...(target === undefined ? {} : { statusCode: target }),
+          apiStatus,
+          notes,
+        });
+      },
+    },
+  },
+  // Linkup's Fetch operation always returns Markdown; page HTML only comes back as `rawContent` when
+  // the request asks for it, and `contentType` says what that content is. The adapter asks for it on
+  // an HTML request alone, and refuses to label a non-HTML body as the page's HTML.
+  linkup: {
+    rest: {
+      request: request => ({
+        headers: bearerHeader(request),
+        body: {
+          url: request.url,
+          mode: request.options.mode === 'pro' ? 'pro' : 'standard',
+          renderJs: request.options.renderJs === true,
+          ...(request.format === 'html' ? { includeRawContent: true } : {}),
+        },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const markdown = stringField(payload.markdown);
+        if (request.format === 'html') {
+          const raw = stringField(payload.rawContent);
+          const contentType = stringField(payload.contentType).toLowerCase();
+          if (!raw || !contentType.includes('html')) {
+            notes.push('The provider returned no page HTML for this URL.');
+            return noContent(notes, apiStatus, 'The provider returned no page HTML for this URL.');
+          }
+          return routeOk({ representation: 'provider-html', html: raw, finalUrl: request.url, apiStatus, notes });
+        }
+        if (!markdown) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        return routeOk({ representation: 'provider-markdown', markdown, finalUrl: request.url, apiStatus, notes });
+      },
+    },
+  },
+  // Tavily extracts with a key, and its documented keyless header selects the free anonymous path on
+  // the same endpoint. The two modes differ only in that header: the keyed mode sends the bearer key
+  // and no keyless marker, and the anonymous mode sends the marker and never a credential.
+  tavily: {
+    rest: {
+      request: request => ({
+        // The keyed mode sends the bearer key and no keyless marker; the anonymous mode sends the marker
+        // and never a credential. The endpoint is the same documented operation in both cases.
+        headers: (request.credential
+          ? { authorization: `Bearer ${request.credential}` }
+          : { 'x-tavily-access-mode': 'keyless' }) as Record<string, string>,
+        body: {
+          urls: [request.url],
+          format: request.options.format === 'text' ? 'text' : 'markdown',
+          extract_depth: request.options.extract_depth === 'advanced' ? 'advanced' : 'basic',
+        },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const page = records(payload.results)[0];
+        if (!page) {
+          if (records(payload.failed_results).length) notes.push('The provider reported that it could not process this URL.');
+          else notes.push('The provider returned no result for this URL.');
+          return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reports no target status.' }, { apiStatus, notes });
+        }
+        const content = stringField(page.raw_content);
+        if (!content) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        const title = titleValue(page.title);
+        // `format: text` is plain text, not Markdown; it is labelled what it is instead of being
+        // relabelled as native Markdown.
+        const asText = request.options.format === 'text';
+        return routeOk({
+          representation: asText ? 'response-text' : 'provider-markdown',
+          ...(asText ? { text: content } : { markdown: content }),
+          finalUrl: finalUrlValue(page.url, request),
+          apiStatus,
+          ...(title ? { title } : {}),
+          notes,
+        });
+      },
+    },
+  },
+  // You.com's Extract operation asks for exactly the formats the caller wants, and returns them under
+  // `contents.full_page`. The response carries a title and no target status.
+  you: {
+    rest: {
+      request: request => ({
+        headers: { 'x-api-key': request.credential ?? '' },
+        body: { url: request.url, full_page: { extraction_formats: [request.format === 'html' ? 'html' : 'markdown'] } },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const fullPage = record(record(payload.contents)?.full_page);
+        const title = titleValue(payload.title);
+        const finalUrl = finalUrlValue(payload.url, request);
+        if (request.format === 'html') {
+          const html = stringField(fullPage?.html);
+          if (!html) return noContent(notes, apiStatus, 'The provider returned no page HTML for this URL.');
+          return routeOk({ representation: 'provider-html', html, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
+        }
+        const markdown = stringField(fullPage?.markdown);
+        if (!markdown) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        return routeOk({ representation: 'provider-markdown', markdown, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
+      },
+    },
+  },
+  // Keenable's Fetch operation is documented as GET with query parameters, and its public path takes
+  // the same parameters without a key but with the application title header. It returns Markdown, a
+  // title, a truncation flag and no target status.
+  keenable: {
+    rest: {
+      method: 'get',
+      request: request => ({
+        headers: (request.mode === 'anonymous'
+          ? { 'X-Keenable-Title': String(request.options.clientTitle || 'dsh-search') }
+          : { 'X-API-Key': request.credential ?? '' }) as Record<string, string>,
+        query: {
+          url: request.url,
+          max_chars: numberOrDefault(request.options.max_chars, DEFAULT_MAX_OUTPUT_CHARS),
+          live: request.options.live === true,
+        },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const markdown = stringField(payload.content);
+        if (!markdown) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        if (payload.truncated === true) notes.push('The provider truncated the page at its own max_chars bound.');
+        const title = titleValue(payload.title);
+        return routeOk({ representation: 'provider-markdown', markdown, finalUrl: finalUrlValue(payload.url, request), apiStatus, ...(title ? { title } : {}), notes });
+      },
+    },
+  },
+  // AnySearch extracts cleaned text with no format choice, so it is labelled text and never presented
+  // as page HTML or as native Markdown. The response has a title and no target status.
+  anysearch: {
+    rest: {
+      request: request => ({ headers: request.credential ? bearerHeader(request) : {}, body: urlBody(request) }),
+      interpret: (payload, request, apiStatus, notes) => {
+        if (payload.code !== undefined && payload.code !== 0 && payload.code !== 200) {
+          notes.push('The provider reported an application-level error; check the account console.');
+          return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
+        }
+        const data = record(payload.data);
+        const content = stringField(data?.content);
+        if (!content) return noContent(notes, apiStatus, 'The provider returned no page content for this URL.');
+        const title = titleValue(data?.title);
+        return routeOk({ representation: 'response-text', text: content, finalUrl: finalUrlValue(data?.url, request), apiStatus, ...(title ? { title } : {}), notes });
+      },
+    },
+  },
+  // Doubao's Fetch operation returns plain text, a title and the target's own status in
+  // `Result.Data.StatusCode`, while `ResponseMetadata.Error` is the API's own failure. Both are read
+  // separately: an API error is never a target status, and an unreadable target status is never
+  // invented.
+  doubao: {
+    rest: {
+      request: request => ({ headers: bearerHeader(request), body: { Url: request.url } }),
+      interpret: (payload, request, apiStatus, notes) => {
+        const apiError = record(record(payload.ResponseMetadata)?.Error);
+        if (apiError) {
+          const code = errorCode(apiError.Code, apiError.CodeN);
+          notes.push(code ? `The provider reported ${code}.` : 'The provider reported an error for this fetch.');
+          return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
+        }
+        const data = record(record(payload.Result)?.Data);
+        if (!data) {
+          return routeFailure('protocol', { kind: 'protocol', message: 'The provider returned no result for this URL.' }, { apiStatus, notes });
+        }
+        const target = targetStatus(data.StatusCode);
+        const content = stringField(data.ContentText);
+        if (!content) {
+          if (target !== undefined && target >= 400) return reportedTargetFailure(target, apiStatus, notes);
+          notes.push('The provider returned no page text for this URL.');
+          return routeFailure(
+            'unsupported-content',
+            { kind: 'unsupported-content', message: 'The provider returned no page text for this URL.' },
+            { ...(target === undefined ? {} : { statusCode: target }), apiStatus, notes },
+          );
+        }
+        const title = titleValue(data.Title);
+        return routeOk({
+          representation: 'response-text',
+          text: content,
+          finalUrl: finalUrlValue(data.RedirectedUrl || data.Url, request),
+          ...(target === undefined ? {} : { statusCode: target }),
+          apiStatus,
+          ...(title ? { title } : {}),
+          notes,
+        });
+      },
+    },
+  },
+  // open-websearch is a self-hosted daemon: its fetch-web operation answers with the daemon's own
+  // envelope around the page payload, and the payload has no target status at all.
+  'open-websearch': {
+    rest: {
+      request: request => ({
+        headers: {},
+        body: {
+          url: request.url,
+          maxChars: numberOrDefault(request.options.maxChars, DEFAULT_MAX_OUTPUT_CHARS),
+          renderMode: request.options.renderMode === 'request' || request.options.renderMode === 'browser' ? request.options.renderMode : 'auto',
+        },
+      }),
+      interpret: (payload, request, apiStatus, notes) => {
+        if (payload.status !== 'ok') {
+          const code = providerTag(record(payload.error)?.code);
+          notes.push(code ? `The self-hosted daemon reported ${code}.` : 'The self-hosted daemon reported an error.');
+          return routeFailure('provider-error', { kind: 'provider', message: 'The self-hosted daemon could not fetch this URL; it reports no target status.' }, { apiStatus, notes });
+        }
+        const data = record(payload.data);
+        const content = stringField(data?.content);
+        if (!content) return noContent(notes, apiStatus, 'The self-hosted daemon returned no page content for this URL.');
+        if (data?.truncated === true) notes.push('The self-hosted daemon truncated the page at its own maxChars bound.');
+        const title = titleValue(data?.title);
+        return routeOk({
+          representation: 'response-text',
+          text: content,
+          finalUrl: finalUrlValue(data?.finalUrl ?? data?.url, request),
+          apiStatus,
+          ...(title ? { title } : {}),
+          notes,
+        });
+      },
+    },
+  },
 };
 
 /** Failures raised by the shared MCP client keep their kind; they are sanitized before they surface. */
@@ -379,8 +711,10 @@ export const fetchFromProvider: ProviderFetcher = async (request, call) => {
     }
     // A keyed mode is refused before the request is built: an unauthenticated call would spend a wire
     // round-trip to be told what the configuration already says. The outcome is a normal
-    // authentication failure, never a fatal error, so a caller's fallback rules still apply.
-    if (!request.credential) {
+    // authentication failure, never a fatal error, so a caller's fallback rules still apply. An
+    // anonymous mode is the opposite case: it sends no credential and is never refused for that.
+    const anonymous = request.mode === 'anonymous';
+    if (!anonymous && !request.credential) {
       notes.push('The provider credential is missing, so no request was sent.');
       return routeFailure(
         'authentication',
@@ -388,18 +722,30 @@ export const fetchFromProvider: ProviderFetcher = async (request, call) => {
         { notes },
       );
     }
-    const { headers, body } = rest.request(request);
-    return postProviderJson({
-      endpoint: request.endpoint,
-      headers,
-      body,
-      timeoutMs: request.routeTimeoutMs,
-      signal: request.signal,
-      // A REST answer wraps the representation in a JSON document, so it gets the same explicit
-      // envelope allowance the MCP wire bound uses.
-      maxResponseBytes: request.maxChars + PROVIDER_PROTOCOL_OVERHEAD_BYTES,
-      ...(request.fetcher ? { fetcher: request.fetcher } : {}),
-    }).then(
+    const { headers, body, query } = rest.request(request);
+    // A REST answer wraps the representation in a JSON document, so it gets the same explicit
+    // envelope allowance the MCP wire bound uses.
+    const maxResponseBytes = request.maxChars + PROVIDER_PROTOCOL_OVERHEAD_BYTES;
+    const exchange = rest.method === 'get'
+      ? getProviderJson({
+          endpoint: request.endpoint,
+          headers,
+          query: query ?? {},
+          timeoutMs: request.routeTimeoutMs,
+          signal: request.signal,
+          maxResponseBytes,
+          ...(request.fetcher ? { fetcher: request.fetcher } : {}),
+        })
+      : postProviderJson({
+          endpoint: request.endpoint,
+          headers,
+          body: body ?? {},
+          timeoutMs: request.routeTimeoutMs,
+          signal: request.signal,
+          maxResponseBytes,
+          ...(request.fetcher ? { fetcher: request.fetcher } : {}),
+        });
+    return exchange.then(
       ({ payload, apiStatus }) => boundResult(rest.interpret(payload, request, apiStatus, notes), request),
       (error: unknown) => {
         if (error instanceof SearchError) return fromSearchError(error, undefined, notes);

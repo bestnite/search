@@ -207,16 +207,20 @@ address policy cannot prove its destination: enabling such a route is that decis
 switch to keep in step with it, and every result such a route produces carries the trust-boundary note.
 Literal private and local targets are still refused before a route runs.
 
-Fetch adapters are catalog metadata, not user toggles: this release ships Exa and Parallel, each with
-a keyless MCP mode (`web_fetch_exa` / `web_fetch`) and a keyed REST mode (`POST /contents`,
-`POST /v1/extract`). The transport is declared per access mode, so the provider route is still one
-route: `mcp` calls the tool, `rest` posts to the mode's documented endpoint. All four modes return
-native Markdown; asking a Markdown-only provider for HTML skips it without a request and continues to
-the next enabled route. The keyless modes were observed live; the keyed modes are implemented from
-the providers' official API references and are recorded as documented-only evidence, since no paid
-keyed call was made. A keyed fetch resolves the same fixed credential reference as the provider's
-search mode; a missing key sends no request but is an ordinary `authentication` attempt, so a fallback
-rule can match it and the next route can serve the page. See
+Fetch adapters are catalog metadata, not user toggles. Eleven providers ship a fetch operation: Exa
+and Parallel (keyless MCP mode plus keyed REST mode), DeepSeek, Serpex, Linkup, Tavily (keyless header
+plus keyed REST), You.com, Keenable (public GET path plus keyed GET), AnySearch, Doubao and the
+self-hosted open-websearch. The transport is declared per access mode, so the provider route is still
+one route: `mcp` calls the documented tool, `rest` sends the documented HTTP operation — a POST with a
+JSON body, or the GET-with-query form a provider documents instead. `serves` is what the operation
+really returns: Serpex, Linkup and You.com can return the page's own HTML, everything else returns
+Markdown or plain text and is skipped without a request when HTML is asked for. Only the modes this
+deployment exercised anonymously are recorded as live; every keyed mode is documented-only evidence
+with its own source, since no paid keyed call was made. Cost and quota are declared per fetch mode, so
+the settings page shows what a mode spends before it is enabled. A keyed fetch resolves the same fixed
+credential reference as the provider's search mode; a missing key sends no request but is an ordinary
+`authentication` attempt, so a fallback rule can match it and the next route can serve the page. An
+anonymous mode resolves no credential at all. See
 [docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md) for the evidence and the list of
 what was not verified.
 

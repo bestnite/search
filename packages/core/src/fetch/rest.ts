@@ -5,10 +5,14 @@ import { appUserAgent } from '../ua.js';
  * The REST transport of a provider fetch mode.
  *
  * Some providers expose a documented REST operation instead of an MCP tool. This transport speaks
- * exactly that: one synchronous POST with a JSON body, and a JSON document back. It never retries,
- * never follows a redirect and never keeps the provider's own error body, so a response cannot leak
- * into a message. The MCP transport is untouched and stays the default; the caller picks the
- * transport from the access mode's declared transport, never from the endpoint shape.
+ * exactly that: one synchronous request — a POST with a JSON body, or the GET-with-query form a
+ * provider documents instead — and a JSON document back. It never retries, never follows a redirect
+ * and never keeps the provider's own error body, so a response cannot leak into a message. The MCP
+ * transport is untouched and stays the default; the caller picks the transport from the access mode's
+ * declared transport, never from the endpoint shape.
+ *
+ * The method is declared per adapter rather than guessed: `postProviderJson` is the POST form and
+ * `getProviderJson` the query form. A GET carries no body at all.
  */
 export interface ProviderRestRequest {
   endpoint: string;
@@ -20,6 +24,19 @@ export interface ProviderRestRequest {
   /** Byte bound for the response body; overrunning it is an acquisition limit, not a protocol error. */
   maxResponseBytes: number;
   /** Test/embedding seam for the HTTP exchange; production uses the platform fetch. */
+  fetcher?: typeof fetch;
+}
+
+/** The documented GET form: every parameter travels in the query string, never in a body. */
+export interface ProviderRestGetRequest {
+  endpoint: string;
+  /** Auth and content headers. A key here is sent, never logged and never put in a message. */
+  headers: Record<string, string>;
+  /** Query parameters. An absent, `undefined` or empty value is left out; booleans become true/false. */
+  query: Record<string, string | number | boolean | undefined>;
+  timeoutMs: number;
+  signal: AbortSignal;
+  maxResponseBytes: number;
   fetcher?: typeof fetch;
 }
 
@@ -71,20 +88,17 @@ const failureMessageForStatus = (status: number): string => {
   }
 };
 
-/** POST one JSON request and return the parsed answer, or a typed failure; no secret leaves a message. */
-export async function postProviderJson(request: ProviderRestRequest): Promise<ProviderRestResponse> {
-  const fetcher = request.fetcher ?? fetch;
+/**
+ * One exchange, with the failure mapping both methods share: a request that never got a response is
+ * a typed network/timeout failure, an error status is classified by status alone, and the successful
+ * answer is bounded, parsed and required to be the documented JSON object.
+ */
+async function exchange(request: { signal: AbortSignal; timeoutMs: number; maxResponseBytes: number }, send: (signal: AbortSignal) => Promise<Response>): Promise<ProviderRestResponse> {
   const attemptTimeout = AbortSignal.timeout(request.timeoutMs);
   const signal = AbortSignal.any([request.signal, attemptTimeout]);
   let response: Response;
   try {
-    response = await fetcher(request.endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': appUserAgent(), ...request.headers },
-      body: JSON.stringify(request.body),
-      signal,
-      redirect: 'error',
-    });
+    response = await send(signal);
   } catch (error) {
     // The caller's own cancellation is reported as such; the attempt deadline is a timeout.
     if (request.signal.aborted) throw new SearchError(attemptTimeout.aborted ? 'timeout' : 'cancelled', 'The provider request was stopped before a response arrived.');
@@ -111,4 +125,36 @@ export async function postProviderJson(request: ProviderRestRequest): Promise<Pr
   }
   if (!isRecord(parsed)) throw new SearchError('protocol', 'The provider response was not the documented JSON document.', apiStatus);
   return { payload: parsed, apiStatus };
+}
+
+/** POST one JSON request and return the parsed answer, or a typed failure; no secret leaves a message. */
+export async function postProviderJson(request: ProviderRestRequest): Promise<ProviderRestResponse> {
+  const fetcher = request.fetcher ?? fetch;
+  const headers = { 'content-type': 'application/json', accept: 'application/json', 'user-agent': appUserAgent(), ...request.headers };
+  const body = JSON.stringify(request.body);
+  return exchange(request, signal => fetcher(request.endpoint, { method: 'POST', headers, body, signal, redirect: 'error' }));
+}
+
+/**
+ * GET one documented query operation and return the parsed answer.
+ *
+ * A provider that documents its fetch as `GET /path?url=...` is served as that, without pretending
+ * it accepts a POST body. The URL is built from the validated endpoint and the adapter's parameters
+ * only, so no caller-supplied string is concatenated into it.
+ */
+export async function getProviderJson(request: ProviderRestGetRequest): Promise<ProviderRestResponse> {
+  const fetcher = request.fetcher ?? fetch;
+  let url: URL;
+  try {
+    url = new URL(request.endpoint);
+  } catch {
+    throw new SearchError('configuration', 'The provider fetch endpoint is not a valid URL.');
+  }
+  for (const [key, value] of Object.entries(request.query)) {
+    if (value === undefined || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  const headers = { accept: 'application/json', 'user-agent': appUserAgent(), ...request.headers };
+  const href = url.href;
+  return exchange(request, signal => fetcher(href, { method: 'GET', headers, signal, redirect: 'error' }));
 }

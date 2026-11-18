@@ -45,12 +45,27 @@ export interface FetchModeEvidence {
 }
 
 /**
+ * What one fetch access mode costs and what it is allowed.
+ *
+ * This is per mode, not per provider: one provider can fetch keylessly for free and with a key for
+ * money, and the price of a fetch is not the price of a search. The settings page shows the entry of
+ * the selected mode, so the cost is known before the mode is enabled rather than after a bill.
+ */
+export interface FetchModeConstraint {
+  limits: Localized;
+  pricingUrl?: string;
+}
+
+/**
  * What one catalog entry can do for a page fetch. This is metadata, not a user toggle: a provider is
  * fetch-capable because its contract says so, and a search-only provider cannot be selected for it.
  */
 export interface FetchOperationDefinition {
-  /** The MCP tool this operation calls. A `rest` mode posts to its endpoint instead. */
-  tool: string;
+  /**
+   * The MCP tool this operation calls, when one exists. A provider whose fetch operation is a plain
+   * REST API has no tool, and its modes all declare the `rest` transport instead.
+   */
+  tool?: string;
   /** Access modes declared for fetching. Selecting any other mode is a configuration error. */
   modes: AccessMode[];
   /**
@@ -60,11 +75,18 @@ export interface FetchOperationDefinition {
   transport?: Partial<Record<AccessMode, FetchTransport>>;
   /**
    * Fetch endpoint per access mode, when it differs from that mode's search endpoint. Set explicitly:
-   * a search URL is never string-rewritten into a fetch endpoint.
+   * a search URL is never string-rewritten into a fetch endpoint. An entry is also what gives a fetch
+   * mode an endpoint when the provider has no search mode of that name.
    */
   endpoints?: Partial<Record<AccessMode, string>>;
-  /** Evidence per access mode. An absent entry was observed live and shares the operation's `verifiedAt`. */
+  /**
+   * Evidence per access mode. An absent entry was observed live and shares the operation's
+   * `verifiedAt`, which is how the first fetch providers were recorded; a mode added later states its
+   * own evidence explicitly, because inheriting a live date it was never observed on would overclaim.
+   */
   evidence?: Partial<Record<AccessMode, FetchModeEvidence>>;
+  /** Cost and quota per access mode, so the settings page shows what a mode spends before enabling it. */
+  modeConstraints?: Partial<Record<AccessMode, FetchModeConstraint>>;
   /** Formats the operation can satisfy for a caller. A Markdown-only provider cannot serve HTML. */
   serves: FetchFormat[];
   /** The representation its response is labelled with. */
@@ -75,7 +97,7 @@ export interface FetchOperationDefinition {
   characterOption?: { key: string; default: number };
   /** Documentation of the operation itself, distinct from the provider's search documentation. */
   docs: string;
-  /** Date this operation's anonymous contract was last observed live. */
+  /** Date this operation's anonymous contract was last observed live, or last read when none was. */
   verifiedAt: string;
   notes?: Localized;
 }

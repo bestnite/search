@@ -137,3 +137,11 @@
 .ns-feedback button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}
 .ns-feedback .ns-actions button{min-height:32px;padding:4px 12px}
 @media (max-width:640px){.ns-feedback-layer{inset-inline:12px;bottom:12px;max-width:none}}
+/* Per-mode cost and quota on a fetch provider card. It is a compact list rather than chips because
+   each entry is a sentence about money, and the selected mode is the one that will be charged. */
+.ns-fetch-costs{margin:2px 0 0}
+.ns-fetch-costs ul{margin:4px 0 0;padding-inline-start:18px;display:flex;flex-direction:column;gap:4px}
+.ns-fetch-costs li{margin:0;color:var(--dsw-alias-label-secondary);font-size:var(--ns-text-help);line-height:1.5}
+.ns-fetch-costs li.is-on{color:var(--dsw-alias-label-primary)}
+.ns-fetch-selected{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.ns-fetch-selected p{margin:0}

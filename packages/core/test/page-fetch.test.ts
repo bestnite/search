@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { backendCredentialRef, defaultConfig, parseConfig, validateConfig } from '../src/config.js';
+import { catalog } from '../src/catalog.js';
 import { createPageFetchEngine } from '../src/fetch/engine.js';
 import { utf8ByteLength } from '../src/fetch/bytes.js';
 import { callProviderTool, fetchFromProvider, type ProviderRouteRequest } from '../src/fetch/provider.js';
@@ -893,7 +894,9 @@ test('invalid new values fail validation instead of being reset', () => {
     ['pageFetch.routes.0.rules', config => { config.pageFetch.routes[0].rules = Array.from({ length: 9 }, (_unused, index) => rule(`r${index}`, { type: 'network' })); }],
     ['pageFetch.routes.0.rules.0.conditions.0.statuses', config => { config.pageFetch.routes[0].rules[0].conditions[0] = { type: 'status', statuses: [99] }; }],
     ['pageFetch.routes.0.rules.0.extra', config => { config.pageFetch.routes[0].rules[0].extra = true; }],
-    ['pageFetch.providerId', config => { config.pageFetch.providerId = 'tavily'; config.pageFetch.routes[2].enabled = true; }],
+    // Tavily now has a declared fetch operation, so a provider with none is what this case needs: a
+    // search-only backend can never be selected for a page fetch.
+    ['pageFetch.providerId', config => { config.pageFetch.providerId = 'brave'; config.pageFetch.routes[2].enabled = true; }],
     ['pageFetch.routes.1.enabled', config => { config.pageFetch.routes[1].enabled = true; }],
     // The retired delegated-fetching switch is not a field any more: a hand-edited file carrying it is
     // rejected, while `parseConfig()` drops it from an older save (see the migration test below).
@@ -929,8 +932,21 @@ test('catalog fetch metadata is declared only where it was verified', () => {
   const parallel = defaultConfig().backends.parallel!.fetch;
   assert.equal(parallel.options.full_content, true);
   assert.equal(parallel.endpoint, 'https://mcp.parallel.ai/mcp');
-  assert.equal(defaultConfig().backends.tavily!.fetch.endpoint, '');
-  assert.deepEqual(defaultConfig().backends.tavily!.fetch.options, {});
+  // A declared fetch operation always produces a usable default record: the mode's own declared
+  // fetch endpoint, even when that mode is not one of the provider's search modes.
+  for (const definition of catalog) {
+    const row = defaultConfig().backends[definition.id]!.fetch;
+    if (!definition.fetch) {
+      assert.equal(row.endpoint, '', `${definition.id}: a search-only provider has no fetch endpoint`);
+      continue;
+    }
+    assert.ok(definition.fetch.modes.includes(row.mode), `${definition.id}: the default fetch mode is declared`);
+    assert.match(row.endpoint, /^https?:\/\//, `${definition.id}: a fetch-capable provider has a default fetch endpoint`);
+    assert.equal(row.endpoint, definition.fetch.endpoints?.[row.mode] ?? definition.modes.find(mode => mode.mode === row.mode)?.fetchEndpoint);
+  }
+  // A search-only provider keeps an inert record shaped like its first search mode.
+  assert.equal(defaultConfig().backends.brave!.fetch.endpoint, '');
+  assert.deepEqual(defaultConfig().backends.brave!.fetch.options, {});
 });
 
 test('the rule validator reports bounded, structured problems', () => {

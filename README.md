@@ -45,11 +45,14 @@ Only one page per call, never a crawl; routes run one at a time, never in parall
 every attempt with target status, provider API status, matched rules and a sanitized error. Public
 targets only by default, with the connection pinned to the address that was validated. A provider or
 remote browser resolves the target elsewhere, so those routes need an explicit delegated-fetching
-opt-in. The two fetch providers (Exa and Parallel) each offer a keyless MCP mode and a keyed REST
-mode; the keyless modes were observed live, the keyed modes are implemented from the official API
-references and are labelled documented-only, because no paid keyed call was made. A keyed fetch uses
-the provider's one stored search key. Both providers return native Markdown, so asking for HTML skips
-that route without a request. See the [design](docs/PAGE-FETCH-DESIGN.md), [provider evidence](docs/PAGE-FETCH-PROVIDERS.md)
+opt-in. Eleven providers can fetch: Exa, Parallel, DeepSeek, Serpex, Linkup, Tavily, You.com, Keenable,
+AnySearch, Doubao and the self-hosted open-websearch. Each declares its own access modes, transport,
+endpoint and per-mode cost; four of them also fetch keylessly (Exa and Parallel over MCP, Tavily over
+its keyless header, Keenable and AnySearch over their anonymous paths). Only the modes this deployment
+actually exercised anonymously are labelled live; every keyed mode is implemented from the official
+API reference and labelled documented-only, because no paid keyed call was made. A keyed fetch uses the
+provider's one stored search key. Serpex, Linkup and You.com can return the page's own HTML; the rest
+return Markdown or plain text, so asking them for HTML skips that route without a request. See the [design](docs/PAGE-FETCH-DESIGN.md), [provider evidence](docs/PAGE-FETCH-PROVIDERS.md)
 and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
 
 ## Start here
