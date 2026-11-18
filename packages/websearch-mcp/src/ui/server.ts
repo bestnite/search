@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { catalog, SearchEngine } from '@nite07/search-core';
+import { catalog, createPageFetchEngine, renderPageFetchReport, SearchEngine } from '@nite07/search-core';
 import { credentialResolver, loadConfig } from '../config.js';
 import { renderPage } from './page.js';
 import { FailureLimiter, SessionStore, SESSION_COOKIE, cookieValue, sessionCookie } from './session.js';
@@ -213,6 +213,24 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
       });
       settings.log(`credential ${scope === 'browser' ? 'browser' : String(body.id)} ${body.remove === true ? 'removed' : 'saved'} from the page`);
       return json(response, 200, { saved: true, revision: saved.revision, state: saved.state });
+    }
+    if (url.pathname === '/api/fetch-test' && method === 'POST') {
+      const body = (await readJson(request)) as Record<string, unknown>;
+      const format = body.format;
+      if (format !== 'html' && format !== 'markdown') throw new SettingsError('A fetch test needs format "html" or "markdown"; there is no default.');
+      const target = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!target) throw new SettingsError('A fetch test needs a URL.');
+      const config = await loadConfig({ configPath: settings.configPath });
+      const engine = createPageFetchEngine(config.search, { resolveCredential: reference => credentialResolver(config)(reference) });
+      try {
+        // User-triggered only: nothing here runs on render or save. The log names the route and the
+        // stop reason, never the URL or the page content.
+        const result = await engine.fetchPage({ url: target, format }, AbortSignal.timeout(120_000));
+        settings.log(`page fetch test: route ${result.contentRoute ?? 'none'}, stop ${result.stopReason}, ok ${result.ok}`);
+        return json(response, 200, { ok: true, result, text: renderPageFetchReport(result) });
+      } catch (error) {
+        return json(response, 200, { ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
     }
     if (url.pathname === '/api/test' && method === 'POST') {
       const body = (await readJson(request)) as Record<string, unknown>;

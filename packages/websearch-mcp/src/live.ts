@@ -10,6 +10,11 @@ export interface ConfigSource {
   get(): ServerConfig;
   /** Changes whenever the configuration behind get() changed; the search engine rebuilds on a new value. */
   revision(): string;
+  /**
+   * Fires after a successful reload. The MCP tool surface uses it to advertise or hide a gated tool
+   * without a restart; a fixed source has no changes to report.
+   */
+  subscribe?(listener: () => void): () => void;
 }
 
 export const fixedSource = (config: ServerConfig): ConfigSource => ({ get: () => config, revision: () => 'fixed' });
@@ -30,6 +35,7 @@ export interface ReloadableSource extends ConfigSource {
 export function watchSource(initial: ServerConfig, log: (message: string) => void): ReloadableSource {
   let current = initial;
   let revision = 0;
+  const listeners = new Set<() => void>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
   const directory = dirname(initial.configPath);
@@ -49,6 +55,13 @@ export function watchSource(initial: ServerConfig, log: (message: string) => voi
       current = await loadConfig({ configPath: initial.configPath });
       revision += 1;
       log(`configuration reloaded from ${initial.configPath} (revision ${revision})`);
+      for (const listener of listeners) {
+        try {
+          listener();
+        } catch {
+          // One broken listener must not stop the others or the reload itself.
+        }
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message.split('\n')[0] : String(error);
       log(`configuration at ${initial.configPath} is not usable; keeping the previous one: ${reason}`);
@@ -58,9 +71,14 @@ export function watchSource(initial: ServerConfig, log: (message: string) => voi
   return {
     get: () => current,
     revision: () => `r${revision}`,
+    subscribe: listener => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     close: () => {
       closed = true;
       if (timer) clearTimeout(timer);
+      listeners.clear();
       watcher.close();
     },
   };

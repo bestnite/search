@@ -220,9 +220,11 @@ test('xiaohongshu_note names the missing prerequisite instead of returning an em
   await assert.rejects(tool(noEndpoint).call({ id: 'n1' }, signal), /browser endpoint/);
 });
 
-test('the tool list names every capability the server offers', () => {
+test('the tool list names every capability the server offers, with the gated one carried but off', () => {
   const tools = createTools(configWith(['exa']), identity, stubEngine().engine);
-  assert.deepEqual(tools.map(item => item.name), ['web_search', 'read_thread', 'xiaohongshu_note', 'list_backends']);
+  assert.deepEqual(tools.map(item => item.name), ['web_search', 'read_thread', 'xiaohongshu_note', 'web_extract', 'list_backends']);
+  const gated = tools.find(item => item.name === 'web_extract')!;
+  assert.equal(gated.exposed?.(), false, 'the default configuration does not advertise it');
 });
 
 test('list_backends answers from the configuration present at call time', async () => {

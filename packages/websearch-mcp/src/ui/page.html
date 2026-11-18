@@ -120,6 +120,17 @@
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
   footer { max-width: 1180px; margin: 0 auto; padding: 0 1.25rem 2.5rem; color: var(--muted); font-size: .8rem; }
   .hidden { display: none !important; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1.25rem; }
+  .tabs .tab { border-radius: 999px; padding: .35rem .9rem; }
+  .tabs .tab.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .route { border: 1px solid var(--line); border-radius: .7rem; padding: .75rem; margin-bottom: .75rem; background: var(--panel); }
+  .rule { border: 1px dashed var(--line); border-radius: .6rem; padding: .6rem; margin: .5rem 0; }
+  .rule-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+  .condition { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .4rem .6rem; align-items: center; margin: .4rem 0; }
+  .condition input, .condition select { font: inherit; min-width: 0; padding: .25rem .4rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bg); color: var(--ink); }
+  .problems { margin: 0 0 .75rem; padding-left: 1.1rem; font-size: .85rem; color: var(--warn); }
+  .ok-line { font-size: .85rem; color: var(--ok); }
+  @media (max-width: 640px) { .condition { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -182,6 +193,35 @@ const I18N = {
     cleared: '凭证已清除', credSaved: '凭证已保存', missingCred: '缺凭证',
     credBrowserNote: '读取走共享浏览器：端点与令牌在「共享浏览器」一节填写。',
     credAnonymousNote: '当前模式不需要凭证；切换到 key / oauth / session 模式后这里会出现凭证输入框。',
+    tabsLabel: '设置分区', tabSearch: '搜索', tabFetch: '页面抓取',
+    webExtract: '允许使用 web_extract 工具', webExtractHelp: '关闭后该工具不会注册；抓取配置、凭证和本页仍然可用。',
+    fetchReadyTitle: '抓取可用性', fetchReady: '保存的抓取链可以运行。', fetchReadyHelp: '只根据配置与已存凭证判断，不会发起请求。',
+    problem: { fetchNoRoutes: '没有启用任何路由，所有页面抓取都会失败。', fetchDelegatedOff: '已启用浏览器或服务商路由，但没有打开委托抓取开关。', fetchBrowserNoEndpoint: '已启用浏览器路由，但没有设置共享浏览器端点。', fetchProviderMissing: '已启用服务商路由，但没有选择支持抓取的服务商。', fetchProviderMode: '{{provider}} 在 {{mode}} 模式下不支持抓取。', fetchProviderEndpoint: '{{provider}} 没有配置抓取端点。', fetchProviderCredential: '{{provider}} 的抓取模式需要已保存的凭证。' },
+    routesTitle: '路由顺序', routesHelp: '每种路由各一条，按顺序串行执行；关闭的会跳过，命中回退规则时继续下一条。',
+    route: { http: 'HTTP 直连', browser: '浏览器渲染', provider: '服务商' },
+    routeHelp: { http: '直接请求，解码响应 HTML。', browser: '共享浏览器渲染后的 DOM。', provider: '单个服务商，原生 Markdown。' },
+    moveUp: '上移', moveDown: '下移', enabled: '启用', timeout: '路由超时 (ms)',
+    rulesTitle: '回退规则', rulesHelp: '规则间是「或」，同一规则内条件是「且」；字段缺失算不可用，不当作空字符串。',
+    rulesCount: (count, max) => `{{count}} / {{max}}`.replace('{{count}}', count).replace('{{max}}', max),
+    addRule: '添加规则', addCondition: '添加条件', removeRule: '删除规则',
+    addStatusPreset: '添加状态码预设', addChallengePreset: '添加验证页预设', restoreDefaultRules: '恢复默认规则',
+    presetsHelp: '预设就是普通的可编辑规则；验证页预设只看标题与 HTML 标记的组合，不会仅凭 “cloudflare” 触发，也不会替你通过验证。',
+    conditionType: '条件类型', conditionStatuses: '状态码，逗号分隔', conditionKinds: '错误类型', conditionField: '字段', conditionOperator: '运算符', conditionValue: '匹配值', conditionCase: '区分大小写',
+    condition: { network: '网络错误', timeout: '路由超时', status: '目标状态码属于', 'api-status': '服务商 API 状态码属于', error: '运行错误属于', match: '内容匹配' },
+    matchField: { title: '标题', html: 'HTML', text: '正文文本', markdown: 'Markdown' },
+    matchOperator: { contains: '包含', equals: '等于', regex: '正则' },
+    providerTitle: '抓取服务商', providerHelp: '选择服务商不会改变它是否参与搜索，也不会自行发起请求。', providerNone: '未选择',
+    providerServes: (formats) => `可返回 ${formats}`, providerMarkdownOnly: '该服务商只返回 Markdown；请求 HTML 时会跳过并不发请求，由下一条启用的路由提供页面。',
+    providerFields: '服务商不返回的字段（标题、目标状态码或 HTML）会让相关条件不可用，测试结果里会逐一列出。',
+    fetchMode: '抓取接入模式', fetchEndpoint: '抓取端点', providerTimeout: '服务商调用超时 (ms)', providerCredentialRequired: '该模式需要凭证', providerCredentialOptional: '该模式不需要凭证',
+    limitsTitle: '安全与上限',
+    overallTimeout: '抓取总期限 (ms)', maxRedirects: '最大重定向次数', maxBodyBytes: '最大下载字节数', maxOutputChars: '输出最大字符数', maxRuleScanChars: '规则扫描字符数',
+    allowPrivateNetworks: '允许私有网络目标', allowDelegatedFetching: '允许委托抓取（浏览器/服务商）', browserContext: '浏览器上下文', contextIsolated: '隔离', contextSession: '会话',
+    settleMs: '等待稳定延迟 (ms)', selectorWait: '等待的选择器',
+    fetchTest: '页面抓取测试', fetchTestHelp: '针对已保存配置的手动测试，会访问网络且服务商可能计费；不会自动执行。', runFetchTest: '执行抓取测试',
+    formatMarkdown: 'Markdown（阅读）', formatHtml: 'HTML（结构）', fetchTestResult: '测试结果', saveFirst: '请先保存再测试。',
+    provCredOk: '已存储凭证', provCredMissing: '尚未存储凭证',
+    failure: { network: '网络', timeout: '超时', http: 'HTTP', provider: '服务商', authentication: '认证', protocol: '协议', conversion: '转换', 'unsupported-content': '内容不支持', limit: '上限' },
   },
   en: {
     save: 'Save', reload: 'Reload', dirty: 'Unsaved changes', clean: 'Saved',
@@ -220,11 +260,41 @@ const I18N = {
     cleared: 'Credential cleared', credSaved: 'Credential saved', missingCred: 'missing credential',
     credBrowserNote: 'Reads go through the shared browser: set its endpoint and token under Shared browser.',
     credAnonymousNote: 'This mode needs no credential; a key, oauth or session mode adds the field here.',
+    tabsLabel: 'Settings sections', tabSearch: 'Search', tabFetch: 'Page fetch',
+    webExtract: 'Expose the web_extract tool', webExtractHelp: 'Off hides the tool entirely; fetch configuration, credentials and this page stay available.',
+    fetchReadyTitle: 'Fetch readiness', fetchReady: 'The saved fetch chain can run.', fetchReadyHelp: 'Checked from configuration and stored credentials only; nothing is fetched.',
+    problem: { fetchNoRoutes: 'No route is enabled, so every page fetch fails.', fetchDelegatedOff: 'A browser or provider route is enabled without the delegated-fetching opt-in.', fetchBrowserNoEndpoint: 'The browser route is enabled but no shared browser endpoint is set.', fetchProviderMissing: 'The provider route is enabled but no fetch-capable provider is selected.', fetchProviderMode: '{{provider}} cannot fetch in {{mode}} mode.', fetchProviderEndpoint: '{{provider}} has no fetch endpoint configured.', fetchProviderCredential: '{{provider}} needs a stored credential for its fetch mode.' },
+    routesTitle: 'Routes', routesHelp: 'One record per route; they run one at a time in this order, and a matched fallback rule moves on.  ',
+    route: { http: 'HTTP', browser: 'Browser', provider: 'Provider' },
+    routeHelp: { http: 'Direct request, decoded response HTML.', browser: 'Rendered DOM from the shared browser.', provider: 'One selected provider, native Markdown.' },
+    moveUp: 'Move up', moveDown: 'Move down', enabled: 'Enabled', timeout: 'Route timeout (ms)',
+    rulesTitle: 'Fallback rules', rulesHelp: 'Rules are OR, conditions inside one rule are AND; a missing field is unavailable, never an empty string.',
+    rulesCount: (count, max) => `${count} / ${max}`,
+    addRule: 'Add rule', addCondition: 'Add condition', removeRule: 'Remove rule',
+    addStatusPreset: 'Add status preset', addChallengePreset: 'Add challenge preset', restoreDefaultRules: 'Restore defaults',
+    presetsHelp: 'Presets are ordinary editable rules. The challenge preset combines a title and an HTML marker; it never triggers on the word "cloudflare" alone and does not solve a challenge.',
+    conditionType: 'Condition type', conditionStatuses: 'Status codes, comma separated', conditionKinds: 'Failure kinds', conditionField: 'Field', conditionOperator: 'Operator', conditionValue: 'Value', conditionCase: 'Case sensitive',
+    condition: { network: 'Network error', timeout: 'Route timeout', status: 'Target status is', 'api-status': 'Provider API status is', error: 'Operational error is', match: 'Content matches' },
+    matchField: { title: 'title', html: 'HTML', text: 'text', markdown: 'Markdown' },
+    matchOperator: { contains: 'contains', equals: 'equals', regex: 'regex' },
+    providerTitle: 'Fetch provider', providerHelp: 'Selecting a provider does not change its search participation and never sends a request on its own.', providerNone: 'None selected',
+    providerServes: (formats) => `Returns ${formats}`, providerMarkdownOnly: 'This provider returns Markdown only; asking for HTML skips it without a request and the next enabled route serves the page.',
+    providerFields: 'Rules that read title, target status or HTML stay unavailable on a provider that does not return them; the test trace names each unavailable field.',
+    fetchMode: 'Fetch access mode', fetchEndpoint: 'Fetch endpoint', providerTimeout: 'Provider call timeout (ms)', providerCredentialRequired: 'This mode needs a credential', providerCredentialOptional: 'No credential needed for this mode',
+    limitsTitle: 'Safety and limits',
+    overallTimeout: 'Overall fetch deadline (ms)', maxRedirects: 'Maximum redirects', maxBodyBytes: 'Maximum downloaded bytes', maxOutputChars: 'Maximum output characters', maxRuleScanChars: 'Rule scan characters',
+    allowPrivateNetworks: 'Allow private network targets', allowDelegatedFetching: 'Allow delegated fetching (browser/provider)', browserContext: 'Browser context', contextIsolated: 'Isolated', contextSession: 'Session',
+    settleMs: 'Settle delay (ms)', selectorWait: 'Selector to wait for',
+    fetchTest: 'Page fetch test', fetchTestHelp: 'A user-triggered test against the saved configuration. It reaches the network and a provider may meter the call; nothing runs automatically.', runFetchTest: 'Run fetch test',
+    formatMarkdown: 'Markdown (reading)', formatHtml: 'HTML (structure)', fetchTestResult: 'Test result', saveFirst: 'Save your changes before testing.',
+    provCredOk: 'Credential stored', provCredMissing: 'No credential stored',
+    failure: { network: 'network', timeout: 'timeout', http: 'HTTP', provider: 'provider', authentication: 'authentication', protocol: 'protocol', conversion: 'conversion', 'unsupported-content': 'unsupported content', limit: 'limit' },
   },
 };
 
 const state = {
   snap: null, draft: null, dirty: false,
+  tab: 'search', fetchUrl: '', fetchFormat: 'markdown', fetchResult: null, fetchBusy: false,
   lang: localStorage.getItem('wsm.lang') || 'zh',
   filter: '', onlyEnabled: false, open: new Set(), closed: new Set(), results: {}, issues: [], probeQuery: '', compactByDefault: false,
 };
@@ -274,6 +344,45 @@ function toast(message, tone = '') {
   toast.timer = setTimeout(() => { node.className = 'toast'; }, 3200);
 }
 
+function touch() { markDirty(); render(); }
+function problemText(problem) {
+  const table = I18N[state.lang] && I18N[state.lang].problem ? I18N[state.lang].problem : {};
+  const raw = table[problem.key] ?? problem.key;
+  return String(raw).replace(/\{\{(\w+)\}\}/g, (_match, name) => String((problem.vars || {})[name] ?? ''));
+}
+function nextId(rules, base) {
+  let candidate = base; let counter = 2;
+  while (rules.some(rule => rule.id === candidate)) { candidate = `${base}-${counter}`; counter += 1; }
+  return candidate;
+}
+function checkbox(checked, onChange) {
+  const input = h('input', { type: 'checkbox' });
+  input.checked = checked === true;
+  input.addEventListener('change', () => onChange(input.checked));
+  return input;
+}
+function textInput(value, onInput) {
+  const input = h('input', { type: 'text', value: value ?? '' });
+  input.addEventListener('input', () => onInput(input.value));
+  return input;
+}
+function selectInput(options, value, onChange) {
+  const node = h('select', {});
+  for (const [optionValue, label] of options) node.append(h('option', { value: optionValue, selected: String(value) === String(optionValue) }, label));
+  node.addEventListener('change', () => onChange(node.value));
+  return node;
+}
+function numberInput(value, onChange, min, max) {
+  const input = h('input', { type: 'number', value: value ?? '', min, max, step: 1 });
+  input.addEventListener('input', () => { const next = Number(input.value); if (Number.isInteger(next)) onChange(next); });
+  return input;
+}
+function defaultCondition(type) {
+  if (type === 'status' || type === 'api-status') return { type, statuses: [404] };
+  if (type === 'error') return { type: 'error', kinds: ['protocol'] };
+  if (type === 'match') return { type: 'match', field: 'text', operator: 'contains', value: '', caseSensitive: false };
+  return { type: type === 'timeout' ? 'timeout' : 'network' };
+}
 function markDirty() {
   state.dirty = true;
   document.getElementById('dirty').classList.add('on');
@@ -601,6 +710,231 @@ function renderBanner() {
   target.replaceChildren(...pieces);
 }
 
+
+function tabBar() {
+  const bar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('tabsLabel') });
+  for (const [id, label] of [['search', t('tabSearch')], ['fetch', t('tabFetch')]]) {
+    const button = h('button', { type: 'button', role: 'tab', class: state.tab === id ? 'tab is-active' : 'tab', 'aria-selected': state.tab === id ? 'true' : 'false' }, label);
+    button.addEventListener('click', () => { state.tab = id; render(); });
+    bar.append(button);
+  }
+  return bar;
+}
+
+function fetchSection() {
+  return h('section', {},
+    h('h2', {}, t('tabFetch')),
+    h('div', { class: 'panel pad' },
+      field({ path: 'tools.webExtract', type: 'check', label: t('webExtract') }),
+      h('div', { class: 'note' }, t('webExtractHelp'))),
+    fetchReadyPanel(),
+    fetchRoutesSection(),
+    fetchProviderPanel(),
+    fetchLimitsPanel(),
+    fetchTestPanel());
+}
+
+function fetchReadyPanel() {
+  const box = h('div', { class: 'panel pad' }, h('h2', {}, t('fetchReadyTitle')));
+  if (state.snap.fetch.ready) box.append(h('div', { class: 'ok-line' }, t('fetchReady')));
+  else {
+    const list = h('ul', { class: 'problems' });
+    for (const problem of state.snap.fetch.problems) list.append(h('li', {}, problemText(problem)));
+    box.append(list);
+  }
+  box.append(h('div', { class: 'note' }, t('fetchReadyHelp')));
+  return box;
+}
+
+function fetchRoutesSection() {
+  const routes = state.draft.pageFetch.routes;
+  const section = h('section', {}, h('h2', {}, t('routesTitle')), h('p', { class: 'note' }, t('routesHelp')));
+  routes.forEach((route, index) => section.append(routeCard(route, index, routes)));
+  return section;
+}
+
+function routeCard(route, index, routes) {
+  const up = h('button', { class: 'ghost small', type: 'button', disabled: index === 0, 'aria-label': t('moveUp') }, '↑');
+  up.addEventListener('click', () => {
+    const next = routes.slice();
+    const target = index - 1;
+    const current = next[index];
+    next[index] = next[target];
+    next[target] = current;
+    state.draft.pageFetch.routes = next;
+    touch();
+  });
+  const down = h('button', { class: 'ghost small', type: 'button', disabled: index === routes.length - 1, 'aria-label': t('moveDown') }, '↓');
+  down.addEventListener('click', () => {
+    const next = routes.slice();
+    const target = index + 1;
+    const current = next[index];
+    next[index] = next[target];
+    next[target] = current;
+    state.draft.pageFetch.routes = next;
+    touch();
+  });
+  const toggle = checkbox(route.enabled, value => { route.enabled = value; touch(); });
+  const timeout = numberInput(route.timeoutMs, value => { route.timeoutMs = value; markDirty(); }, state.snap.fetch.bounds.routeTimeoutMs.min, state.snap.fetch.bounds.routeTimeoutMs.max);
+  return h('article', { class: 'route' },
+    h('div', { class: 'rule-head' },
+      h('label', { class: 'switch' }, toggle, h('span')),
+      h('div', { class: 'badges' }, h('strong', {}, t('route.' + route.kind)), h('span', { class: 'badge' }, t('routeHelp.' + route.kind)), h('span', { class: 'badge' }, route.enabled ? t('enabled') : '—')),
+      h('div', { class: 'actions' }, up, down)),
+    h('label', { class: 'field' }, h('span', {}, t('timeout')), timeout),
+    rulesEditor(route));
+}
+
+function rulesEditor(route) {
+  const bounds = state.snap.fetch.bounds;
+  const rules = route.rules;
+  const box = h('div', {}, h('div', { class: 'note' }, t('rulesHelp')), h('span', { class: 'chip' }, t('rulesCount', rules.length, bounds.rulesPerRoute)));
+  rules.forEach((rule, index) => box.append(ruleCard(route, rule, index)));
+  const canAdd = rules.length < bounds.rulesPerRoute;
+  const actions = h('div', { class: 'toolbar' });
+  const add = h('button', { class: 'small', type: 'button', disabled: !canAdd }, t('addRule'));
+  add.addEventListener('click', () => { rules.push({ id: nextId(rules, 'custom'), enabled: true, conditions: [{ type: 'network' }] }); touch(); });
+  const addStatus = h('button', { class: 'small', type: 'button', disabled: !canAdd }, t('addStatusPreset'));
+  addStatus.addEventListener('click', () => { const preset = clone(state.snap.fetch.presets.status); preset.id = nextId(rules, preset.id); rules.push(preset); touch(); });
+  const addChallenge = h('button', { class: 'small', type: 'button', disabled: !canAdd }, t('addChallengePreset'));
+  addChallenge.addEventListener('click', () => { const preset = clone(state.snap.fetch.presets.cloudflare); preset.id = nextId(rules, preset.id); rules.push(preset); touch(); });
+  const restore = h('button', { class: 'small ghost', type: 'button' }, t('restoreDefaultRules'));
+  restore.addEventListener('click', () => { rules.splice(0, rules.length, ...clone(state.snap.fetch.presets.defaults)); touch(); });
+  actions.append(add, addStatus, addChallenge, restore);
+  box.append(actions, h('div', { class: 'note' }, t('presetsHelp')));
+  return box;
+}
+
+function ruleCard(route, rule, index) {
+  const head = h('div', { class: 'rule-head' },
+    h('label', { class: 'check' }, checkbox(rule.enabled, value => { rule.enabled = value; touch(); }), h('code', {}, rule.id)),
+    h('button', { class: 'ghost small', type: 'button' }, t('removeRule')));
+  head.lastChild.addEventListener('click', () => { route.rules.splice(index, 1); touch(); });
+  const card = h('div', { class: 'rule' }, head);
+  rule.conditions.forEach((condition, conditionIndex) => card.append(conditionEditor(route, rule, conditionIndex)));
+  const addCondition = h('button', { class: 'ghost small', type: 'button', disabled: rule.conditions.length >= state.snap.fetch.bounds.conditionsPerRule }, t('addCondition'));
+  addCondition.addEventListener('click', () => { rule.conditions.push({ type: 'network' }); touch(); });
+  card.append(addCondition);
+  return card;
+}
+
+function conditionEditor(route, rule, index) {
+  const condition = rule.conditions[index];
+  const wrap = h('div', { class: 'condition' });
+  const types = state.snap.fetch.conditionTypes.filter(type => type !== 'api-status' || route.kind === 'provider');
+  wrap.append(selectInput(types.map(type => [type, t('condition.' + type)]), condition.type, value => { rule.conditions[index] = defaultCondition(value); touch(); }));
+  if (condition.type === 'status' || condition.type === 'api-status') {
+    wrap.append(textInput(condition.statuses.join(', '), value => {
+      condition.statuses = value.split(',').map(part => Number(part.trim())).filter(Number.isInteger);
+      markDirty();
+    }));
+  }
+  if (condition.type === 'error') {
+    const kinds = h('span', { class: 'badges' });
+    for (const kind of state.snap.fetch.failureKinds) {
+      kinds.append(h('label', { class: 'check' }, checkbox(condition.kinds.includes(kind), value => {
+        condition.kinds = value ? [...condition.kinds, kind] : condition.kinds.filter(item => item !== kind);
+        touch();
+      }), t('failure.' + kind)));
+    }
+    wrap.append(kinds);
+  }
+  if (condition.type === 'match') {
+    wrap.append(selectInput(state.snap.fetch.conditionFields.map(name => [name, t('matchField.' + name)]), condition.field, value => { condition.field = value; touch(); }));
+    wrap.append(selectInput(state.snap.fetch.matchOperators.map(name => [name, t('matchOperator.' + name)]), condition.operator, value => { condition.operator = value; touch(); }));
+    wrap.append(textInput(condition.value, value => { condition.value = value; markDirty(); }));
+    wrap.append(h('label', { class: 'check' }, checkbox(condition.caseSensitive, value => { condition.caseSensitive = value; touch(); }), t('conditionCase')));
+  }
+  const remove = h('button', { class: 'ghost small', type: 'button' }, t('removeRule'));
+  remove.addEventListener('click', () => { rule.conditions.splice(index, 1); touch(); });
+  wrap.append(remove);
+  return wrap;
+}
+
+function fetchOptionField(providerId, option) {
+  const path = `backends.${providerId}.fetch.options.${option.key}`;
+  const spec = { path, label: `${local(option.label)} (${option.key})`, hint: local(option.help) };
+  if (option.choices) return field({ ...spec, type: 'select', options: option.choices.map(choice => [choice, choice]) });
+  if (option.type === 'boolean') return field({ ...spec, type: 'check' });
+  if (option.type === 'number') return field({ ...spec, type: 'number', min: option.min ?? 0, max: option.max ?? 1000000 });
+  return field({ ...spec, type: 'text' });
+}
+
+function fetchProviderPanel() {
+  const providers = state.snap.fetch.providers || [];
+  const selected = state.draft.pageFetch.providerId;
+  const picker = selectInput([['', t('providerNone')], ...providers.map(provider => [provider.id, `${provider.title} · ${provider.serves.join('/')}`])], selected, value => { state.draft.pageFetch.providerId = value; touch(); });
+  const panel = h('div', { class: 'panel pad' }, h('label', { class: 'field' }, h('span', {}, t('providerTitle')), picker));
+  const provider = providers.find(item => item.id === selected);
+  if (!provider) return h('section', {}, h('h2', {}, t('providerTitle')), h('p', { class: 'note' }, t('providerHelp')), panel);
+  panel.append(h('div', { class: 'note' }, `${t('providerServes', provider.serves.join(', '))} · ${provider.docs} · ${provider.verifiedAt}`));
+  panel.append(h('div', { class: 'note' }, provider.credentialRequired ? (provider.credentialConfigured ? t('provCredOk') : t('provCredMissing')) : t('providerCredentialOptional')));
+  panel.append(h('div', { class: 'note' }, t('providerMarkdownOnly')));
+  panel.append(h('div', { class: 'note' }, t('providerFields')));
+  panel.append(h('div', { class: 'row' },
+    field({ path: `backends.${provider.id}.fetch.mode`, type: 'select', label: t('fetchMode'), options: provider.modes.map(mode => [mode, mode]) }),
+    field({ path: `backends.${provider.id}.fetch.endpoint`, type: 'text', label: t('fetchEndpoint') }),
+    field({ path: `backends.${provider.id}.fetch.timeoutMs`, type: 'number', label: t('providerTimeout'), min: state.snap.fetch.bounds.routeTimeoutMs.min, max: state.snap.fetch.bounds.routeTimeoutMs.max })));
+  if (provider.options.length) {
+    const grid = h('div', { class: 'row' });
+    for (const option of provider.options) grid.append(fetchOptionField(provider.id, option));
+    panel.append(grid);
+  }
+  return h('section', {}, h('h2', {}, t('providerTitle')), h('p', { class: 'note' }, t('providerHelp')), panel);
+}
+
+function fetchLimitsPanel() {
+  const bounds = state.snap.fetch.bounds;
+  return h('section', {}, h('h2', {}, t('limitsTitle')), h('div', { class: 'panel pad' }, h('div', { class: 'row' },
+    field({ path: 'pageFetch.overallTimeoutMs', type: 'number', label: t('overallTimeout'), min: bounds.overallTimeoutMs.min, max: bounds.overallTimeoutMs.max }),
+    field({ path: 'pageFetch.maxRedirects', type: 'number', label: t('maxRedirects'), min: bounds.maxRedirects.min, max: bounds.maxRedirects.max }),
+    field({ path: 'pageFetch.maxBodyBytes', type: 'number', label: t('maxBodyBytes'), min: bounds.maxBodyBytes.min, max: bounds.maxBodyBytes.max }),
+    field({ path: 'pageFetch.maxOutputChars', type: 'number', label: t('maxOutputChars'), min: bounds.maxOutputChars.min, max: bounds.maxOutputChars.max }),
+    field({ path: 'pageFetch.maxRuleScanChars', type: 'number', label: t('maxRuleScanChars'), min: bounds.maxRuleScanChars.min, max: bounds.maxRuleScanChars.max }),
+    field({ path: 'pageFetch.allowPrivateNetworks', type: 'check', label: t('allowPrivateNetworks') }),
+    field({ path: 'pageFetch.allowDelegatedFetching', type: 'check', label: t('allowDelegatedFetching') }),
+    field({ path: 'pageFetch.browser.context', type: 'select', label: t('browserContext'), options: [['isolated', t('contextIsolated')], ['session', t('contextSession')]] }),
+    field({ path: 'pageFetch.browser.settleMs', type: 'number', label: t('settleMs'), min: bounds.settleMs.min, max: bounds.settleMs.max }),
+    field({ path: 'pageFetch.browser.selectorWait', type: 'text', label: t('selectorWait') }))));
+}
+
+function fetchTestPanel() {
+  const url = textInput(state.fetchUrl || '', value => { state.fetchUrl = value; });
+  url.placeholder = 'https://example.com/page';
+  const format = selectInput([['markdown', t('formatMarkdown')], ['html', t('formatHtml')]], state.fetchFormat, value => { state.fetchFormat = value; });
+  const run = h('button', { class: 'primary', type: 'button', disabled: state.fetchBusy || !String(state.fetchUrl || '').trim() }, state.fetchBusy ? t('testing') : t('runFetchTest'));
+  run.addEventListener('click', () => void runFetchTest());
+  const panel = h('div', { class: 'panel pad' },
+    h('p', { class: 'note' }, t('fetchTestHelp')),
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', {}, t('fetchTest')), url),
+      h('label', { class: 'field' }, h('span', {}, t('fetchTestResult')), format)),
+    h('div', { class: 'toolbar' }, run, state.dirty ? h('span', { class: 'note' }, t('saveFirst')) : null));
+  if (state.fetchResult) panel.append(h('div', { class: 'panel pad' }, h('strong', {}, t('fetchTestResult')), h('pre', { class: 'out' }, state.fetchResult.text || state.fetchResult.error || '')));
+  return h('section', {}, h('h2', {}, t('fetchTest')), panel);
+}
+
+async function runFetchTest() {
+  const url = String(state.fetchUrl || '').trim();
+  if (!url) return;
+  state.fetchBusy = true;
+  state.fetchResult = { text: t('testing') };
+  render();
+  try {
+    const response = await fetch('/api/fetch-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, format: state.fetchFormat }),
+    });
+    const data = await response.json().catch(() => ({}));
+    state.fetchResult = data.ok ? { text: data.text } : { error: data.error || 'fetch failed' };
+  } catch (error) {
+    state.fetchResult = { error: String(error) };
+  }
+  state.fetchBusy = false;
+  render();
+}
+
 function render() {
   document.getElementById('version').textContent = state.snap.version || 'dev';
   document.getElementById('revision').textContent = state.snap.revision;
@@ -619,7 +953,8 @@ function render() {
   document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
   renderBanner();
   const app = document.getElementById('app');
-  app.replaceChildren(overview(), backendsSection());
+  if (state.tab === 'fetch') app.replaceChildren(tabBar(), fetchSection());
+  else app.replaceChildren(tabBar(), overview(), backendsSection());
   bindFields(app);
   for (const issue of state.issues) {
     const input = app.querySelector(`[data-path="${issue.path}"]`);

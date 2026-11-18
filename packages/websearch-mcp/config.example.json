@@ -43,7 +43,8 @@
     },
     "tools": {
       "webSearchPlus": true,
-      "compactByDefault": false
+      "compactByDefault": false,
+      "webExtract": false
     },
     "backends": {
       "keenable": {
@@ -56,6 +57,12 @@
         "options": {
           "clientTitle": "websearch-mcp",
           "snippet_max_length": 2000
+        },
+        "fetch": {
+          "mode": "anonymous",
+          "endpoint": "",
+          "timeoutMs": 30000,
+          "options": {}
         }
       },
       "reddit": {
@@ -69,6 +76,12 @@
           "sort": "relevance",
           "time": "all",
           "subreddit": ""
+        },
+        "fetch": {
+          "mode": "anonymous",
+          "endpoint": "",
+          "timeoutMs": 30000,
+          "options": {}
         }
       },
       "x": {
@@ -80,6 +93,12 @@
         "dailyAttemptLimit": 0,
         "options": {
           "postsPerSearch": 25
+        },
+        "fetch": {
+          "mode": "session",
+          "endpoint": "",
+          "timeoutMs": 30000,
+          "options": {}
         }
       }
     },
@@ -88,6 +107,98 @@
       "statePath": "",
       "timeoutMs": 60000,
       "maxConcurrentReads": 2
+    },
+    "pageFetch": {
+      "routes": [
+        {
+          "kind": "http",
+          "enabled": true,
+          "timeoutMs": 20000,
+          "rules": [
+            {
+              "id": "network",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "network"
+                }
+              ]
+            },
+            {
+              "id": "timeout",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "timeout"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "browser",
+          "enabled": false,
+          "timeoutMs": 45000,
+          "rules": [
+            {
+              "id": "network",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "network"
+                }
+              ]
+            },
+            {
+              "id": "timeout",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "timeout"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "provider",
+          "enabled": false,
+          "timeoutMs": 30000,
+          "rules": [
+            {
+              "id": "network",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "network"
+                }
+              ]
+            },
+            {
+              "id": "timeout",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "timeout"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "providerId": "",
+      "overallTimeoutMs": 90000,
+      "maxRedirects": 5,
+      "maxBodyBytes": 5242880,
+      "maxOutputChars": 100000,
+      "maxRuleScanChars": 100000,
+      "allowPrivateNetworks": false,
+      "allowDelegatedFetching": false,
+      "browser": {
+        "context": "isolated",
+        "settleMs": 0,
+        "selectorWait": ""
+      }
     }
   },
   "credentials": {},

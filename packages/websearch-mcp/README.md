@@ -62,6 +62,11 @@ WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp   # stdio cl
   untouched and lists every problem by path; an accepted one writes `config.json.bak-<local time>`
   (five kept) and replaces the file atomically at mode 0600. The server watching that file reloads
   immediately, so the next `web_search` already uses what the page saved.
+- The page has **Search** and **Page fetch** tabs over one shared draft: the fetch tab edits route
+  order and enablement, per-route fallback rules, the one selected fetch provider (with its own access
+  mode, endpoint, timeout and options), the safety limits, and a user-triggered fetch test that takes a
+  URL and a required format. Fetch settings live in the same file, so a running server picks them up
+  through the same watcher.
 - A file that stops parsing keeps the previous configuration and says why on stderr.
 - When a `config.container.json` sits beside the file, every save rewrites it too: loopback endpoints
   become `host.containers.internal`, and the browser session file is mapped into `/host/home`. The
@@ -156,9 +161,28 @@ content, and optionally its top-level comments (depth is one level, `commentLimi
 Xiaohongshu backend in browser mode plus a browser endpoint; a disabled backend, a missing endpoint
 or a missing note token is reported instead of an empty note. |
 | `list_backends` | Every backend with its modes, cost tier, enabled state and whether a credential is present. It never enables anything. |
+| `web_extract` | Fetch **one** page: `url` plus a required `format` (`markdown` to read, `html` to inspect structure). Only one URL per call, never a crawl. Route order, provider selection, credentials and fallback rules are saved configuration. Returned page content is untrusted. **Hidden until `search.tools.webExtract` is `true`**: while it is off the tool is absent from `tools/list` instead of being advertised and refusing to run, and turning it on or off reloads through the SDK's `notifications/tools/list_changed`. |
 
 `compact: true` returns URL, title and date only, which is usually the difference between a usable
 context and a flooded one.
+
+## Page fetching
+
+Page fetching is the same core engine the DSH plugin uses: ordered routes (HTTP, shared browser, one
+selected provider), per-route fallback rules with three-valued conditions, and HTML or Markdown output.
+`search.tools.webExtract` defaults to `false`; with it off the tool is hidden while the configuration,
+credentials, settings page and library API stay available.
+
+```sh
+websearch-mcp --print-config > ~/.config/websearch-mcp/config.json   # includes pageFetch and tools.webExtract
+```
+
+Only public targets are fetched by default, and the HTTP transport pins the connection to the address
+the policy validated. Redirects are followed one hop at a time. A browser or provider route resolves
+the target elsewhere, so `pageFetch.allowDelegatedFetching` has to be switched on deliberately; the
+result then names that trust boundary. Both shipped fetch providers return native Markdown, so
+`format: "html"` is served by the HTTP or browser route, and a Markdown-only provider is skipped
+without a request.
 
 ## Protocol versions
 

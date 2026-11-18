@@ -128,6 +128,21 @@ websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打
 
 `compact: true` 只回 URL、标题和日期，通常就是一个还能用的上下文和一个被灌满的上下文的区别。
 
+## 页面抓取
+
+页面抓取与 DSH 插件共用同一个 core 引擎：有序路由（HTTP、共享浏览器、一个选定服务商）、按路由配置的
+回退规则（三值条件），输出 HTML 或 Markdown。`search.tools.webExtract` 默认 `false`；关闭时工具不会
+出现在 `tools/list` 里，而配置、凭证、设置页与库 API 仍然可用。
+
+```sh
+websearch-mcp --print-config > ~/.config/websearch-mcp/config.json   # 含 pageFetch 与 tools.webExtract
+```
+
+默认只抓公网目标，HTTP 传输会把连接绑定到策略校验过的地址；重定向逐跳跟随。浏览器或服务商在别处解析
+目标地址，所以必须显式打开 `pageFetch.allowDelegatedFetching`，结果里会写明这个信任边界。两个内置抓取
+服务商都只返回原生 Markdown，因此 `format: "html"` 由 HTTP 或浏览器路由提供，只支持 Markdown 的服务商
+会在不发请求的情况下被跳过。
+
 ## 协议版本
 
 线上协议交给[官方 TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/v2/)

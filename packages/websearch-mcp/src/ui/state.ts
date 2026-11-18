@@ -8,10 +8,20 @@ import {
   browserCredentialRef,
   catalog,
   defaultConfig,
+  CLOUDFLARE_CHALLENGE_PRESET,
+  DEFAULT_FALLBACK_RULES,
+  FETCH_BOUNDS,
+  FETCH_CONDITION_FIELDS,
+  FETCH_CONDITION_TYPES,
+  FETCH_FAILURE_KINDS,
+  FETCH_MATCH_OPERATORS,
+  STATUS_ERROR_PRESET,
+  fetchReadiness,
+  fetchReadinessProviders,
   parseConfig,
   validateConfig,
 } from '@nite07/search-core';
-import type { AccessMode, BackendDefinition, ConfigIssue, SearchConfig } from '@nite07/search-core';
+import type { AccessMode, BackendDefinition, ConfigIssue, FetchReadinessProblem, FetchReadinessProvider, SearchConfig } from '@nite07/search-core';
 
 /** One credential row: never the value, only where it came from and how long it is. */
 export interface CredentialState {
@@ -35,6 +45,19 @@ export interface SettingsSnapshot {
   companion: { path: string; active: boolean };
   /** Set when the file on disk does not validate; the page then opens on defaults so it can be repaired. */
   loadError?: string;
+  /** Page fetching: verified providers, readiness reasons, and the shared editor vocabulary. */
+  fetch: {
+    providerId: string;
+    providers: FetchReadinessProvider[];
+    problems: FetchReadinessProblem[];
+    ready: boolean;
+    bounds: typeof FETCH_BOUNDS;
+    conditionTypes: readonly string[];
+    conditionFields: readonly string[];
+    matchOperators: readonly string[];
+    failureKinds: readonly string[];
+    presets: { status: unknown; cloudflare: unknown; defaults: unknown };
+  };
 }
 
 export interface SaveResult {
@@ -225,6 +248,13 @@ export async function snapshot(path: string, env: NodeJS.ProcessEnv = process.en
     }
   }
   const stored = raw?.credentials ?? {};
+  // Fetch readiness is a read-only projection: it never calls a provider and never spends a request.
+  const configured = (id: string): boolean => {
+    const fromEnv = env[backendCredentialRef(id)];
+    return (typeof fromEnv === 'string' && fromEnv !== '') || (typeof stored[id] === 'string' && stored[id] !== '');
+  };
+  const fetchProviders = fetchReadinessProviders(config, catalog, configured);
+  const fetchProblems = fetchReadiness(config, fetchProviders);
   return {
     configPath: path,
     revision: file?.revision ?? 'missing',
@@ -235,6 +265,18 @@ export async function snapshot(path: string, env: NodeJS.ProcessEnv = process.en
     browser: credentialState('browser', browserCredentialRef(), null, stored, env),
     compactByDefault: raw?.compactByDefault ?? false,
     companion: { path: companionPath(path), active: Boolean(await readText(companionPath(path))) },
+    fetch: {
+      providerId: config.pageFetch.providerId,
+      providers: fetchProviders,
+      problems: fetchProblems,
+      ready: fetchProblems.length === 0,
+      bounds: FETCH_BOUNDS,
+      conditionTypes: FETCH_CONDITION_TYPES,
+      conditionFields: FETCH_CONDITION_FIELDS,
+      matchOperators: FETCH_MATCH_OPERATORS,
+      failureKinds: FETCH_FAILURE_KINDS,
+      presets: { status: STATUS_ERROR_PRESET, cloudflare: CLOUDFLARE_CHALLENGE_PRESET, defaults: DEFAULT_FALLBACK_RULES },
+    },
     ...(loadError ? { loadError } : {}),
   };
 }
