@@ -74,6 +74,37 @@ that store secrets:
 Anonymous modes never resolve a credential, and `parseConfig` drops saved `credentialRef` fields rather
 than letting a file redirect a lookup.
 
+## Configuration issues
+
+`validateConfig(value)` returns `ConfigIssue[]`. `path` and `message` are always populated, so a host
+that knows nothing about the newer fields still gets a readable English sentence per issue. The stable
+layer is optional:
+
+```ts
+interface ConfigIssue {
+  path: string;                    // dotted configuration path
+  message: string;                 // English fallback, complete on its own
+  code?: string;                   // stable cause, e.g. 'field.range' or 'browser.authRejected'
+  params?: Record<string, string | number>; // values for the localized sentence
+  action?: { target?: string };    // path/section to reveal when the value path is not enough
+}
+```
+
+Rules inside a route are validated by `validateRuleIssues(rules, routeKind, path)` and report deep
+paths such as `pageFetch.routes.0.rules.0.conditions.0.value`; `validateRules` remains the string-only
+compatibility wrapper. Route issues carry `params.kind`, so a settings page can name the route after it
+is reordered instead of showing an array index.
+
+## Save-time browser verification
+
+`verifyBrowserDependencies(config, options)` is the authoritative check a host runs before writing a
+configuration that enables browser-dependent features. It takes an optional `resolveToken`, an
+injectable `connect` transport (tests use this; production defaults to `chromium.connect`) and a
+`timeoutMs` total budget and an optional `signal`. Cancellation rejects with `BrowserVerificationAborted`
+and is never treated as a pass. `verifyBrowserEndpoint(endpoint, options)` runs the same bounded probe
+for one manual check. See [BROWSER-SESSIONS.md](../../docs/BROWSER-SESSIONS.md#save-time-endpoint-verification)
+for the protocol and cleanup guarantees.
+
 ## Results and failures
 
 `search()` always resolves with a report; it does not throw for a backend that failed:

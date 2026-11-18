@@ -3,8 +3,8 @@ import z from '@deepseek-ai/schemastery';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
-import { catalog, createPageFetchEngine, defaultConfig, fetchProblemText, fetchReadiness, fetchReadinessProviders, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseConfig, parseXCredentials, renderPageFetchReport, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
-import type { AccessMode, BackendOutcome, FetchFormat, PageFetchResult, RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
+import { BROWSER_VERIFICATION_TIMEOUT_MS, BrowserVerificationAborted, catalog, createPageFetchEngine, defaultConfig, fetchProblemText, fetchReadiness, fetchReadinessProviders, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseBrowserEndpoint, parseConfig, parseXCredentials, renderPageFetchReport, revision, SearchEngine, setUserAgent, validateConfig, verifyBrowserDependencies, verifyBrowserEndpoint } from '@nite07/search-core';
+import type { AccessMode, BackendOutcome, ConfigIssue, FetchFormat, PageFetchResult, RedditComment, RedditCredentials, SearchConfig, VerificationConnect } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { xhsBrowserRead } from './browser-read.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
@@ -27,7 +27,34 @@ export const Config=schema(defaultConfig());
 interface FetchRoute {path:string;methods:('GET'|'POST')[];requestBody:'buffered';fetch:(request:Request)=>Promise<Response>}
 interface Connection {fetch:{register:(route:FetchRoute)=>()=>Promise<void>}}
 interface Tools {register:(definition:{name:string;description:string;parameters:Record<string,unknown>;output:{schema:Record<string,unknown>;render:(args:unknown,value:any)=>{type:'text';text:string}[]};execute:(args:any,exec:{signal:AbortSignal})=>Promise<unknown>})=>()=>void}
-export async function apply(ctx:Context,raw:SearchConfig){
+/** Hosts that test the save gate inject a browser transport instead of opening a real socket. */
+export interface HostOptions {
+  /** Verification transport; production attaches to the configured Playwright server. */
+  browserConnect?: VerificationConnect;
+}
+
+/** One rejected save, carried to the HTTP boundary with its status and a structured body. */
+class HttpError extends Error {
+  constructor(readonly status: number, readonly payload: Record<string, unknown>, message: string) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+function rejection(status: number, code: string, message: string, extra: Record<string, unknown> = {}): HttpError {
+  return new HttpError(status, { error: { code, message, ...extra } }, message);
+}
+
+/** Validation and verification wording for a tool caller, with the paths preserved. */
+function issueSummary(issues: readonly ConfigIssue[]): string {
+  return issues.slice(0, 3).map(issue => `${issue.path}: ${issue.message}`).join(' ');
+}
+
+
+export function createPlugin(options: HostOptions = {}) {
+  return async function applyHost(ctx: Context, raw: SearchConfig) {
   // The library carries the caller's name on the wire; this host is the DSH plugin.
   setUserAgent(`dsh-search/${VERSION} (+${PROJECT_URL})`);
   const config=parseConfig(raw);
@@ -60,20 +87,103 @@ export async function apply(ctx:Context,raw:SearchConfig){
     try{const row=ctx.configEditor.configuration().find(item=>item.entry.options.id==='web');searchProvider=({...row?.inherited,...row?.override} as {searchProvider?:string}).searchProvider;}catch{/* Diagnostics only: never fail the page over a read. */}
     return {config:structuredClone(config),defaults:defaultConfig(),revision:currentRevision,catalog,active:{...(searchProvider?{searchProvider}:{}),isSelf:searchProvider==='nite-search'},credentials,browser:{credentialConfigured:browserInfo.configured,writable:browserInfo.writable},diagnostics:engine.diagnostics(),counters:Object.fromEntries(catalog.map(d=>[d.id,usage.counters()[`${d.id}-${config.backends[d.id]!.mode}`]??{attempts:0,day:new Date().toISOString().slice(0,10)}])),fetch:fetchState};
   }
-  async function operate(args:any,signal:AbortSignal):Promise<unknown>{
+  /**
+   * The authoritative save path shared by the settings page and `search_manage`.
+   *
+   * Validation is a definite rejection, a stale revision is a conflict, and only an enabled browser
+   * dependency is probed. The probe is bounded and happens before the configuration write, so a
+   * refused browser leaves the saved configuration untouched.
+   */
+  let browserCheckInFlight = false;
+  const storedBrowserToken = async (): Promise<string | undefined> => (await ctx.credentials.resolve(credentialRef(browserCredentialRef())))?.value;
+  async function saveConfig(config: unknown, expectedRevision: unknown, requestSignal?: AbortSignal): Promise<Record<string, unknown>> {
+    // The request's cancellation and the plugin's lifetime are one stop signal: a cancelled save must
+    // never reach the write, and a disposed plugin must not edit the profile.
+    const stop = requestSignal ? AbortSignal.any([lifetime.signal, requestSignal]) : lifetime.signal;
+    const cancelled = (): HttpError => rejection(400, 'save-cancelled', 'The save was cancelled before it was written.');
+    if (stop.aborted) throw cancelled();
+    if (expectedRevision !== currentRevision) {
+      throw rejection(409, 'revision-conflict', 'Configuration revision conflict. Reload before saving.', { revision: currentRevision });
+    }
+    const issues = validateConfig(config);
+    if (issues.length) throw rejection(400, 'validation-failed', `Configuration was rejected by validation: ${issueSummary(issues)}`, { issues });
+    const entry = ctx.fiber.entry;
+    if (!entry) throw rejection(500, 'save-unavailable', 'Configuration cannot be saved in this profile.');
+    const candidate = parseConfig(config);
+    let verification;
+    try {
+      verification = await verifyBrowserDependencies(candidate, {
+        resolveToken: storedBrowserToken,
+        ...(options.browserConnect ? { connect: options.browserConnect } : {}),
+        timeoutMs: BROWSER_VERIFICATION_TIMEOUT_MS,
+        signal: stop,
+      });
+    } catch (error) {
+      if (error instanceof BrowserVerificationAborted || stop.aborted) throw cancelled();
+      // A credential-store failure happens before any write; it needs its own actionable cause.
+      throw rejection(400, 'browser-credential-unavailable', 'The stored browser endpoint token could not be read. Fix the credential store and save again.');
+    }
+    if (stop.aborted) throw cancelled();
+    if (!verification.ok) {
+      throw rejection(400, 'browser-verification-failed', `Browser endpoint verification failed: ${issueSummary(verification.issues)}`, { issues: verification.issues, checks: verification.checks });
+    }
+    // The authoritative revision check happens inside the editor's file lock, against the actual
+    // current entry config and its inherited layer. Comparing our closure again would still race a
+    // save that landed during the five-second verification.
+    let conflict = false;
+    let changeReturned = false;
+    try {
+      await ctx.configEditor.edit(entry, current => {
+        if (stop.aborted) throw new Error('The save was cancelled before it was written.');
+        // The SDK's patch layer already replaces whole values with the effective raw config, so
+        // `current` is what the running instance validates: migrate/fill it, never merge the
+        // inherited layer again — that would resurrect a value the current patch replaced.
+        let actual: string | undefined;
+        try { actual = revision(parseConfig(current)); } catch { actual = undefined; }
+        if (actual !== expectedRevision) {
+          conflict = true;
+          throw new Error('Configuration revision conflict. Reload before saving.');
+        }
+        changeReturned = true;
+        return candidate as unknown as Record<string, unknown>;
+      });
+    } catch (error) {
+      if (conflict) throw rejection(409, 'revision-conflict', 'Configuration revision conflict. Reload before saving.', { revision: currentRevision });
+      // A cancellation before the callback returned cannot have written anything. A cancellation
+      // after it is an interrupted write whose outcome must be read back, not asserted.
+      if (stop.aborted && !changeReturned) throw cancelled();
+      if (stop.aborted) throw rejection(500, 'save-failed', 'The save was interrupted while writing. Read the saved state before retrying.');
+      throw rejection(500, 'save-failed', `The configuration write failed: ${errorMessage(error)}`);
+    }
+    return { saved: true, revision: revision(candidate), verified: verification.checks.length };
+  }
+
+  async function operate(args:any,signal:AbortSignal,origin:'host'|'tool'='tool'):Promise<unknown>{
     if(args?.action==='settings')return snapshot();
     if(args?.action==='activate'){
       const web=ctx.configEditor.entries().find(e=>e.options.id==='web');if(!web)throw new Error('Web provider entry is not addressable.');
       await ctx.configEditor.edit(web,current=>({...current,searchProvider:'nite-search',fetchProvider:'http'}));return {selected:'nite-search',fetchProvider:'http'};
     }
-    if(args?.action==='save'){
-      if(args.expectedRevision!==currentRevision)throw new Error('Configuration revision conflict. Reload before saving.');
-      const candidate=parseConfig(args.config);const entry=ctx.fiber.entry;if(!entry)throw new Error('Configuration cannot be saved in this profile.');
-      await ctx.configEditor.edit(entry,()=>candidate as unknown as Record<string,unknown>);return {saved:true};
-    }
+    if(args?.action==='save')return saveConfig(args.config,args.expectedRevision,signal);
     if(args?.action==='test'){
       if(typeof args.backendId!=='string'||!config.backends[args.backendId]?.enabled)throw new Error('Backend must be saved and enabled before testing.');
       return engine.search({query:args.query},signal,args.backendId);
+    }
+    if(args?.action==='verify-browser'){
+      // A manual, user-triggered check of the draft endpoint. The token is read from the credential
+      // store, never accepted from the caller, and the probe never navigates or creates a page.
+      if(args.token!==undefined||args.credential!==undefined||args.value!==undefined)throw new Error('This check uses the stored endpoint token; credentials are never accepted here.');
+      // An agent tool may only re-check the operator's saved endpoint. Only the settings page, which
+      // can already edit that field, may test the unsaved draft value.
+      const requested=args.endpoint===undefined?config.browser.endpoint:typeof args.endpoint==='string'?args.endpoint.trim():'';
+      if(origin==='tool'&&(requested===''||requested!==config.browser.endpoint))throw new Error('A managed browser check only accepts the saved shared browser endpoint.');
+      const endpoint=parseBrowserEndpoint(requested);
+      if(!endpoint)throw new Error('Use a WS(S) Playwright endpoint without credentials, query, or fragment.');
+      if(browserCheckInFlight)throw new Error('A browser connection check is already running.');
+      browserCheckInFlight=true;
+      try{return await verifyBrowserEndpoint(endpoint,{resolveToken:storedBrowserToken,...(options.browserConnect?{connect:options.browserConnect}:{}),timeoutMs:BROWSER_VERIFICATION_TIMEOUT_MS,signal:AbortSignal.any([lifetime.signal,signal])});}
+      catch(error){if(error instanceof BrowserVerificationAborted)throw new Error('The browser connection check was cancelled.');throw new Error('The stored browser endpoint token could not be read. Fix the credential store and try again.');}
+      finally{browserCheckInFlight=false;}
     }
     if(args?.action==='fetch-test'){
       // A user-triggered test: it runs the saved chain against one URL and reports the attempt trace.
@@ -187,12 +297,17 @@ export async function apply(ctx:Context,raw:SearchConfig){
 
   const connection=ctx.get('connection' as never) as unknown as Connection;
   const route=(path:string,methods:('GET'|'POST')[],handler:(request:Request)=>Promise<unknown>)=>ctx.effect(()=>connection.fetch.register({path:`/api/nite-search/${path}`,methods,requestBody:'buffered',fetch:async request=>{
-    try{return Response.json(await handler(request),{headers:{'Cache-Control':'no-store'}});}catch{return Response.json({error:'Search management operation failed. Check configuration, revision, credentials, and enabled state.'},{status:400,headers:{'Cache-Control':'no-store'}});}
+    // A rejected save carries its status and structured issues; any other failure is a definite
+    // operation error. Nothing here ever says "maybe saved": the client confirms state separately.
+    try{return Response.json(await handler(request),{headers:{'Cache-Control':'no-store'}});}catch(error){
+      if(error instanceof HttpError)return Response.json(error.payload,{status:error.status,headers:{'Cache-Control':'no-store'}});
+      return Response.json({error:{code:'operation-failed',message:errorMessage(error)}},{status:400,headers:{'Cache-Control':'no-store'}});
+    }
   }}));
   const body=async(request:Request)=>{const text=await request.text();if(text.length>262144)throw new Error('Request exceeds size limit.');return JSON.parse(text);};
-  route('settings',['GET','POST'],async r=>r.method==='GET'?snapshot():operate({...(await body(r)),action:'save'},r.signal));
-  route('action',['POST'],async r=>operate(await body(r),r.signal));
-  route('credential',['POST'],async r=>operate({...(await body(r)),action:'credential'},r.signal));
+  route('settings',['GET','POST'],async r=>r.method==='GET'?snapshot():operate({...(await body(r)),action:'save'},r.signal,'host'));
+  route('action',['POST'],async r=>operate(await body(r),r.signal,'host'));
+  route('credential',['POST'],async r=>operate({...(await body(r)),action:'credential'},r.signal,'host'));
 
   /** Resolve the Reddit backend into the module's call context; never falls back between modes. */
   async function redditContext(signal: AbortSignal) {
@@ -281,7 +396,10 @@ export async function apply(ctx:Context,raw:SearchConfig){
     const result:PageFetchResult=await fetchEngine.fetchPage({url:String(args.url??''),format:args.format as FetchFormat},AbortSignal.any([lifetime.signal,exec.signal]));
     return {...result,text:renderPageFetchReport(result)};
   }}));
-  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},scope:{type:'string',enum:['browser'],description:'Manage the shared browser token instead of a backend credential.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
+  ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings; a save rejects validation problems and probes only enabled browser endpoints before writing. verify-browser checks one endpoint against the stored token. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','verify-browser','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},endpoint:{type:'string',description:'Draft browser endpoint for verify-browser; the stored token is used, never a credential argument.'},scope:{type:'string',enum:['browser'],description:'Manage the shared browser token instead of a backend credential.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
   ctx.effect(()=>tools.register({name:'backend_status',description:'Report which search backends are enabled, what each one still needs, and how its most recent call went. Use it instead of reading the whole configuration when you need to know what is available, why a search returned nothing, or which backend refused and how. Returns per-backend access mode, cost tier, whether a credential is stored (never its value), today\'s attempt count and the last outcome with its error, plus whether this plugin is the active search provider and whether the shared browser endpoint is set. Read-only: nothing is enabled, disabled or spent.',parameters:{type:'object',properties:{backend:{type:'string',description:'Backend id to inspect in full: every access mode with its cost tier and limits, the option fields, the current configuration row and the last outcome. Omit to list the enabled backends only.'}}},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:String((value as {text?:string}).text??'No backend status returned.')}]},execute:(args:any)=>status(args??{})}));
+  };
 }
+
+export const apply = createPlugin();
 export { defaultConfig, validateConfig };

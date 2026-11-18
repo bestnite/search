@@ -115,3 +115,49 @@ One failure was reproduced deliberately: a token that differs from the container
 - A `xiaohongshu_note` call through the DSH tool surface: the backend-enabled check, the credential lookup from the store, the picture download into the scratch directory and the rendered block.
 - The **Shared browser** section of the settings page in a real browser; it rests on code review and unit tests.
 - Anything on the site beyond these reads. No search result was clicked, nothing was liked, no note-level action was taken.
+
+## Settings consistency and save gate (2026-11-18)
+
+Automated only; no rendered page was inspected. The deployment edge still rejects this session's
+automation browser, so visual layout, light/dark parity, real keyboard flow and the actual focus jump
+remain for a human pass in the live host.
+
+What the tests now assert (core + dsh-search suites, injected browser transport, no sockets):
+
+- `ConfigIssue` keeps `path`/`message` complete and adds optional `code`, `params` and
+  `action.target`; malformed saves (non-object config, null routes, unknown rule fields, out-of-range
+  numbers) still produce paths instead of exceptions.
+- Route issues carry `params.kind` and keep their indexed path, so a reordered browser route is still
+  named "browser". Deep rule/condition paths (for example
+  `pageFetch.routes.0.rules.0.conditions.0`) are reported with condition codes.
+- The presenter maps provider fetch fields to the Page fetch tab, `browser.*` to the Browser tab,
+  fetch-only browser context/settle/selector to the Page fetch tab, and honours an issue's
+  `action.target`.
+- The save route returns `409 / revision-conflict`, `400 / validation-failed` with structured issues,
+  `400 / browser-verification-failed` with structured issues, or `400 / save-cancelled`, and never
+  writes on a rejection.
+- Revision is re-checked inside the editor callback against the effective current entry after schema
+  migration/default filling, never by merging the inherited layer back (patch values replace whole
+  values): a partial saved entry and a non-default inherited layer are not false conflicts, and a save
+  that completes during another save's verification wins (the late save gets 409, one write remains).
+- A save cancelled before it starts or during verification writes nothing; an aborted browser check
+  rejects and closes a connection that arrives late.
+- The page's save state machine is an executable pure function: 200/read-back match is saved, 200 with
+  a different read-back is a conflict, 400 is a definite rejection, 5xx is only classified after a
+  read-back, transport failure is saved/unconfirmed, and a failed read-back is `state-unknown` rather
+  than a claim that nothing was written.
+- A provider fetch field, the fetch-provider radio group and a backend card hidden by the backend
+  filter are executable focus-resolver tests: the resolver walks to the closest mounted container,
+  unfolds its details, and the page clears the filter before retrying instead of dropping the focus.
+- The save gate groups identical endpoint/token checks, uses the shared endpoint before a backend's
+  own fallback, never borrows a search fallback for the fetch route, treats auth rejection,
+  unreachable, protocol mismatch, timeout and context failure as distinct causes, closes a context
+  that arrives after the deadline, bounds token resolution and cleanup inside the total budget, and
+  saves offline with no probe when every dependent is disabled.
+- The stored token is sent as a bearer header, never returned in a snapshot, issue, check or save
+  response. `search_manage` may only re-check the saved endpoint; an unsaved draft endpoint is
+  available only through the authenticated settings route. Credential arguments are rejected.
+
+Still unverified: the rendered page, the five-second wall-clock behaviour against a real slow
+container, and the live host's revision/edit race. Those need the real GUI and a real browser
+container.

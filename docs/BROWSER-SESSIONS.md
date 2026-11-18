@@ -64,6 +64,32 @@ maintenance behind in-flight reads and moves its save clock only after a save ac
   but a callback stuck outside the browser is not force-cancelled — `close()` still returns after its
   bound.
 
+## Save-time endpoint verification
+
+The settings save path does not use `BrowserSession`, and must not: a save cannot disturb the page a
+site reader or the VNC keeper owns. `verifyBrowserDependencies(config)` in
+`packages/core/src/browser-verification.ts` opens its own client instead:
+
+- It collects every **enabled** browser dependency: search backends whose saved mode is `browser`, and
+  the page-fetch `browser` route. It uses the same effective-endpoint rules as the readers — the shared
+  endpoint wins and a search backend's own endpoint is only the fallback; the fetch browser route uses
+  the shared endpoint only.
+- Identical endpoint/token pairs are grouped, so two dependents on one browser cause one connection.
+- For each group it attaches, creates one isolated context, closes that context, then disconnects.
+  `close()` on a connected browser releases this connection and the contexts it created; the browser
+  server and other clients stay alive. It never navigates or sends a site or business request.
+- The bound is one total deadline for the whole save (about five seconds), covering the token read,
+  the connection, context creation and bounded cleanup. A resource that arrives after the deadline is
+  closed on arrival. A timeout is a refusal, never a pass.
+- The request signal and the plugin lifetime cancel the check; cancellation is a refusal, and a late
+  connection is still cleaned up.
+- Failures are classified into stable codes: `browser.endpoint.missing`, `browser.endpoint.invalid`,
+  `browser.authRejected`, `browser.unreachable`, `browser.protocolMismatch`, `browser.timeout` and
+  `browser.contextFailed`. A failure produces one actionable issue per dependent switch.
+- No enablement means no network access at all, so browser settings can be saved offline while every
+  dependent is off.
+- A successful check only proves the endpoint and token work. It does not prove any site login.
+
 ## API notes
 
 `BrowserSession.read(callback, signal?)` is the transaction entry point; its callback receives only

@@ -49,7 +49,9 @@ web_extract(url, format)   format 必填：markdown 用来读，html 用来看�
 dsh plugin add @nite07/dsh-search
 ```
 
-然后打开 **设置 → 网页搜索**，挑后端，保存。完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh.md)。
+然后打开 **设置 → 网页搜索**，挑后端，保存。设置页用「搜索」「浏览器」「页面抓取」三个页签编辑同一份草稿；
+保存启用浏览器搜索后端或抓取浏览器路由的配置前，会先用有界、不导航的连接验证端点和已保存令牌。
+完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh.md)。
 
 **MCP 客户端**
 

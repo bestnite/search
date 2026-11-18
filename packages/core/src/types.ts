@@ -92,4 +92,23 @@ export interface BackendOutcome {
 export interface SearchResult {
   sources: Source[]; content: string; truncated: boolean; outcomes: BackendOutcome[]; cached: boolean;
 }
-export interface ConfigIssue { path: string; message: string }
+/** Stable parameters a settings page can interpolate into a localized issue sentence. */
+export type ConfigIssueParams = Record<string, string | number>;
+/**
+ * Where a settings page should take the user when the issue is clicked. `target` is a configuration
+ * path or section id; it is deliberately a path rather than a tab name so the library stays free of
+ * host navigation. Absent means the issue's own `path` is the target.
+ */
+export interface ConfigIssueAction { target?: string }
+/**
+ * One rejected value. `path` and `message` are the original contract and stay complete on their own:
+ * a host that knows nothing about codes still gets a readable English sentence per issue. `code` and
+ * `params` are the stable, translatable layer, and `action` names the control to reveal.
+ */
+export interface ConfigIssue {
+  path: string;
+  message: string;
+  code?: string;
+  params?: ConfigIssueParams;
+  action?: ConfigIssueAction;
+}

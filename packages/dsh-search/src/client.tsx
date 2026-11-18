@@ -5,22 +5,23 @@ import zh from '../locale/zh.json';
 import {
   catalog, CLOUDFLARE_CHALLENGE_PRESET, DEFAULT_FALLBACK_RULES, FETCH_BOUNDS, FETCH_CONDITION_FIELDS, FETCH_CONDITION_TYPES,
   FETCH_FAILURE_KINDS, FETCH_MATCH_OPERATORS, LANGUAGES, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS, REGIONS,
-  STATUS_ERROR_PRESET, defaultConfig, validateConfig,
+  STATUS_ERROR_PRESET, defaultConfig, fetchReadiness, fetchReadinessProviders, parseBrowserEndpoint, validateConfig,
 } from '@nite07/search-core/static';
 import type {
   BackendDefinition, ConfigIssue, FetchConditionField, FetchFallbackCondition, FetchFallbackRule, FetchMatchOperator,
   FetchRouteConfig, SearchConfig,
 } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
+import { browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, routeKindForPath, shouldResetBackendFilter } from './presenter';
+import type { SaveReadback, SaveResponse } from './presenter';
 import { blockersOf, visible } from './visibility';
-import type { FetchProblem, FetchProviderInfo, SettingsSnapshot } from './types';
+import type { FetchProviderInfo, SettingsSnapshot } from './types';
 
 const API = '/api/nite-search';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS] };
 const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
-const fieldId = (path: string) => `nite-search-${path.replace(/[^a-z0-9-]/gi, '-')}`;
 function get(value: any, path: string): any { return path.split('.').reduce((v, k) => v?.[k], value); }
 function set(value: SearchConfig, path: string, next: unknown): SearchConfig {
   const result = clone(value); const keys = path.split('.'); const last = keys.pop()!;
@@ -34,10 +35,21 @@ function redact(config: SearchConfig): SearchConfig {
   }
   return output;
 }
+
+/** One request failure with the HTTP status and structured body kept, so save states stay distinct. */
+class RequestError extends Error {
+  constructor(readonly status: number, readonly payload: any) {
+    super(payload?.error?.message || `HTTP ${status}`);
+    this.name = 'RequestError';
+  }
+}
+
 async function request(path: string, body?: unknown): Promise<any> {
   const response = await fetch(`${API}/${path}`, { credentials: 'same-origin', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  let payload: any;
+  try { payload = await response.json(); } catch { payload = undefined; }
+  if (!response.ok) throw new RequestError(response.status, payload);
+  return payload;
 }
 
 /** The build wraps this module once in the DSH lazy module factory. */
@@ -57,6 +69,7 @@ export function createClient(React: any) {
       ctx.effect(() => ctx.locale.register('nite.search', 'zh', zhUi));
       const t = ctx.locale.bind('nite.search');
       const tr = (key: string, vars: Record<string, string | number>) => String(t(key)).replace(/\{\{(\w+)\}\}/g, (_m: string, name: string) => String(vars[name] ?? ''));
+      const known = (key: string): boolean => String(t(key)) !== key;
       function Page() {
         const locale = React.useSyncExternalStore((fn: () => void) => ctx.locale.subscribe(fn), () => ctx.locale.getSnapshot());
         const lang = locale.active.startsWith('zh') ? 'zh' : 'en';
@@ -79,47 +92,101 @@ export function createClient(React: any) {
         const [backendFilter, setBackendFilter] = React.useState('all');
         const [confirming, setConfirming] = React.useState(null as { kind: string; backendId?: string } | null);
         const [tab, setTab] = React.useState('behavior');
-        const [pendingFocus, setPendingFocus] = React.useState('');
+        const [pendingFocus, setPendingFocus] = React.useState(null as { path: string; nonce: number } | null);
+        const [verification, setVerification] = React.useState(null as { endpoint: string; tokenEpoch: number; source: 'manual' | 'save'; ok: boolean; code?: string; durationMs: number; at: number } | null);
+        const [tokenEpoch, setTokenEpoch] = React.useState(0);
+        const [saveError, setSaveError] = React.useState(null as { code: string; message: string } | null);
         const summary = React.useRef(null as HTMLDivElement | null);
         const dirty = !!snapshot && !same(draft, snapshot.config);
         const definitions: BackendDefinition[] = snapshot?.catalog || catalog;
         const enabledSaved = definitions.filter(def => def.status === 'documented' && snapshot?.config.backends[def.id]?.enabled);
         React.useEffect(() => { let live = true; request('settings').then((value: SettingsSnapshot) => { if (live) { setSnapshot(value); setDraft(clone(value.config)); } }).catch(() => { if (live) { setNotice('loadFailed'); setFailed(true); } }); return () => { live = false; }; }, []);
         React.useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
-        React.useEffect(() => { if (issues.length) summary.current?.focus(); }, [issues]);
+        const fetchRoutesPath = 'pageFetch.routes';
         function update(path: string, value: unknown) {
           setDraft((previous: SearchConfig) => {
             let next = set(previous, path, value);
             const match = /^backends\.([^.]+)\.mode$/.exec(path);
-            if (match) { const endpoint = definitions.find(def => def.id === match[1])?.modes.find(mode => mode.mode === value)?.endpoint; if (endpoint) next = set(next, `backends.${match[1]}.endpoint`, endpoint); }
+            if (match) {
+              const definition = definitions.find(def => def.id === match[1]);
+              const endpoint = definition?.modes.find(mode => mode.mode === value)?.endpoint;
+              if (endpoint) next = set(next, `backends.${match[1]}.endpoint`, endpoint);
+            }
             return next;
           });
           setNotice('');
         }
+        /** The label of an editable control, independent of any validation issue. */
         function label(path: string) {
-          const option = /^backends\.([^.]+)\.options\.(.+)$/.exec(path);
-          if (option) return definitions.find(def => def.id === option[1])?.options.find(field => field.key === option[2])?.label[lang] || t('invalidField');
+          const option = /^backends\.[^.]+\.options\.(.+)$/.exec(path);
+          if (option) return definitions.find(def => def.id === /^backends\.([^.]+)\./.exec(path)?.[1])?.options.find(field => field.key === option[1])?.label[lang] || t('invalidField');
           return t(`field.${path.replace(/^backends\.[^.]+\./, 'backend.')}`);
         }
-        /** Reveal the tab that owns a path, then reveal its section and focus the control. */
+        const titleOf = (id: string | number | undefined): string => definitions.find(def => def.id === String(id))?.title || String(id ?? '');
+        /** Localize one issue from its stable code; the server's English sentence is the fallback. */
+        function issueText(issue: ConfigIssue): string {
+          if (!issue.code) return issue.message;
+          const params: Record<string, string | number> = { ...(issue.params || {}) };
+          if (typeof params.kind === 'string') params.kindLabel = t(`fetchRoute.${params.kind}`);
+          if (typeof params.provider === 'string') params.providerLabel = titleOf(params.provider);
+          if (typeof params.backend === 'string') params.backendLabel = titleOf(params.backend);
+          if (typeof params.route === 'string') params.routeLabel = t(`fetchRoute.${params.route}`);
+          const key = `issue.${issue.code}`;
+          return known(key) ? tr(key, params) : issue.message;
+        }
+        /** A readable name for the field an issue points at, including route kind and provider. */
+        function pathLabel(path: string): string {
+          const route = /^pageFetch\.routes\.(\d+)(?:\.(.+))?$/.exec(path);
+          if (route) {
+            const kind = routeKindForPath(draft.pageFetch.routes, path);
+            const kindLabel = kind ? t(`fetchRoute.${kind}`) : t('notSpecified');
+            const tail = route[2] || '';
+            if (!tail) return tr('issuePath.route', { kind: kindLabel });
+            if (tail === 'enabled') return tr('issuePath.routeField', { kind: kindLabel, field: t('fetchEnabled') });
+            if (tail === 'timeoutMs') return tr('issuePath.routeField', { kind: kindLabel, field: t('fetchTimeout') });
+            if (tail.startsWith('rules')) return tr('issuePath.routeField', { kind: kindLabel, field: t('fetchRules') });
+            return tr('issuePath.routeField', { kind: kindLabel, field: t('invalidField') });
+          }
+          const fetchField = /^backends\.([^.]+)\.fetch\.(.+)$/.exec(path);
+          if (fetchField) {
+            const fieldKey = fetchField[2] === 'mode' ? 'fetchMode' : fetchField[2] === 'endpoint' ? 'fetchEndpoint' : fetchField[2] === 'timeoutMs' ? 'fetchTimeout' : 'advancedOptions';
+            return tr('issuePath.backendField', { backend: titleOf(fetchField[1]), field: t(fieldKey) });
+          }
+          const backendField = /^backends\.([^.]+)\.(.+)$/.exec(path);
+          if (backendField) {
+            const fieldKey = `field.backend.${backendField[2]}`;
+            const fieldLabel = known(fieldKey) ? t(fieldKey) : t(`field.${path.replace(/^backends\.[^.]+\./, 'backend.')}`);
+            return tr('issuePath.backendField', { backend: titleOf(backendField[1]), field: fieldLabel });
+          }
+          const fieldKey = `field.${path}`;
+          return known(fieldKey) ? t(fieldKey) : t('invalidField');
+        }
+        /** Reveal the tab that owns a path, then its section, details and the actual control. */
         function focusPath(path: string) {
-          if (path === 'backends' || path === 'sec-backends') { setTab('backends'); setPendingFocus('sec-backends'); return; }
-          if (path.startsWith('pageFetch') || path === 'sec-fetch-routes') { setTab('fetch'); setPendingFocus(path === 'pageFetch.routes' ? 'sec-fetch-routes' : path); return; }
-          const reliability = path.startsWith('retry.') || path.startsWith('breaker.') || path.startsWith('cache.') || path === 'diagnostics.enabled' || path === 'diagnostics.maxEntries';
-          setTab(path.startsWith('backends.') || path.startsWith('browser.') ? 'backends' : reliability ? 'reliability' : 'behavior');
-          setPendingFocus(path);
+          const destination = focusForPath(path);
+          setTab(destination.tab);
+          setPendingFocus((previous: { path: string; nonce: number } | null) => ({ path: destination.target, nonce: (previous?.nonce || 0) + 1 }));
+        }
+        function focusIssue(issue: ConfigIssue) {
+          const destination = focusForIssue(issue);
+          setTab(destination.tab);
+          setPendingFocus((previous: { path: string; nonce: number } | null) => ({ path: destination.target, nonce: (previous?.nonce || 0) + 1 }));
         }
         React.useEffect(() => {
           if (!pendingFocus) return;
-          const target = document.getElementById(fieldId(pendingFocus)) || document.getElementById(pendingFocus);
-          if (target) {
-            let node: HTMLElement | null = target;
-            while (node) { const wrapper: HTMLDetailsElement | null = node.closest('details'); if (!wrapper) break; wrapper.open = true; node = wrapper.parentElement; }
-            target.scrollIntoView({ block: 'center' });
-            target.focus();
+          const target = focusRenderedControl(document as unknown as Parameters<typeof focusRenderedControl>[0], pendingFocus.path);
+          if (!target) {
+            // A backend filter can hide the card that owns the issue. Clear it and let the effect run
+            // again after the rerender instead of dropping the focus request.
+            if (shouldResetBackendFilter(pendingFocus.path, backendQuery, backendFilter)) {
+              setBackendQuery('');
+              setBackendFilter('all');
+              return;
+            }
           }
-          setPendingFocus('');
-        }, [pendingFocus, tab]);
+          setPendingFocus(null);
+        }, [pendingFocus, tab, backendQuery, backendFilter]);
+        React.useEffect(() => { if (issues.length) summary.current?.focus(); }, [issues]);
         React.useEffect(() => {
           if (!enabledSaved.length) { if (testBackend) setTestBackend(''); return; }
           if (!enabledSaved.some(def => def.id === testBackend)) setTestBackend(enabledSaved[0]!.id);
@@ -132,9 +199,9 @@ export function createClient(React: any) {
           const props = { id, disabled: !!pending || disabled, 'aria-invalid': errors.length > 0, 'aria-describedby': `${id}-help${errors.length ? ` ${id}-error` : ''}` };
           return <div className={`ns-field ${type === 'checkbox' ? 'ns-check' : ''}`} key={path}>
             <label htmlFor={id}>{customLabel || label(path)}</label>
-            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path.includes('.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
+            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
             <small id={`${id}-help`}>{help || t(`help.${path.replace(/^backends\.[^.]+\./, 'backend.')}`)}{type === 'number' && min !== undefined && max !== undefined ? ` (${min}–${max})` : ''}</small>
-            {!!errors.length && <small className="ns-error" id={`${id}-error`}>{type === 'number' && min !== undefined && max !== undefined ? tr('expectedRange', { min, max }) : t('invalidField')}<button type="button" className="ns-link" onClick={() => focusPath(path)}>{t('showField')}</button></small>}
+            {!!errors.length && <small className="ns-error" id={`${id}-error`}>{issueText(errors[0]!)}<button type="button" className="ns-link" onClick={() => focusIssue(errors[0]!)}>{t('showField')}</button></small>}
           </div>;
         }
         /** Renders a field group in the declared order, dropping members hidden by their owning switch. */
@@ -146,17 +213,102 @@ export function createClient(React: any) {
           return shown.length ? <section className="ns-card" aria-labelledby={ids[0]}><h3 id={ids[0]}>{t(title)}</h3><div className="ns-grid">{shown}</div></section> : null;
         }
         async function refresh() { const next = await request('settings') as SettingsSnapshot; setSnapshot(next); return next; }
+
+        // Fetch readiness is derived from the draft, not from the last saved snapshot: moving a switch
+        // must answer "would this work if I saved now" without a save round-trip.
+        const draftFetchRows = snapshot ? fetchReadinessProviders(draft, definitions, id => !!snapshot.credentials[id]?.configured) : [];
+        const fetchProviders: FetchProviderInfo[] = draftFetchRows.map(row => {
+          const definition = definitions.find(item => item.id === row.id);
+          return {
+            ...row,
+            options: definition?.fetch?.options || [],
+            docs: definition?.fetch?.docs || '',
+            verifiedAt: definition?.fetch?.verifiedAt || '',
+            ...(definition?.fetch?.notes ? { notes: definition.fetch.notes } : {}),
+          };
+        });
+        const fetchProblems = snapshot ? fetchReadiness(draft, draftFetchRows) : [];
+        const fetchReady = fetchProblems.length === 0;
+        const selectedFetchProvider: FetchProviderInfo | undefined = fetchProviders.find((provider: FetchProviderInfo) => provider.id === draft.pageFetch.providerId);
+        const browserRouteIndex = draft.pageFetch.routes.findIndex((route: FetchRouteConfig) => route.kind === 'browser');
+        const browserRoute = browserRouteIndex >= 0 ? draft.pageFetch.routes[browserRouteIndex]! : undefined;
+        const browserSearchDependents = definitions.filter(def => draft.backends[def.id]?.enabled && draft.backends[def.id]?.mode === 'browser');
+        const browserEndpointFor = (id: string): { endpoint: string; source: 'shared' | 'own' | 'missing' } => {
+          if (draft.browser.endpoint) return { endpoint: draft.browser.endpoint, source: 'shared' };
+          const own = draft.backends[id]?.endpoint;
+          return own ? { endpoint: own, source: 'own' } : { endpoint: '', source: 'missing' };
+        };
+        const browserDependents = [
+          ...browserSearchDependents.map(def => {
+            const effective = browserEndpointFor(def.id);
+            return { key: `backend-${def.id}`, kind: 'search' as const, title: def.title, endpoint: effective.endpoint, source: effective.source, jump: `backends.${def.id}.mode`, fix: effective.endpoint ? undefined : 'browser.endpoint' };
+          }),
+          ...(browserRoute?.enabled ? [{
+            key: 'fetch-browser', kind: 'fetch' as const, title: t('fetchRoute.browser'), endpoint: draft.browser.endpoint, source: draft.browser.endpoint ? 'shared' as const : 'missing' as const,
+            jump: `${fetchRoutesPath}.${browserRouteIndex}.enabled`, fix: draft.browser.endpoint ? undefined : 'browser.endpoint', delegated: draft.pageFetch.allowDelegatedFetching,
+          }] : []),
+        ];
         async function save() {
-          const errors = validateConfig(draft); setIssues(errors); if (errors.length || !snapshot) return;
+          const merged = [...validateConfig(draft), ...browserGateIssues(draft)];
+          const errors = merged.filter((issue, index) => merged.findIndex(other => other.path === issue.path && other.code === issue.code) === index);
+          setIssues(errors); if (errors.length || !snapshot) return;
           const intended = clone(draft); const revision = snapshot.revision;
-          setPending('save'); setNotice('saving'); setFailed(false);
+          setPending('save'); setNotice('saving'); setFailed(false); setSaveError(null);
+          let response: SaveResponse | undefined;
+          let transportError = false;
           try {
-            // Never replay a mutation: a plugin restart may terminate the response after commit.
-            try { await request('settings', { config: intended, expectedRevision: revision }); } catch { /* Confirm the actual saved state below. */ }
-            const next = await refresh();
-            if (!same(next.config, intended)) { setFailed(true); setNotice(next.revision !== revision ? 'conflict' : 'saveUnconfirmed'); }
-            else { setDraft(clone(next.config)); setNotice('saved'); }
-          } catch { setFailed(true); setNotice('saveUnconfirmed'); } finally { setPending(''); }
+            // Never replay a mutation: a restart may terminate the response after a commit.
+            const result = await request('settings', { config: intended, expectedRevision: revision });
+            response = { status: 200, payload: result };
+          } catch (error) {
+            if (error instanceof RequestError) response = { status: error.status, payload: error.payload };
+            else transportError = true;
+          }
+          // A definite rejection (400) happened before the write and needs no read-back. Everything
+          // else, including a 5xx or a lost response, is classified only after reading the saved state.
+          let next: SettingsSnapshot | undefined;
+          let readback: SaveReadback | undefined;
+          if (!response || response.status === 200 || response.status === 409 || response.status >= 500) {
+            try { next = await refresh(); readback = { ok: true, matches: same(next.config, intended) }; } catch { readback = { ok: false }; }
+          }
+          const outcome = classifySaveOutcome({
+            ...(response ? { response } : {}),
+            ...(transportError ? { transportError: true } : {}),
+            ...(readback ? { readback } : {}),
+          });
+          switch (outcome.kind) {
+            case 'saved': {
+              if (next) setDraft(clone(next.config));
+              setIssues([]); setSaveError(null);
+              const verified = Boolean(response?.payload?.verified);
+              setNotice(verified ? 'savedVerified' : 'saved');
+              if (verified) setVerification({ endpoint: intended.browser.endpoint.trim(), tokenEpoch, source: 'save', ok: true, durationMs: 0, at: Date.now() });
+              break;
+            }
+            case 'rejected': {
+              setFailed(true); setIssues(outcome.issues);
+              setSaveError({ code: outcome.code, message: String(response?.payload?.error?.message || '') });
+              setNotice(outcome.code === 'browser-verification-failed' ? 'browserVerificationFailed' : outcome.code === 'save-cancelled' ? 'saveCancelled' : 'saveRejected');
+              break;
+            }
+            case 'conflict': {
+              setFailed(true); setIssues([]); setSaveError(null); setNotice('conflict');
+              break;
+            }
+            case 'write-failed': {
+              setFailed(true); setSaveError({ code: outcome.code, message: outcome.message }); setNotice('saveFailed');
+              break;
+            }
+            case 'unconfirmed': {
+              setFailed(true); setSaveError(null); setNotice('saveUnconfirmed');
+              break;
+            }
+            case 'state-unknown': {
+              setFailed(true); setSaveError(null); setNotice('saveStateUnknown');
+              break;
+            }
+          }
+          setPending('');
         }
         async function action(actionName: string, extra: Record<string, unknown> = {}) {
           setPending(actionName); setFailed(false); setNotice('working');
@@ -173,8 +325,19 @@ export function createClient(React: any) {
         async function browserCredential(remove: boolean) {
           if (!snapshot) return;
           setPending('credential-browser'); setFailed(false); setNotice('working');
-          try { await request('credential', { scope: 'browser', ...(remove ? { remove: true } : { value: secrets.browser }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); await refresh(); setNotice('credentialSaved'); }
+          try { await request('credential', { scope: 'browser', ...(remove ? { remove: true } : { value: secrets.browser }) }); setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); setTokenEpoch((previous: number) => previous + 1); await refresh(); setNotice('credentialSaved'); }
           catch { setSecrets((previous: Record<string, string>) => ({ ...previous, browser: '' })); setFailed(true); setNotice('credentialFailed'); } finally { setPending(''); }
+        }
+        /** A manual check of the draft endpoint. Nothing runs on render, and no token is ever sent. */
+        async function verifyConnection() {
+          const endpoint = draft.browser.endpoint.trim();
+          if (!endpoint || !snapshot) return;
+          setPending('verify-browser'); setFailed(false); setNotice('working');
+          try {
+            const result = await request('action', { action: 'verify-browser', endpoint });
+            setVerification({ endpoint, tokenEpoch, source: 'manual', ok: Boolean(result.ok), ...(result.code ? { code: result.code } : {}), durationMs: Number(result.durationMs) || 0, at: Date.now() });
+            if (result.ok) { setNotice('connectionVerified'); } else { setFailed(true); setNotice('connectionFailed'); }
+          } catch { setFailed(true); setNotice('connectionCheckFailed'); } finally { setPending(''); }
         }
         function importConfig() {
           try { const parsed = JSON.parse(importText); const errors = validateConfig(parsed); setIssues(errors); if (errors.length) return; setDraft(clone(parsed)); setImportText(''); setNotice('imported'); setFailed(false); }
@@ -194,24 +357,25 @@ export function createClient(React: any) {
           if (type === 'match') return { type: 'match', field: 'text', operator: 'contains', value: '', caseSensitive: false };
           return { type: type === 'timeout' ? 'timeout' : 'network' };
         }
-        function conditionEditor(routeIndex: number, conditionIndex: number, condition: FetchFallbackCondition, routeKind: string, replaceRule: (at: number, change: (rule: FetchFallbackRule) => FetchFallbackRule) => void) {
-          const patch = (next: FetchFallbackCondition) => replaceRule(routeIndex, item => ({ ...item, conditions: item.conditions.map((entry, at) => at === conditionIndex ? next : entry) }));
-          const remove = () => replaceRule(routeIndex, item => ({ ...item, conditions: item.conditions.filter((_entry, at) => at !== conditionIndex) }));
+        function conditionEditor(routeIndex: number, ruleIndex: number, conditionIndex: number, condition: FetchFallbackCondition, routeKind: string, replaceRule: (at: number, change: (rule: FetchFallbackRule) => FetchFallbackRule) => void) {
+          const conditionPath = `${fetchRoutesPath}.${routeIndex}.rules.${ruleIndex}.conditions.${conditionIndex}`;
+          const patch = (next: FetchFallbackCondition) => replaceRule(ruleIndex, item => ({ ...item, conditions: item.conditions.map((entry, at) => at === conditionIndex ? next : entry) }));
+          const remove = () => replaceRule(ruleIndex, item => ({ ...item, conditions: item.conditions.filter((_entry, at) => at !== conditionIndex) }));
           const types = (FETCH_CONDITION_TYPES as readonly string[]).filter(type => type !== 'api-status' || routeKind === 'provider');
-          return <div className="ns-condition" key={conditionIndex}>
-            <select aria-label={t('fetchConditionType')} value={condition.type} disabled={!!pending} onChange={(event: any) => patch(defaultCondition(event.target.value))}>
+          return <div className="ns-condition" id={fieldId(conditionPath)} tabIndex={-1} key={conditionIndex}>
+            <select aria-label={t('fetchConditionType')} id={fieldId(`${conditionPath}.type`)} value={condition.type} disabled={!!pending} onChange={(event: any) => patch(defaultCondition(event.target.value))}>
               {types.map(type => <option key={type} value={type}>{t(`condition.${type}`)}</option>)}
             </select>
-            {(condition.type === 'status' || condition.type === 'api-status') && <input aria-label={t('fetchConditionStatuses')} value={condition.statuses.join(', ')} placeholder="404, 500" disabled={!!pending} onChange={(event: any) => patch({ type: condition.type as 'status' | 'api-status', statuses: parseStatusList(event.target.value) })} />}
+            {(condition.type === 'status' || condition.type === 'api-status') && <input aria-label={t('fetchConditionStatuses')} id={fieldId(`${conditionPath}.statuses`)} value={condition.statuses.join(', ')} placeholder="404, 500" disabled={!!pending} onChange={(event: any) => patch({ type: condition.type as 'status' | 'api-status', statuses: parseStatusList(event.target.value) })} />}
             {condition.type === 'error' && <span className="ns-actions">{FETCH_FAILURE_KINDS.map(kind => <label key={kind} className="ns-check"><input type="checkbox" checked={condition.kinds.includes(kind)} disabled={!!pending} onChange={(event: any) => patch({ type: 'error', kinds: event.target.checked ? [...condition.kinds, kind] : condition.kinds.filter(item => item !== kind) })} />{t(`failure.${kind}`)}</label>)}</span>}
             {condition.type === 'match' && <>
-              <select aria-label={t('fetchConditionField')} value={condition.field} disabled={!!pending} onChange={(event: any) => patch({ ...condition, field: event.target.value as FetchConditionField })}>
+              <select aria-label={t('fetchConditionField')} id={fieldId(`${conditionPath}.field`)} value={condition.field} disabled={!!pending} onChange={(event: any) => patch({ ...condition, field: event.target.value as FetchConditionField })}>
                 {(FETCH_CONDITION_FIELDS as readonly string[]).map(name => <option key={name} value={name}>{t(`matchField.${name}`)}</option>)}
               </select>
-              <select aria-label={t('fetchConditionOperator')} value={condition.operator} disabled={!!pending} onChange={(event: any) => patch({ ...condition, operator: event.target.value as FetchMatchOperator })}>
+              <select aria-label={t('fetchConditionOperator')} id={fieldId(`${conditionPath}.operator`)} value={condition.operator} disabled={!!pending} onChange={(event: any) => patch({ ...condition, operator: event.target.value as FetchMatchOperator })}>
                 {(FETCH_MATCH_OPERATORS as readonly string[]).map(operator => <option key={operator} value={operator}>{t(`matchOperator.${operator}`)}</option>)}
               </select>
-              <input aria-label={t('fetchConditionValue')} value={condition.value} disabled={!!pending} onChange={(event: any) => patch({ ...condition, value: event.target.value })} />
+              <input aria-label={t('fetchConditionValue')} id={fieldId(`${conditionPath}.value`)} value={condition.value} disabled={!!pending} onChange={(event: any) => patch({ ...condition, value: event.target.value })} />
               <label className="ns-check"><input type="checkbox" checked={condition.caseSensitive} disabled={!!pending} onChange={(event: any) => patch({ ...condition, caseSensitive: event.target.checked })} />{t('fetchConditionCase')}</label>
             </>}
             <button type="button" className="ns-link" disabled={!!pending} onClick={remove}>{t('fetchRemoveCondition')}</button>
@@ -219,7 +383,8 @@ export function createClient(React: any) {
         }
         function ruleEditor(routeIndex: number, route: FetchRouteConfig) {
           const rules = route.rules ?? [];
-          const write = (next: FetchFallbackRule[]) => update(`${fetchRoutesPath}.${routeIndex}.rules`, next);
+          const rulesPath = `${fetchRoutesPath}.${routeIndex}.rules`;
+          const write = (next: FetchFallbackRule[]) => update(rulesPath, next);
           const replaceRule = (at: number, change: (rule: FetchFallbackRule) => FetchFallbackRule) => write(rules.map((item, index) => (index === at ? change(clone(item)) : item)));
           const nextId = (base: string) => {
             let candidate = base; let counter = 2;
@@ -227,17 +392,20 @@ export function createClient(React: any) {
             return candidate;
           };
           const canAdd = rules.length < FETCH_BOUNDS.rulesPerRoute;
-          return <details className="ns-advanced">
+          return <details className="ns-advanced" id={fieldId(rulesPath)}>
             <summary>{t('fetchRules')} <span className="ns-muted">{tr('fetchRulesCount', { count: rules.length, max: FETCH_BOUNDS.rulesPerRoute })}</span></summary>
             <p className="ns-muted">{t('fetchRulesHelp')}</p>
-            {rules.map((rule, ruleIndex) => <div className="ns-rule" key={`${route.kind}-${rule.id}-${ruleIndex}`}>
-              <div className="ns-rule-head">
-                <label className="ns-check"><input type="checkbox" checked={rule.enabled} disabled={!!pending} onChange={(event: any) => replaceRule(ruleIndex, item => ({ ...item, enabled: event.target.checked }))} /><code>{rule.id}</code></label>
-                <button type="button" className="ns-link" disabled={!!pending} onClick={() => write(rules.filter((_item, at) => at !== ruleIndex))}>{t('fetchRemoveRule')}</button>
-              </div>
-              {rule.conditions.map((condition, conditionIndex) => conditionEditor(ruleIndex, conditionIndex, condition, route.kind, replaceRule))}
-              <button type="button" className="ns-link" disabled={!!pending || rule.conditions.length >= FETCH_BOUNDS.conditionsPerRule} onClick={() => replaceRule(ruleIndex, item => ({ ...item, conditions: [...item.conditions, { type: 'network' }] }))}>{t('fetchAddCondition')}</button>
-            </div>)}
+            {rules.map((rule, ruleIndex) => {
+              const rulePath = `${rulesPath}.${ruleIndex}`;
+              return <div className="ns-rule" id={fieldId(rulePath)} tabIndex={-1} key={`${route.kind}-${rule.id}-${ruleIndex}`}>
+                <div className="ns-rule-head">
+                  <label className="ns-check"><input type="checkbox" checked={rule.enabled} disabled={!!pending} onChange={(event: any) => replaceRule(ruleIndex, item => ({ ...item, enabled: event.target.checked }))} /><code>{rule.id}</code></label>
+                  <button type="button" className="ns-link" disabled={!!pending} onClick={() => write(rules.filter((_item, at) => at !== ruleIndex))}>{t('fetchRemoveRule')}</button>
+                </div>
+                {rule.conditions.map((condition, conditionIndex) => conditionEditor(routeIndex, ruleIndex, conditionIndex, condition, route.kind, replaceRule))}
+                <button type="button" className="ns-link" id={fieldId(`${rulePath}.conditions`)} disabled={!!pending || rule.conditions.length >= FETCH_BOUNDS.conditionsPerRule} onClick={() => replaceRule(ruleIndex, item => ({ ...item, conditions: [...item.conditions, { type: 'network' }] }))}>{t('fetchAddCondition')}</button>
+              </div>;
+            })}
             <div className="ns-actions">
               <button type="button" disabled={!!pending || !canAdd} onClick={() => write([...rules, { id: nextId('custom'), enabled: true, conditions: [{ type: 'network' }] }])}>{t('fetchAddRule')}</button>
               <button type="button" disabled={!!pending || !canAdd} onClick={() => write([...rules, { ...clone(STATUS_ERROR_PRESET), id: nextId('status-errors') }])}>{t('fetchAddStatusPreset')}</button>
@@ -246,6 +414,20 @@ export function createClient(React: any) {
             </div>
             <p className="ns-muted">{t('fetchPresetsHelp')}</p>
           </details>;
+        }
+        function fetchRouteStatus(route: FetchRouteConfig, index: number) {
+          if (route.kind === 'browser') {
+            return <p className="ns-muted ns-dependency">
+              {draft.browser.endpoint ? tr('routeBrowserEndpoint', { endpoint: draft.browser.endpoint }) : <>{t('routeBrowserEndpointMissing')} <button type="button" className="ns-link" onClick={() => focusPath('browser.endpoint')}>{t('fixIt')}</button></>}
+              {!draft.pageFetch.allowDelegatedFetching && <> · {t('routeDelegatedMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.allowDelegatedFetching')}>{t('fixIt')}</button></>}
+            </p>;
+          }
+          if (route.kind === 'provider') {
+            return <p className="ns-muted ns-dependency">{selectedFetchProvider ? tr('routeProviderSelected', { provider: selectedFetchProvider.title, mode: draft.backends[selectedFetchProvider.id]?.fetch.mode || '' }) : <>{t('routeProviderMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.providerId')}>{t('fixIt')}</button></>}
+              {!draft.pageFetch.allowDelegatedFetching && <> · {t('routeDelegatedMissing')} <button type="button" className="ns-link" onClick={() => focusPath('pageFetch.allowDelegatedFetching')}>{t('fixIt')}</button></>}
+            </p>;
+          }
+          return null;
         }
         function fetchRouteRows() {
           const routes: FetchRouteConfig[] = draft.pageFetch?.routes ?? [];
@@ -271,6 +453,7 @@ export function createClient(React: any) {
               {field(`${fetchRoutesPath}.${index}.enabled`, { type: 'checkbox', customLabel: t('fetchEnabled') })}
               {field(`${fetchRoutesPath}.${index}.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
             </div>
+            {fetchRouteStatus(route, index)}
             {ruleEditor(index, route as FetchRouteConfig)}
           </div>);
         }
@@ -283,10 +466,33 @@ export function createClient(React: any) {
           </div>;
         }
 
+        /**
+         * One credential control for both operation views. Search and fetch edit the same backend
+         * record and the same secret: switching views never asks for the value twice.
+         */
+        function credentialControl(def: BackendDefinition) {
+          const state = snapshot?.credentials[def.id];
+          if (!snapshot) return null;
+          const disabledReason = pending ? t('credentialPending') : state && !state.writable ? t('credentialReadOnly') : '';
+          const disabled = disabledReason !== '';
+          const mode = def.modes.find(item => item.mode === (draft.backends[def.id]?.mode || def.modes[0]!.mode));
+          return <div className="ns-credential">
+            <h5>{t('credentialTitle')}</h5>
+            <p>{t(state?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p>
+            <p className="ns-credential-shape" aria-label={t('credentialShapeLabel')}><code>{mode?.credentialShape?.[lang] ?? t('credentialPlainKey')}</code></p>
+            <label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label>
+            <input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={!!pending || disabled} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />
+            {disabledReason && <small id={`secret-${def.id}-why`} className="ns-warning">{disabledReason}</small>}
+            <div className="ns-actions">
+              <button disabled={!!pending || disabled || !secrets[def.id]} onClick={() => credential(def.id, false)}>{t('replaceCredential')}</button>
+              <button disabled={!!pending || disabled || !state?.configured} onClick={() => setConfirming({ kind: `delete-credential-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button>
+            </div>
+            {confirmRow(`delete-credential-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}
+          </div>;
+        }
+
         const enabledCount = definitions.filter(def => draft.backends[def.id]?.enabled).length;
         const blockers = snapshot ? blockersOf(draft, definitions.filter(def => def.status === 'documented').map(def => def.id), id => !!snapshot.credentials[id]?.configured, id => definitions.find(def => def.id === id)?.title || id) : [];
-        const fetchProviders: FetchProviderInfo[] = snapshot?.fetch.providers ?? [];
-        const selectedFetchProvider: FetchProviderInfo | undefined = fetchProviders.find((provider: FetchProviderInfo) => provider.id === draft.pageFetch.providerId);
         const normalizedQuery = backendQuery.trim().toLowerCase();
         const matches = (def: BackendDefinition) => {
           if (normalizedQuery && !def.title.toLowerCase().includes(normalizedQuery) && !def.id.includes(normalizedQuery)) return false;
@@ -309,33 +515,29 @@ export function createClient(React: any) {
         const ranked = definitions.slice().sort((left, right) => tierRank(bestTier(left)) - tierRank(bestTier(right)) || readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
 
-        // Search and fetch are separate views over one shared draft: switching tabs never saves,
-        // never discards edits, and never moves a value between the two operation records.
-        const TABS = ['behavior', 'reliability', 'diagnostics', 'backends', 'fetch'] as const;
-        const fetchRoutesPath = 'pageFetch.routes';
-        const credentialDisabledReason = (id: string): string => {
-        if (pending) return t('credentialPending');
-        if (snapshot?.credentials[id] && !snapshot.credentials[id]!.writable) return t('credentialReadOnly');
-        return '';
-      };
-      const credentialDisabled = (id: string): boolean => credentialDisabledReason(id) !== '';
-      return <div className="ns-page" aria-busy={!!pending}>
+        // Search, browser and fetch are separate views over one shared draft: switching tabs never
+        // saves, never discards edits, and never moves a value between the operation records.
+        const TABS = ['behavior', 'reliability', 'diagnostics', 'backends', 'browser', 'fetch'] as const;
+        const verificationCurrent = !!verification && verification.endpoint === draft.browser.endpoint.trim() && verification.tokenEpoch === tokenEpoch && !secrets.browser;
+        const verificationStale = !!verification && !verificationCurrent;
+        return <div className="ns-page" aria-busy={!!pending}>
           <style>{styles}{overrides}</style>
           <header className="ns-header"><div><h2>{t('title')}</h2><p>{tr('intro', { enabled: enabledCount, total: definitions.length })}</p></div></header>
           <div className="ns-status" role="status" aria-live="polite"><span className={failed ? 'ns-error' : ''}>{notice ? t(notice) : !snapshot ? t('loading') : dirty ? t('unsaved') : t('upToDate')}</span>{!!pending && <span>{t('pending')}</span>}</div>
-          {!!issues.length && <div className="ns-summary" role="alert" tabIndex={-1} ref={summary}><h3>{t('validationTitle')}</h3><ul>{issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><a href={`#${fieldId(issue.path)}`} onClick={(event: any) => { event.preventDefault(); focusPath(issue.path); }}>{label(issue.path)} <code>{issue.path}</code> — {t('invalidField')}</a></li>)}</ul></div>}
+          {!!saveError && (!issues.length || saveError.code.startsWith('save-')) && <div className="ns-save-error" role="alert"><strong>{known(`saveError.${saveError.code}`) ? t(`saveError.${saveError.code}`) : t('saveRejected')}</strong>{saveError.message && !issues.length && <p className="ns-muted">{tr('saveServerDetail', { message: saveError.message })}</p>}</div>}
+          {!!issues.length && <div className="ns-summary" role="alert" tabIndex={-1} ref={summary}><h3>{t('validationTitle')}</h3><ul>{issues.map((issue: ConfigIssue, index: number) => <li key={`${issue.path}-${index}`}><a href={`#${fieldId(issue.action?.target || issue.path)}`} onClick={(event: any) => { event.preventDefault(); focusIssue(issue); }}>{pathLabel(issue.path)} <code>{issue.path}</code> — {issueText(issue)}</a></li>)}</ul></div>}
           {snapshot && !snapshot.active.isSelf && <div className="ns-blockers ns-blockers--info" role="status"><h3>{t('activeTitle')}</h3><p>{tr('activeOther', { provider: snapshot.active.searchProvider || t('notSpecified') })}</p><button type="button" disabled={!!pending} onClick={() => action('activate')}>{t('activateSelf')}</button></div>}
           {!!blockers.length && <div className="ns-blockers" role="status" aria-live="polite"><h3>{t('blockersTitle')}</h3><ul>{blockers.map(blocker => <li key={blocker.key}>{tr(blocker.key, blocker.vars)} <button type="button" className="ns-link" onClick={() => focusPath(blocker.jump)}>{t('fixIt')}</button></li>)}</ul></div>}
           {!snapshot ? <button disabled={!!pending} onClick={async () => { setPending('load'); try { const next = await refresh(); setDraft(clone(next.config)); setNotice(''); setFailed(false); } catch { setFailed(true); setNotice('loadFailed'); } finally { setPending(''); } }}>{t('reload')}</button> : <>
           <div className="ns-tabs" role="tablist" aria-label={t('tabsLabel')}>
-            {TABS.map(id => <button key={id} role="tab" type="button" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} className={`ns-tab ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{t(`tab.${id}`)}{id === 'backends' && <span className="ns-tab-count">{enabledCount}/{definitions.length}</span>}{id === 'fetch' && <span className="ns-tab-count">{draft.pageFetch.routes.filter((route: FetchRouteConfig) => route.enabled).length}/{draft.pageFetch.routes.length}</span>}</button>)}
+            {TABS.map(id => <button key={id} role="tab" type="button" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} className={`ns-tab ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{t(`tab.${id}`)}{id === 'backends' && <span className="ns-tab-count">{enabledCount}/{definitions.length}</span>}{id === 'browser' && <span className="ns-tab-count">{browserDependents.length}</span>}{id === 'fetch' && <span className="ns-tab-count">{draft.pageFetch.routes.filter((route: FetchRouteConfig) => route.enabled).length}/{draft.pageFetch.routes.length}</span>}</button>)}
           </div>
           {tab === 'behavior' && <div role="tabpanel" id="panel-behavior" aria-labelledby="tab-behavior">
             <section className="ns-card" aria-labelledby="sec-behavior"><h3 id="sec-behavior">{t('general')}</h3><div className="ns-grid">{fields(['safeSearch', 'tools.webSearchPlus', 'tools.compactByDefault', 'maxResults', 'concurrency', 'overallTimeoutMs', 'language', 'region', 'recency', 'includeDomains', 'excludeDomains', 'dedup', 'fusion'], { 'tools.webSearchPlus': { type: 'checkbox' }, 'tools.compactByDefault': { type: 'checkbox' }, maxResults: { type: 'number' }, concurrency: { type: 'number' }, overallTimeoutMs: { type: 'number' }, language: { choices: [...LANGUAGES] }, region: { choices: [...REGIONS] }, recency: { choices: ['any', 'day', 'week', 'month', 'year'] }, safeSearch: { type: 'checkbox' }, includeDomains: { type: 'list' }, excludeDomains: { type: 'list' }, dedup: { choices: ['url', 'url-title'] }, fusion: { choices: ['rrf', 'ordered'] } })}</div></section>
           </div>}
           {tab === 'reliability' && <div role="tabpanel" id="panel-reliability" aria-labelledby="tab-reliability">
             {section('resilience', ['sec-resilience'], ['retry.enabled', 'breaker.enabled', 'retry.maxRetries', 'retry.initialDelayMs', 'retry.maxDelayMs', 'retry.networkErrors', 'retry.timeouts', 'breaker.threshold', 'breaker.cooldownMs'], { 'retry.enabled': { type: 'checkbox' }, 'retry.maxRetries': { type: 'number' }, 'retry.initialDelayMs': { type: 'number' }, 'retry.maxDelayMs': { type: 'number' }, 'retry.networkErrors': { type: 'checkbox' }, 'retry.timeouts': { type: 'checkbox' }, 'breaker.enabled': { type: 'checkbox' }, 'breaker.threshold': { type: 'number' }, 'breaker.cooldownMs': { type: 'number' } })}
-            {draft.retry.enabled && <section className="ns-card" aria-labelledby="sec-retry-statuses"><h3 id="sec-retry-statuses">{t('field.retry.statuses')}</h3><p className="ns-muted">{t('help.retry.statuses')}</p><div className="ns-statuses">{RETRY_STATUSES.map(code => <label key={code} className="ns-status-choice"><input type="checkbox" checked={draft.retry.statuses.includes(code)} disabled={!!pending} onChange={(event: any) => update('retry.statuses', event.target.checked ? [...draft.retry.statuses, code].sort((a, b) => a - b) : draft.retry.statuses.filter((item: number) => item !== code))} /><span>{code}</span></label>)}</div>{!!issues.filter((issue: ConfigIssue) => issue.path === 'retry.statuses').length && <p className="ns-error" role="alert">{t('invalidField')}</p>}</section>}
+            {draft.retry.enabled && <section className="ns-card" aria-labelledby="sec-retry-statuses"><h3 id="sec-retry-statuses">{t('field.retry.statuses')}</h3><p className="ns-muted">{t('help.retry.statuses')}</p><div className="ns-statuses">{RETRY_STATUSES.map(code => <label key={code} className="ns-status-choice"><input type="checkbox" checked={draft.retry.statuses.includes(code)} disabled={!!pending} onChange={(event: any) => update('retry.statuses', event.target.checked ? [...draft.retry.statuses, code].sort((a, b) => a - b) : draft.retry.statuses.filter((item: number) => item !== code))} /><span>{code}</span></label>)}</div>{!!issues.filter((issue: ConfigIssue) => issue.path === 'retry.statuses').length && <p className="ns-error" role="alert">{issueText(issues.find((issue: ConfigIssue) => issue.path === 'retry.statuses')!)}</p>}</section>}
             {section('storage', ['sec-storage'], ['cache.enabled', 'diagnostics.enabled', 'cache.ttlSeconds', 'cache.maxEntries', 'diagnostics.maxEntries'], { 'cache.enabled': { type: 'checkbox' }, 'cache.ttlSeconds': { type: 'number' }, 'cache.maxEntries': { type: 'number' }, 'diagnostics.enabled': { type: 'checkbox' }, 'diagnostics.maxEntries': { type: 'number' } })}
           </div>}
           {tab === 'diagnostics' && <div role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics">
@@ -352,25 +554,55 @@ export function createClient(React: any) {
           {tab === 'fetch' && <div role="tabpanel" id="panel-fetch" aria-labelledby="tab-fetch">
             <section className="ns-card" aria-labelledby="sec-fetch-tool"><h3 id="sec-fetch-tool">{t('fetchToolTitle')}</h3><p className="ns-muted">{t('fetchToolHelp')}</p><div className="ns-grid">{fields(['tools.webExtract'], { 'tools.webExtract': { type: 'checkbox' } })}</div></section>
             <section className="ns-card" aria-labelledby="sec-fetch-ready"><h3 id="sec-fetch-ready">{t('fetchReadyTitle')}</h3>
-              {snapshot?.fetch.ready ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{(snapshot?.fetch.problems ?? []).map((problem: FetchProblem) => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}</li>)}</ul>}
+              {fetchReady ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{fetchProblems.map(problem => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}</li>)}</ul>}
               <p className="ns-muted">{t('fetchReadyHelp')}</p>
             </section>
             <section className="ns-card" aria-labelledby="sec-fetch-routes"><h3 id="sec-fetch-routes">{t('fetchRoutesTitle')}</h3><p className="ns-muted">{t('fetchRoutesHelp')}</p><div id={fetchRoutesPath}>{fetchRouteRows()}</div></section>
             <section className="ns-card" aria-labelledby="sec-fetch-provider"><h3 id="sec-fetch-provider">{t('fetchProviderTitle')}</h3><p className="ns-muted">{t('fetchProviderHelp')}</p>
-              <div className="ns-field"><label htmlFor="ns-fetch-provider">{t('fetchProviderSelect')}</label><select id="ns-fetch-provider" disabled={!!pending} value={draft.pageFetch.providerId} onChange={(event: any) => update('pageFetch.providerId', event.target.value)}><option value="">{t('fetchProviderNone')}</option>{fetchProviders.map((provider: FetchProviderInfo) => <option key={provider.id} value={provider.id}>{provider.title} · {provider.serves.join('/')}</option>)}</select></div>
-              {selectedFetchProvider && <div>
-                <p>{tr('fetchProviderServes', { formats: selectedFetchProvider.serves.join(', ') })} · <a href={selectedFetchProvider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {t('verifiedAt')} {selectedFetchProvider.verifiedAt}</p>
-                {selectedFetchProvider.notes && <p className="ns-muted">{selectedFetchProvider.notes[lang]}</p>}
+              {selectedFetchProvider && <div className="ns-provider-summary">
+                <p><strong>{selectedFetchProvider.title}</strong> · {tr('fetchProviderServes', { formats: selectedFetchProvider.serves.join(', ') })} · {t('fetchMode')}: {draft.backends[selectedFetchProvider.id]?.fetch.mode || t('notSpecified')}</p>
                 <p className={selectedFetchProvider.credentialRequired && !selectedFetchProvider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{selectedFetchProvider.credentialRequired ? t(selectedFetchProvider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
-                {!selectedFetchProvider.serves.includes('html') && <p className="ns-muted">{t('fetchProviderMarkdownOnly')}</p>}
-                <p className="ns-muted">{t('fetchProviderFields')}</p>
-                <div className="ns-grid">
-                  {field(`backends.${selectedFetchProvider.id}.fetch.mode`, { choices: selectedFetchProvider.modes, customLabel: t('fetchMode'), help: t('fetchModeHelp') })}
-                  {field(`backends.${selectedFetchProvider.id}.fetch.endpoint`, { customLabel: t('fetchEndpoint'), help: t('fetchEndpointHelp') })}
-                  {field(`backends.${selectedFetchProvider.id}.fetch.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchProviderTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
-                </div>
-                {selectedFetchProvider.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{selectedFetchProvider.options.map((option: any) => field(`backends.${selectedFetchProvider.id}.fetch.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], min: option.min, max: option.max }))}</div></details>}
+                <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(`backends.${selectedFetchProvider.id}.fetch.mode`)}>{t('openSetting')}</button><a href={selectedFetchProvider.docs} target="_blank" rel="noreferrer">{t('docs')}</a></div>
               </div>}
+              <div className="ns-radio-list" id={fieldId('pageFetch.providerId')} tabIndex={-1} role="radiogroup" aria-label={t('fetchProviderSelect')}>
+                <label className="ns-radio">
+                  <input type="radio" name="fetch-provider" checked={!draft.pageFetch.providerId} disabled={!!pending} onChange={() => update('pageFetch.providerId', '')} />
+                  <span>{t('fetchProviderNone')}</span><small>{t('fetchProviderNoneHelp')}</small>
+                </label>
+              {fetchProviders.map((provider: FetchProviderInfo) => {
+                const def = definitions.find(item => item.id === provider.id)!;
+                const backend = draft.backends[def.id]!;
+                const modeLabel = draft.backends[def.id]?.fetch.mode || '';
+                const selected = draft.pageFetch.providerId === def.id;
+                const fetchMode = def.fetch?.modes.find(item => item === modeLabel);
+                return <details className="ns-card ns-backend ns-provider-card" key={`fetch-${def.id}`} open={selected || undefined}>
+                  <summary>
+                    <input type="radio" name="fetch-provider" className="ns-provider-select" aria-label={tr('fetchUseProvider', { provider: def.title })} checked={selected} disabled={!!pending} onClick={(event: any) => event.stopPropagation()} onChange={() => update('pageFetch.providerId', def.id)} />
+                    <span className="ns-backend-title">{def.title}</span>
+                    <span className="ns-chips">
+                      {provider.modes.map(mode => <span key={mode} className={`ns-chip ${mode === modeLabel ? 'is-on' : ''}`} title={t(`choice.${mode}`)}>{t(`choice.${mode}`)}</span>)}
+                      <span className={`ns-dot ${snapshot?.credentials[def.id]?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" />
+                      <span className={`ns-badge ${selected ? 'is-on' : ''}`}>{selected ? t('fetchProviderSelected') : t('fetchProviderNotSelected')}</span>
+                    </span>
+                  </summary>
+                  <div className="ns-backend-body">
+                    <p className="ns-quota">{tr('fetchProviderServes', { formats: provider.serves.join(', ') })} · <a href={provider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {t('verifiedAt')} {provider.verifiedAt}</p>
+                    {provider.notes && <p className="ns-muted">{provider.notes[lang]}</p>}
+                    <p className={provider.credentialRequired && !provider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{provider.credentialRequired ? t(provider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
+                    {!provider.serves.includes('html') && <p className="ns-muted">{t('fetchProviderMarkdownOnly')}</p>}
+                    <p className="ns-muted">{t('fetchSearchCapsNote')}</p>
+                    <div className="ns-grid">
+                      {field(`backends.${def.id}.fetch.mode`, { choices: def.fetch?.modes || [], customLabel: t('fetchMode'), help: t('fetchModeHelp') })}
+                      {field(`backends.${def.id}.fetch.endpoint`, { customLabel: t('fetchEndpoint'), help: t('fetchEndpointHelp') })}
+                      {field(`backends.${def.id}.fetch.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchProviderTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
+                    </div>
+                    {def.fetch && def.fetch.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.fetch.options.map(option => field(`backends.${def.id}.fetch.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], min: option.min, max: option.max }))}</div></details>}
+                    {fetchMode !== 'anonymous' && credentialControl(def)}
+                    <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot?.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot?.counters[def.id]?.day ?? t('noData')}</span></p>
+                  </div>
+                </details>;
+              })}
+              </div>
             </section>
             {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.allowDelegatedFetching', 'pageFetch.browser.context', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
               'pageFetch.overallTimeoutMs': { type: 'number', min: FETCH_BOUNDS.overallTimeoutMs.min, max: FETCH_BOUNDS.overallTimeoutMs.max },
@@ -392,10 +624,35 @@ export function createClient(React: any) {
               {fetchTestResult && <div className="ns-result"><h4>{t('fetchTestResult')}</h4><pre>{fetchTestResult.text ?? JSON.stringify(fetchTestResult, null, 2)}</pre></div>}
             </section>
           </div>}
-          {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
-            <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p><div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' } })}</div>
+          {tab === 'browser' && <div role="tabpanel" id="panel-browser" aria-labelledby="tab-browser">
+            <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p>
+              <div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' } })}</div>
               {!!snapshot && <div className="ns-credential"><h5>{t('browserTokenTitle')}</h5><p>{t(snapshot.browser.credentialConfigured ? 'credentialConfigured' : 'credentialMissing')} · {t('browserTokenHelp')}</p><label htmlFor="secret-browser">{t('browserTokenValue')}</label><input id="secret-browser" type="password" autoComplete="new-password" value={secrets.browser || ''} disabled={!!pending || !snapshot.browser.writable} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, browser: event.target.value }))} /><div className="ns-actions"><button disabled={!!pending || !snapshot.browser.writable || !secrets.browser} onClick={() => browserCredential(false)}>{t('saveToken')}</button><button disabled={!!pending || !snapshot.browser.writable || !snapshot.browser.credentialConfigured} onClick={() => setConfirming({ kind: 'delete-browser-credential' })}>{t('deleteCredential')}</button></div>{confirmRow('delete-browser-credential', 'deleteCredentialConfirm', () => { void browserCredential(true); })}</div>}
             </section>
+            <section className="ns-card" aria-labelledby="sec-browser-dependents"><h3 id="sec-browser-dependents">{t('browserDependentsTitle')}</h3>
+              <p className="ns-muted">{t('browserConnectionNotLogin')}</p>
+              <p className="ns-muted">{t('browserDependentsHelp')}</p>
+              {browserDependents.length ? <ul className="ns-dependent-list">{browserDependents.map(dependent => <li key={dependent.key}>
+                <span className={`ns-dot ${dependent.source === 'missing' ? 'is-off' : 'is-on'}`} aria-hidden="true" />
+                <strong>{dependent.title}</strong>
+                <span className="ns-muted">{dependent.source === 'shared' ? tr('browserDependencyShared', { endpoint: dependent.endpoint }) : dependent.source === 'own' ? tr('browserDependencyOwn', { endpoint: dependent.endpoint }) : t('browserDependencyMissing')}</span>
+                {dependent.kind === 'fetch' && <span className={dependent.delegated ? 'ns-muted' : 'ns-warning'}>{dependent.delegated ? t('browserDependencyDelegated') : t('browserDependencyDelegatedOff')}</span>}
+                <span className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(dependent.jump)}>{t('openSetting')}</button>{dependent.fix && <button type="button" className="ns-link" onClick={() => focusPath(dependent.fix!)}>{t('fixIt')}</button>}</span>
+              </li>)}</ul> : <p className="ns-muted">{t('browserNoDependents')}</p>}
+              <div className="ns-test-actions">
+                <button className="ns-primary" disabled={!!pending || !draft.browser.endpoint.trim()} onClick={verifyConnection}>{t('browserCheck')}</button>
+                {!draft.browser.endpoint.trim() && <small>{t('browserCheckNeedsEndpoint')}</small>}
+              </div>
+              {verificationCurrent && <div className={`ns-verification ${verification!.ok ? 'ns-success' : 'ns-error'}`} role="status">
+                <p>{verification!.ok ? (verification!.source === 'save' ? t('browserCheckSavedVerified') : tr('browserCheckOk', { endpoint: verification!.endpoint, duration: verification!.durationMs })) : tr('browserCheckFailed', { endpoint: verification!.endpoint })}</p>
+                {!verification!.ok && verification!.code && <p>{known(`issue.${verification!.code}`) ? tr(`issue.${verification!.code}`, { endpoint: verification!.endpoint }) : verification!.code}</p>}
+                <p className="ns-muted">{t('browserCheckSavedNotRequired')}</p>
+              </div>}
+              {verificationStale && <p className="ns-muted">{t('browserCheckStale')}</p>}
+              {!!browserGateIssues(draft).length && <ul className="ns-fetch-problems">{browserGateIssues(draft).map(issue => <li key={`${issue.path}-${issue.code}`} className="ns-warning">{issueText(issue)} <button type="button" className="ns-link" onClick={() => focusIssue(issue)}>{t('fixIt')}</button></li>)}</ul>}
+            </section>
+          </div>}
+          {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
             <section className="ns-backends" id="sec-backends" tabIndex={-1} aria-labelledby="sec-backends-title">
               <h3 id="sec-backends-title">{t('backends')} <span className="ns-muted">{tr('enabledSummary', { enabled: enabledCount, total: definitions.length })}</span></h3>
               <p className="ns-muted">{t('backendIntro')} {t('colorLegend')}</p>
@@ -404,24 +661,24 @@ export function createClient(React: any) {
                 <div className="ns-field"><label htmlFor="ns-backend-filter">{t('filterBackends')}</label><select id="ns-backend-filter" value={backendFilter} onChange={(event: any) => setBackendFilter(event.target.value)}>{['all', 'enabled', 'configured'].map(value => <option key={value} value={value}>{t(`filter.${value}`)}</option>)}</select></div>
               </div>
               {ranked.filter(matches).map(def => {
-                  const backend = draft.backends[def.id]; if (!backend) return null;
-                  const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous'; const readsThroughBrowser = backend.mode === 'browser';
-                  return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => <span key={item.mode} className={`ns-chip ${item.mode === backend.mode ? 'is-on' : ''} ${item.tier === 'unverified' ? 'ns-chip--off' : tierRisk(item.tier)}`} aria-current={item.mode === backend.mode ? 'true' : undefined} title={t(`choice.${item.mode}`)}>{t(`choice.${item.mode}`)} · {t(`tier.${item.tier}`)}</span>)}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
-                    <div className="ns-backend-body">
-                      {locked && <p className="ns-warning">{t('unverifiedHelp')}</p>}
-                      <p className="ns-quota">{mode?.limits[lang]} <a href={mode?.pricingUrl || def.docs} target="_blank" rel="noreferrer">{t('source')}</a> · {t('verifiedAt')} {def.verifiedAt || t('notVerified')}</p>
-                      <div className="ns-grid">{fields(readsThroughBrowser ? [`${base}.enabled`, `${base}.mode`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`] : [`${base}.enabled`, `${base}.mode`, `${base}.endpoint`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`], { [`${base}.enabled`]: { type: 'checkbox', disabled: locked }, [`${base}.mode`]: { choices: def.modes.map(item => item.mode), disabled: locked }, [`${base}.timeoutMs`]: { type: 'number' }, [`${base}.rateLimitPerMinute`]: { type: 'number' }, [`${base}.dailyAttemptLimit`]: { type: 'number' } })}</div>
-                      {readsThroughBrowser && <div className="ns-inherit">
-                        <p>{draft.browser.endpoint ? tr('browserInheritedEndpoint', { endpoint: draft.browser.endpoint }) : backend.endpoint ? tr('browserOwnEndpoint', { endpoint: backend.endpoint }) : t('browserInheritedEndpointMissing')}{!draft.browser.endpoint && !backend.endpoint && <button type="button" className="ns-link" onClick={() => focusPath('browser.endpoint')}>{t('fixIt')}</button>}</p>
-                        <p className="ns-muted">{t('browserInheritedHint')}</p>
-                        <details className="ns-advanced"><summary>{t('browserOverride')}</summary><p className="ns-muted">{t('browserOverrideHint')}</p><div className="ns-grid">{fields([`${base}.endpoint`])}</div></details>
-                      </div>}
-                      {anonymous && !locked && <p className="ns-muted">{t('anonymousNoCredential')}</p>}
-                      {def.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.options.map(option => field(`${base}.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], disabled: locked, min: option.min, max: option.max }))}</div></details>}
-                      {!anonymous && !locked && !readsThroughBrowser && <div className="ns-credential"><h5>{t('credentialTitle')}</h5><p>{t(credentialState?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p>{<p className="ns-credential-shape" aria-label={t('credentialShapeLabel')}><code>{mode?.credentialShape?.[lang] ?? t('credentialPlainKey')}</code></p>}<label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label><input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={credentialDisabled(def.id)} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />{credentialDisabledReason(def.id) && <small id={`secret-${def.id}-why`} className="ns-warning">{credentialDisabledReason(def.id)}</small>}<div className="ns-actions"><button disabled={credentialDisabled(def.id) || !secrets[def.id]} onClick={() => credential(def.id, false)}>{t('replaceCredential')}</button><button disabled={credentialDisabled(def.id) || !credentialState?.configured} onClick={() => setConfirming({ kind: `delete-credential-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button></div>{confirmRow(`delete-credential-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}</div>}
-                      <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot.counters[def.id]?.day ?? t('noData')}</span></p>
-                    </div>
-                  </details>;
+                const backend = draft.backends[def.id]; if (!backend) return null;
+                const mode = def.modes.find(item => item.mode === backend.mode); const base = `backends.${def.id}`; const credentialState = snapshot.credentials[def.id]; const locked = def.status !== 'documented'; const anonymous = backend.mode === 'anonymous'; const readsThroughBrowser = backend.mode === 'browser';
+                return <details className="ns-card ns-backend" key={def.id}><summary><span className="ns-backend-title">{def.title}</span><span className="ns-chips">{def.modes.map(item => <span key={item.mode} className={`ns-chip ${item.mode === backend.mode ? 'is-on' : ''} ${item.tier === 'unverified' ? 'ns-chip--off' : tierRisk(item.tier)}`} aria-current={item.mode === backend.mode ? 'true' : undefined} title={t(`choice.${item.mode}`)}>{t(`choice.${item.mode}`)} · {t(`tier.${item.tier}`)}</span>)}{locked && <span className="ns-chip ns-chip--off">{t('unverified')}</span>}<span className={`ns-dot ${credentialState?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" /><span className={`ns-badge ${backend.enabled ? 'is-on' : ''}`}>{backend.enabled ? t('enabled') : t('disabled')}</span></span></summary>
+                  <div className="ns-backend-body">
+                    {locked && <p className="ns-warning">{t('unverifiedHelp')}</p>}
+                    <p className="ns-quota">{mode?.limits[lang]} <a href={mode?.pricingUrl || def.docs} target="_blank" rel="noreferrer">{t('source')}</a> · {t('verifiedAt')} {def.verifiedAt || t('notVerified')}</p>
+                    <div className="ns-grid">{fields(readsThroughBrowser ? [`${base}.enabled`, `${base}.mode`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`] : [`${base}.enabled`, `${base}.mode`, `${base}.endpoint`, `${base}.timeoutMs`, `${base}.rateLimitPerMinute`, `${base}.dailyAttemptLimit`], { [`${base}.enabled`]: { type: 'checkbox', disabled: locked }, [`${base}.mode`]: { choices: def.modes.map(item => item.mode), disabled: locked }, [`${base}.timeoutMs`]: { type: 'number' }, [`${base}.rateLimitPerMinute`]: { type: 'number' }, [`${base}.dailyAttemptLimit`]: { type: 'number' } })}</div>
+                    {readsThroughBrowser && <div className="ns-inherit">
+                      <p>{draft.browser.endpoint ? tr('browserInheritedEndpoint', { endpoint: draft.browser.endpoint }) : backend.endpoint ? tr('browserOwnEndpoint', { endpoint: backend.endpoint }) : t('browserInheritedEndpointMissing')}{!draft.browser.endpoint && !backend.endpoint && <button type="button" className="ns-link" onClick={() => focusPath('browser.endpoint')}>{t('fixIt')}</button>}</p>
+                      <p className="ns-muted">{t('browserInheritedHint')}</p>
+                      <details className="ns-advanced"><summary>{t('browserOverride')}</summary><p className="ns-muted">{t('browserOverrideHint')}</p><div className="ns-grid">{fields([`${base}.endpoint`])}</div></details>
+                    </div>}
+                    {anonymous && !locked && <p className="ns-muted">{t('anonymousNoCredential')}</p>}
+                    {def.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.options.map(option => field(`${base}.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], disabled: locked, min: option.min, max: option.max }))}</div></details>}
+                    {!anonymous && !locked && !readsThroughBrowser && credentialControl(def)}
+                    <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot.counters[def.id]?.day ?? t('noData')}</span></p>
+                  </div>
+                </details>;
               })}
               {!definitions.some(matches) && <p className="ns-muted">{t('noMatch')}</p>}
             </section>

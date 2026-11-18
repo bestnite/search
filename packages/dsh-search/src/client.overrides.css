@@ -69,3 +69,37 @@
 .ns-inherit p:last-child{margin-bottom:0}
 .ns-inherit .ns-link{margin-left:8px;min-height:0;padding:0;border:0;background:none;color:var(--dsw-alias-brand-primary);text-decoration:underline;font-size:13px}
 .ns-inherit .ns-advanced{margin:8px 0 0;border-top:0;padding-top:0}
+
+/* Shared provider anatomy: search and fetch cards use the same frame, chips, credential block and
+   body spacing; only the operation fields inside the body differ. */
+.ns-provider-card{margin:12px 0}
+.ns-provider-card > summary{gap:10px}
+.ns-provider-select{flex:0 0 auto;width:18px;height:18px;margin:0;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}
+.ns-provider-card > summary .ns-backend-title{flex:1 1 auto}
+
+/* Fetch provider choice: a fixed radio list with an explicit "none" instead of a dropdown, so the
+   chosen operation is visible and the same card anatomy is used for every provider. */
+.ns-radio-list{display:grid;gap:8px;margin:12px 0}
+.ns-radio{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;align-items:center;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-2);font-size:13px}
+.ns-radio input{width:18px;height:18px;margin:0;accent-color:var(--dsw-alias-brand-primary)}
+.ns-radio small{grid-column:2;color:var(--dsw-alias-label-secondary);font-size:12px}
+
+/* Browser tab: dependents and the manual connection evidence. */
+.ns-dependent-list{display:grid;gap:8px;margin:12px 0;padding:0;list-style:none}
+.ns-dependent-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:13px}
+.ns-dependent-list li > .ns-actions{margin-left:auto}
+.ns-dependent-list .ns-link{min-height:0;margin:0;padding:0;border:0;background:none;font-size:13px}
+.ns-verification{margin-top:12px;padding:12px 14px;border:1px solid currentColor;border-radius:8px;font-size:13px}
+.ns-verification p{margin:0 0 6px}
+.ns-verification p:last-child{margin:0}
+.ns-dependency{margin:8px 0 0;font-size:12.5px}
+.ns-dependency .ns-link{min-height:0;margin:0 0 0 2px;padding:0;border:0;background:none;font-size:12.5px}
+
+/* A write failure shows its server reason beside the local state, not instead of it. */
+.ns-save-error{margin:10px 0 0;padding:10px 14px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:13px}
+.ns-save-error strong{display:block;color:var(--dsw-alias-state-error-primary)}
+.ns-save-error p{margin:4px 0 0;font-size:12px;overflow-wrap:anywhere}
+.ns-provider-summary{margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.ns-provider-summary p{margin:0 0 6px;font-size:13px}
+.ns-provider-summary p:last-of-type{margin-bottom:8px}
+.ns-provider-summary .ns-link{min-height:0;margin:0;padding:0;border:0;background:none;font-size:13px}

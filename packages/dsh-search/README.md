@@ -23,7 +23,7 @@ active, click **Use this plugin for web search**.
 ## First search
 
 1. Open **Settings → Web search**.
-2. In the **Backends** tab, enable one that needs no account — Keenable, AnySearch, Exa, Parallel,
+2. In the **Search** tab, enable one that needs no account — Keenable, AnySearch, Exa, Parallel,
    You.com, DuckDuckGo or Reddit.
 3. Check the cost line on that row, then press **Save settings**.
 4. Ask the agent to search something. Every backend starts disabled, so nothing is called until you
@@ -38,6 +38,67 @@ Backends in `key` or `session` mode need a credential. Paste it into the credent
 backend's row and save; the plugin stores it in the DSH credential store under a name fixed in code,
 so a saved config can never redirect a lookup to a different secret. Nothing is stored in the
 configuration file itself.
+
+## Settings layout
+
+The page edits one draft. Switching tabs never saves, never discards an edit, and never moves a value
+between operations.
+
+| Tab | What it owns |
+| --- | --- |
+| **Search behavior** | Query shape, safe search, language and region, agent tool switches |
+| **Reliability** | Retries, circuit breaker, cache and diagnostics retention |
+| **Test & diagnostics** | One explicit backend test against saved settings, recent outcomes, import/export |
+| **Search** | The backend catalog: access mode, cost chips, search endpoint and credential |
+| **Browser** | The shared Playwright endpoint, endpoint token, session file, per-site read cap, and every enabled search or fetch feature that depends on it |
+| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed radio choice including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
+
+Search and page fetch render the same provider card. A backend's credential is one stored secret bound
+to one record, so the same control appears in both views without asking for the value a second time.
+Search caps never bound a page fetch: the fetch operation keeps its own access mode, endpoint, timeout
+and options, and the card says so.
+
+## Saving and the browser gate
+
+**Save settings** validates first, then writes. The outcomes are distinct:
+
+- **Rejected validation**: nothing is written. The draft keeps every edit, and the page lists the
+  localized cause with a link that switches to the owning tab, unfolds the provider card or fallback
+  rule, and focuses the actual control. Route problems name the route kind (HTTP, browser, provider),
+  not an array index, so they stay readable after reordering.
+- **Revision conflict**: another editor saved first. The revision is checked again inside the
+  editor's file lock against the effective current entry config, migrated and filled with schema
+  defaults. The inherited layer is not merged again, because a profile patch value replaces the whole
+  value; merging it back would resurrect a value the current patch already replaced. A save that
+  landed during verification therefore cannot be overwritten. The page reloads the latest revision and
+  keeps your draft; it is not reported as an invalid value.
+- **Cancelled**: the request or the plugin lifetime was cancelled during verification. The save stops
+  before the write and the draft is unchanged.
+- **Definite write failure**: the server reported a write failure; the page reads the saved state back
+  before saying anything. If that read-back succeeds and differs, the server reason is shown beside
+  the preserved draft; if it fails, the page reports an unknown result instead of claiming nothing
+  was written.
+- **Unconfirmed response**: only a transport failure that left the saved state different is reported
+  this way, after reading it back. A request this page sends is never replayed automatically.
+
+When an enabled search backend reads through a browser (Xiaohongshu) or the fetch browser route is on,
+the server proves the effective endpoint before writing. It reads the stored token, attaches once per
+distinct endpoint/token pair, creates and closes one isolated context, and disconnects. The whole
+check — token read, connection, context and cleanup — is bounded to about five seconds. It never
+navigates, never sends a site or business request, and never closes the remote browser other clients
+use. A successful connection only proves the endpoint and token work; it is **not** a site login.
+
+The search path uses the shared endpoint first and the backend's own endpoint only while the shared
+one is empty. The page-fetch browser route uses the shared endpoint only. Grouped checks follow those
+same rules, so a search fallback cannot make the fetch route look verified.
+
+With every browser-dependent feature disabled, browser settings save offline without a probe. Turn the
+dependents off first, save, fix the endpoint or token, then save the enabled configuration again.
+
+The **Browser** tab can run the same bounded check manually against the endpoint in the draft, before
+saving. The check accepts no credential argument: it always uses the stored token, and an agent-facing
+check may only re-test the saved endpoint. Changing the endpoint or token marks the displayed result
+stale, and every save rechecks the effective endpoint on the server.
 
 ## Backends and cost
 
@@ -66,10 +127,12 @@ browser you host: nothing is billed per call, and the cost is the machine runnin
    endpoint and a bearer token.
 2. Open `http://<host>:6080/vnc.html` and sign in to Xiaohongshu in the window that is already open.
    The container writes that session to disk every minute.
-3. In **Settings → Web search → Backends**, fill the **Shared browser** block: endpoint
-   (`ws://<host>:3000/ws`), session file (optional), read timeout, and the per-site concurrent reads
-   cap. Paste the printed token as the **endpoint token**.
-4. Enable the Xiaohongshu backend in browser mode and save.
+3. Open **Settings → Web search → Browser**. Fill the shared endpoint (`ws://<host>:3000/ws`), the
+   optional session file, the read timeout and the per-site concurrent reads cap. Paste the printed
+   token into **Endpoint token**. The Browser tab lists every enabled feature that depends on it.
+4. Enable the Xiaohongshu backend in browser mode on the **Search** tab and save. The save checks the
+   endpoint and token before writing; if it refuses, use **Check connection** on the Browser tab to see
+   the specific cause.
 
 The token guards the browser endpoint, not a site account, so it is stored once for the browser rather
 than per backend. The shared endpoint wins over a backend's own; the backend endpoint is only a
@@ -135,11 +198,13 @@ off.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Search returns nothing | Every backend is disabled until you save. Open the Backends tab, enable one, save. |
+| Search returns nothing | Every backend is disabled until you save. Open the Search tab, enable one, save. |
 | "Not signed in" from Xiaohongshu | The browser container lost its session. Open the noVNC page and sign in again; the next read reloads the state file. |
-| Xiaohongshu fails with no endpoint | Fill **Shared browser → endpoint**, or set the backend's own endpoint. |
+| Xiaohongshu fails with no endpoint | Fill the shared endpoint on the **Browser** tab, or set the backend's own endpoint on its search card. |
 | Rate limit from one backend | That backend refused the request. Wait, or lower its per-minute budget on its row. |
-| "Configuration revision conflict" | Another window saved first. Reload the page and apply your change again. |
+| "Configuration revision conflict" | Another window saved first. Reload the page and apply your change again; the draft is kept. |
+| Save refused: browser endpoint unreachable or token rejected | The save gate could not verify an enabled browser dependency. Open the Browser tab, run **Check connection**, fix the endpoint or token, or disable every browser-dependent feature to save offline. |
+| A validation issue names a route kind I cannot find | Click the issue's fix link: it opens the owning tab, unfolds the route's fallback rules and focuses the control. |
 
 ## Development
 

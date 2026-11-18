@@ -56,7 +56,10 @@ and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
 dsh plugin add @nite07/dsh-search
 ```
 
-Then open **Settings → Web search**, pick your backends, and save. Full walkthrough:
+Then open **Settings → Web search**, pick your backends, and save. The page has Search, Browser and
+Page fetch tabs over one draft; saving a configuration that enables a browser-backed search or the
+fetch browser route first proves the endpoint and stored token with a bounded, navigation-free attach.
+Full walkthrough:
 [dsh-search README](packages/dsh-search/README.md).
 
 **MCP client**

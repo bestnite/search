@@ -1,0 +1,181 @@
+import { parseBrowserEndpoint } from '@nite07/search-core/static';
+import type { ConfigIssue, SearchConfig } from '@nite07/search-core/static';
+
+/**
+ * Presentation rules that do not need a DOM: which tab owns a configuration path, where an issue
+ * should land the user, and the front-end half of the browser save gate.
+ *
+ * These live outside the React module so they can be unit-tested directly. The server re-checks the
+ * same gate authoritatively before writing; this layer only explains the cause before a click.
+ */
+
+export type SettingsTab = 'behavior' | 'reliability' | 'diagnostics' | 'backends' | 'browser' | 'fetch';
+
+/** The control-id scheme shared by the page and the focus resolver. */
+export const fieldId = (path: string): string => `nite-search-${path.replace(/[^a-z0-9-]/gi, '-')}`;
+
+/** The tab a path belongs to. Fetch-only browser options stay on the Fetch tab, never the Browser tab. */
+export function tabForPath(path: string): SettingsTab {
+  if (path === 'backends' || path === 'sec-backends') return 'backends';
+  if (path.startsWith('browser.')) return 'browser';
+  // pageFetch.browser.* (context, settle, selector) describes the fetch operation, not the shared browser.
+  if (path.startsWith('pageFetch')) return 'fetch';
+  if (/^backends\.[^.]+\.fetch\./.test(path)) return 'fetch';
+  if (path.startsWith('backends.')) return 'backends';
+  if (path.startsWith('retry.') || path.startsWith('breaker.') || path.startsWith('cache.') || path === 'diagnostics.enabled' || path === 'diagnostics.maxEntries') return 'reliability';
+  return 'behavior';
+}
+
+/**
+ * The tab and focus target for a path. Provider fetch fields open the Fetch tab, where the provider
+ * card lives; a browser-route failure jumps to the shared browser endpoint that must be filled in.
+ */
+export function focusForPath(path: string): { tab: SettingsTab; target: string } {
+  if (path === 'backends' || path === 'sec-backends') return { tab: 'backends', target: 'sec-backends' };
+  if (path === 'browser' || path === 'sec-browser') return { tab: 'browser', target: 'browser.endpoint' };
+  if (path.startsWith('browser.')) return { tab: 'browser', target: path };
+  if (path === 'pageFetch.routes' || path === 'pageFetch') return { tab: 'fetch', target: 'sec-fetch-routes' };
+  if (path.startsWith('pageFetch')) return { tab: 'fetch', target: path };
+  if (/^backends\.[^.]+\.fetch\./.test(path)) return { tab: 'fetch', target: path };
+  if (path.startsWith('backends.')) return { tab: 'backends', target: path };
+  return { tab: tabForPath(path), target: path };
+}
+
+/** The HTTP answer to a save request, or the fact that the request never produced one. */
+export interface SaveResponse { status: number; payload: any }
+export type SaveReadback = { ok: true; matches: boolean } | { ok: false };
+
+/**
+ * What a save attempt actually proved. A definite rejection (400) happens before any write; a 5xx or
+ * a lost response says nothing on its own, so only a successful read-back may claim a result. A
+ * failed read-back is `state-unknown`, never a fabricated "nothing was written".
+ */
+export type SaveOutcome =
+  | { kind: 'saved' }
+  | { kind: 'rejected'; code: string; issues: ConfigIssue[] }
+  | { kind: 'conflict' }
+  | { kind: 'write-failed'; code: string; message: string }
+  | { kind: 'unconfirmed' }
+  | { kind: 'state-unknown' };
+
+export function classifySaveOutcome(input: { response?: SaveResponse; transportError?: boolean; readback?: SaveReadback }): SaveOutcome {
+  const readback = input.readback;
+  const payload = input.response?.payload;
+  const code = typeof payload?.error?.code === 'string' ? payload.error.code : 'operation-failed';
+  const message = typeof payload?.error?.message === 'string' ? payload.error.message : '';
+  if (input.response) {
+    const status = input.response.status;
+    if (status >= 200 && status < 300) {
+      if (!readback) return { kind: 'state-unknown' };
+      if (!readback.ok) return { kind: 'state-unknown' };
+      return readback.matches ? { kind: 'saved' } : { kind: 'conflict' };
+    }
+    if (status === 409) return { kind: 'conflict' };
+    if (status === 400) {
+      const issues = Array.isArray(payload?.error?.issues) ? payload.error.issues as ConfigIssue[] : [];
+      return { kind: 'rejected', code, issues };
+    }
+    // Any other answer is a server-side failure: read the state back before saying anything about
+    // whether the write landed.
+    if (!readback) return { kind: 'state-unknown' };
+    if (!readback.ok) return { kind: 'state-unknown' };
+    if (readback.matches) return { kind: 'saved' };
+    return { kind: 'write-failed', code, message };
+  }
+  if (!readback) return { kind: 'state-unknown' };
+  if (!readback.ok) return { kind: 'state-unknown' };
+  return readback.matches ? { kind: 'saved' } : { kind: 'unconfirmed' };
+}
+
+/** The backend id a path belongs to, when it is inside a backend card. */
+export function backendIdForPath(path: string): string | undefined {
+  const match = /^backends\.([^.]+)\./.exec(path);
+  return match?.[1];
+}
+
+/** A backend filter hides the card that owns the issue; the focus effect has to reset it first. */
+export function shouldResetBackendFilter(path: string, query: string, filter: string): boolean {
+  return Boolean(backendIdForPath(path)) && (query !== '' || filter !== 'all');
+}
+
+/** The minimal element surface the focus walk needs, so it can be driven by a fake DOM in tests. */
+export interface FocusableNode {
+  closest(selector: string): FocusableNode | null;
+  parentElement: FocusableNode | null;
+  scrollIntoView?(options: { block: string }): void;
+  focus?(): void;
+  open?: boolean;
+}
+export interface FocusDocument { getElementById(id: string): FocusableNode | null }
+
+/**
+ * Find the rendered control for a path, walking up dotted segments until a container exists, then
+ * unfold every closed `<details>` above it. Returns undefined when nothing is mounted yet, which lets
+ * the caller clear a filter and retry instead of dropping the focus request.
+ */
+export function focusRenderedControl(documentLike: FocusDocument, path: string): FocusableNode | undefined {
+  let key = path;
+  let target = documentLike.getElementById(fieldId(key)) || documentLike.getElementById(key);
+  while (!target && key.includes('.')) {
+    key = key.slice(0, key.lastIndexOf('.'));
+    target = documentLike.getElementById(fieldId(key)) || documentLike.getElementById(key);
+  }
+  if (!target) return undefined;
+  let node: FocusableNode | null = target;
+  while (node) {
+    const wrapper = node.closest('details');
+    if (!wrapper) break;
+    wrapper.open = true;
+    node = wrapper.parentElement;
+  }
+  target.scrollIntoView?.({ block: 'center' });
+  target.focus?.();
+  return target;
+}
+
+/** The route kind at an indexed route path, so a label follows the record through a reorder. */
+export function routeKindForPath(routes: ReadonlyArray<{ kind: string }>, path: string): string | undefined {
+  const match = /^pageFetch\.routes\.(\d+)/.exec(path);
+  return match ? routes[Number(match[1])]?.kind : undefined;
+}
+
+/** An issue's own action target wins over its value path. */
+export function focusForIssue(issue: Pick<ConfigIssue, 'path' | 'action'>): { tab: SettingsTab; target: string } {
+  return focusForPath(issue.action?.target || issue.path);
+}
+
+/**
+ * The causes the save gate will refuse, said before saving. Only enabled dependencies count, so a
+ * browser-dependent setup can be configured and switched off while the browser is offline.
+ */
+export function browserGateIssues(draft: SearchConfig): ConfigIssue[] {
+  const browserBackends = Object.entries(draft.backends).filter(([, row]) => row.enabled && row.mode === 'browser');
+  const fetchIndex = draft.pageFetch.routes.findIndex(route => route.kind === 'browser');
+  const fetchEnabled = fetchIndex >= 0 && Boolean(draft.pageFetch.routes[fetchIndex]?.enabled);
+  if (!browserBackends.length && !fetchEnabled) return [];
+  const shared = draft.browser.endpoint.trim();
+  const issues: ConfigIssue[] = [];
+  if (fetchEnabled && !shared) {
+    issues.push({
+      path: `pageFetch.routes.${fetchIndex}.enabled`,
+      message: 'The browser route needs a shared browser endpoint before it can be enabled.',
+      code: 'pageFetch.route.browserEndpointMissing',
+      params: { kind: 'browser' },
+      action: { target: 'browser.endpoint' },
+    });
+  }
+  for (const [id, row] of browserBackends) {
+    if (shared || row.endpoint) continue;
+    issues.push({
+      path: `backends.${id}.enabled`,
+      message: 'An enabled browser-dependent feature has no endpoint to attach to.',
+      code: 'browser.endpoint.missing',
+      params: { backend: id },
+      action: { target: 'browser.endpoint' },
+    });
+  }
+  if (shared && !parseBrowserEndpoint(shared)) {
+    issues.push({ path: 'browser.endpoint', message: 'The shared browser endpoint is not a WS(S) Playwright endpoint.', code: 'browser.endpoint.invalid', action: { target: 'browser.endpoint' } });
+  }
+  return issues;
+}

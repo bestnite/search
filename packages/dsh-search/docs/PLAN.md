@@ -1,8 +1,46 @@
 # Implementation Plan
 
+## Settings IA and save gate (implemented 2026-11-18)
+
+The current settings page and save path, as built:
+
+- **Tabs**: Search behavior, Reliability, Test & diagnostics, Search, Browser, Page fetch. All edit one
+  draft; tab switches never save or discard, and search vs fetch values stay in their own records.
+- **Provider cards**: search and page fetch use the same card anatomy, chips, credential control and
+  body spacing. The fetch provider is a fixed radio choice including **none**, never a dropdown; the
+  chosen provider's fetch operation settings live inside its card. The credential is one stored secret
+  shown by the same control in both views, so it is never entered twice. Search caps do not bound a
+  fetch, and the card says so.
+- **Browser tab**: owns the shared endpoint, endpoint token, session file, read timeout, per-site read
+  cap, and the list of every enabled search/fetch feature that depends on them. Fetch-only context,
+  settle and selector options stay on the Page fetch tab. A manual **Check connection** runs the same
+  bounded probe against the draft endpoint and is marked stale when the endpoint or token changes.
+- **Issues**: `ConfigIssue` gained optional `code`, `params` and `action.target` alongside the original
+  `path` and `message`. The page localizes the exact cause in English and Chinese, names routes by
+  kind, switches to the owning tab, unfolds the provider card, rules and conditions, and focuses the
+  control. Imported or hand-edited malformed values are reported as deep paths, not raw exceptions.
+- **Save states**: validation/browser rejection (400 with structured issues), revision conflict (409),
+  cancellation (400 `save-cancelled`), write failure (5xx) and transport-unconfirmed are distinct. The
+  revision is re-checked inside the editor's file lock against the effective current entry config
+  after schema migration/default filling; the inherited layer is not merged again because a profile
+  patch value replaces the whole value. A save that landed while verification was running therefore
+  wins and the late save gets a 409. Verification and cleanup are cancellable by the
+  request or plugin lifetime, and cancellation stops before the write. A failed read-back is reported
+  as an unknown result, never as proof that nothing was written. The draft is preserved for every
+  outcome; a rejected request is never reported as a possible success.
+- **Authoritative browser gate**: before writing, the host verifies the effective endpoint and stored
+  token for every enabled browser dependency. The probe is one bounded attach plus isolated context
+  create/close/disconnect per distinct endpoint/token pair, never a navigation or a site request, and
+  it never closes the remote browser. Empty, unreachable, rejected, timed-out or protocol-mismatched
+  endpoints refuse the save with structured localized issues. With every dependent disabled, the
+  configuration saves offline without a probe. `search_manage` can re-check the saved endpoint only;
+  the settings page can check its draft. See
+  [BROWSER-SESSIONS.md](../../../docs/BROWSER-SESSIONS.md#save-time-endpoint-verification).
+
 ## Status and scope
 
-Planning baseline: 2026-11-17. Implementation has not started.
+Planning baseline: 2026-11-17. This section is the original plan; the section above records the
+settings IA and save gate that have since shipped.
 
 Build an independent DSH bundle replacing the currently installed search plugin after verification. Keep the native `web_search` entry point. Do not modify DSH itself or patch installed third-party code.
 

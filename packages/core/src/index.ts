@@ -16,7 +16,7 @@ export {
 } from './config.js';
 export { SearchEngine } from './engine.js';
 export { revision } from './engine.js';
-export type { ConfigIssue, SearchOverrides, SearchResult, BackendOutcome } from './types.js';
+export type { ConfigIssue, ConfigIssueAction, ConfigIssueParams, SearchOverrides, SearchResult, BackendOutcome } from './types.js';
 export type {
   AccessMode,
   BackendConfig,
@@ -47,6 +47,24 @@ export type { XhsNoteReport } from './xhs/render.js';
 export type { XhsComment, XhsContext, XhsNote, XhsNoteSummary } from './xhs/index.js';
 export { materialiseImages, mediaDir, type MediaImage, type MediaOptions } from './media.js';
 export { BrowserSession, closeBrowserSessions, connectFailure, sessionFor, type BrowserReader, type BrowserSessionOptions } from './browser.js';
+export { parseBrowserEndpoint } from './browser-endpoint.js';
+export {
+  BROWSER_VERIFICATION_TIMEOUT_MS,
+  BrowserVerificationAborted,
+  collectBrowserDependencies,
+  defaultVerificationConnect,
+  verifyBrowserDependencies,
+  verifyBrowserEndpoint,
+} from './browser-verification.js';
+export type {
+  BrowserDependency,
+  BrowserVerificationCheck,
+  BrowserVerificationResult,
+  VerificationBrowser,
+  VerificationConnect,
+  VerificationContext,
+  VerificationOptions,
+} from './browser-verification.js';
 export type { XThread } from './x/thread.js';
 export type { XReply, XThreadPost } from './x/parse.js';
 // Page fetching: one URL in, one bounded page out, through ordered configurable routes.
@@ -82,7 +100,7 @@ export type {
   PageFetchInput,
   PageFetchResult,
 } from './fetch/types.js';
-export { evaluateRules, validateRules, type RuleEvaluation, type RuleInputs } from './fetch/rules.js';
+export { evaluateRules, validateRuleIssues, validateRules, type RuleEvaluation, type RuleInputs, type RuleIssue } from './fetch/rules.js';
 export {
   FETCH_BOUNDS,
   FETCH_CONDITION_FIELDS,
