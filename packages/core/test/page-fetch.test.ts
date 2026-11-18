@@ -1939,5 +1939,5 @@ test('a navigation failure without a driver code reads the same as before', asyn
     maxBodyBytes: 1_000_000,
     signal: new AbortController().signal,
   });
-  assert.equal(result.error?.message, 'The browser could not load the target page.');
+  assert.match(result.error?.message ?? '', /^The browser could not load the target page \(something odd happened\)\.$/);
 });

@@ -89,8 +89,17 @@ const failureKind = (error: SearchError): 'authentication' | 'network' | 'protoc
  * dropped, so a diagnostic can never carry what the target answered.
  */
 function diagnosticCode(message: string): string {
-  const match = /\b((?:net::)?ERR_[A-Z0-9_]+|NS_ERROR_[A-Z0-9_]+)\b/.exec(message);
-  return match ? ` (${match[1]})` : '';
+  const code = /\b((?:net::)?ERR_[A-Z0-9_]+|NS_ERROR_[A-Z0-9_]+)\b/.exec(message);
+  if (code) return ` (${code[1]})`;
+  // No driver code means the failure came from something else the driver wrapped — a proxy, a closed
+  // socket, a protocol answer. Keep one short line of the driver's own wording, stripped of URLs and
+  // anything after a newline, so a cause can still be read without carrying what the target returned.
+  const line = (message.split(/\r?\n/)[0] ?? '')
+    .replace(/https?:\/\/\S+/gi, '<url>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+  return line ? ` (${line})` : '';
 }
 
 /** A captured main document, or the size that made it unacceptable. */
