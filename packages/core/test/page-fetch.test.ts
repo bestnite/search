@@ -1953,7 +1953,9 @@ test('a document that navigates while it is being read is read once more, not fa
         goto: async () => ({ status: () => 200 }),
         url: () => 'https://example.com/',
         waitForLoadState: async () => undefined,
-        evaluate: async () => {
+        evaluate: async (fn: unknown) => {
+          // The readable-text probe asks for visible text; everything else is a document capture.
+          if (typeof fn === 'function' && String(fn).includes('innerText')) return 500;
           reads += 1;
           if (reads === 1) throw new Error('Execution context was destroyed, most likely because of a navigation');
           return { html: '<html><head><title>settled</title></head><body>ok</body></html>' };
@@ -2112,4 +2114,62 @@ test('session mode with no configured path reads the standard session file, isol
   assert.equal(seen.length, 2);
   assert.match(String(seen[0] ?? ''), /dsh-search\/browser\/state\.json$/, 'session mode defaults to the standard file');
   assert.equal(seen[1], undefined, 'isolated mode reads no session file');
+});
+
+test('a capture that holds no text becomes a named failure, not an empty success', async () => {
+  const { defaultConfig, parseConfig } = await import('../src/config.js');
+  const { PageFetchEngine } = await import('../src/fetch/engine.js');
+  const config = defaultConfig();
+  config.browser.endpoint = 'ws://127.0.0.1:3030/ws';
+  config.pageFetch.routes = config.pageFetch.routes.map(route => ({ ...route, enabled: route.kind === 'browser' }));
+  const engine = new PageFetchEngine(parseConfig(config), {
+    resolveCredential: async () => undefined,
+    browser: async request => ({
+      outcome: 'ok' as const,
+      statusCode: 200,
+      finalUrl: request.url.href,
+      representation: 'rendered-dom' as const,
+      html: '<html><body><div id="root"></div></body></html>',
+      cleanHtml: '<html><body></body></html>',
+      text: '',
+      notes: [],
+    }),
+  });
+  const result = await engine.fetchPage({ url: 'https://app.example.com/', format: 'markdown' });
+  assert.equal(result.ok, false);
+  assert.equal(result.attempts[0]?.outcome, 'unsupported-content');
+  assert.match(result.attempts[0]?.error?.message ?? '', /answered HTTP 200, but it rendered no readable content/);
+});
+
+test('the browser route waits for readable text and says so when the document stays a shell', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  let waited = 0;
+  const fetcher = createBrowserFetcher(async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        goto: async () => ({ status: () => 200 }),
+        url: () => 'https://app.example.com/',
+        waitForLoadState: async () => undefined,
+        waitForFunction: async () => { waited += 1; throw new Error('Timeout 5000ms exceeded.'); },
+        evaluate: async () => ({ html: '<html><head><title>app</title></head><body><div id="root"></div></body></html>' }),
+        close: async () => undefined,
+      }),
+      close: async () => undefined,
+    }),
+    close: async () => undefined,
+  }) as never);
+  const result = await fetcher({
+    url: new URL('https://app.example.com/'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    challengeSolver: 'auto',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(waited, 1, 'readiness was awaited exactly once, in the page');
+  assert.ok(result.notes.some(note => /render window/.test(note)), 'the shell is explained');
 });

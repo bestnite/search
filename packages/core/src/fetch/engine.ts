@@ -238,6 +238,18 @@ export class PageFetchEngine {
       }
       if (plan?.truncatedByConversionInput) notes.push('The page was large, so conversion read a bounded prefix of the HTML.');
 
+      // A single-page app answers 200 while its document is still a shell: the capture succeeds and
+      // holds no readable text. That is a real failure, and it has to be named — an empty result with
+      // no explanation reads as "the page had nothing", which is a different claim.
+      if (result.outcome === 'ok' && !(plan?.content ?? '').trim()) {
+        const answered = result.statusCode === undefined ? 'The target' : `The target answered HTTP ${result.statusCode}, but it`;
+        result = {
+          ...result,
+          outcome: 'unsupported-content',
+          error: { kind: 'unsupported-content', message: `${answered} rendered no readable content at capture time.` },
+        };
+      }
+
       const scanNotes: string[] = [];
       // A Markdown condition on an HTTP or browser route reads the converted projection, because that
       // is the Markdown this call would actually return. Native provider Markdown is never reconverted,

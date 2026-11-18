@@ -13,7 +13,7 @@ import {
   isChallengeFrameUrl,
   type ChallengeDetection,
 } from './challenge.js';
-import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS } from './limits.js';
+import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS, READABLE_TEXT_MIN_CHARS, RENDER_WINDOW_MS } from './limits.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { parseHtmlDocument } from './html.js';
 import { utf8ByteLength } from './bytes.js';
@@ -385,6 +385,28 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * Read and judge the document the page holds now: one capture, reused as the result, and the
        * challenge identification over that same capture.
        */
+      /**
+       * Wait, within a bounded window, until the document holds text a reader could see. Returns false
+       * when the window closed with the page still looking like a shell, so the caller can say so
+       * instead of silently returning nothing.
+       */
+      const waitForReadableText = async (page: Page, budgetMs: number): Promise<boolean> => {
+        if (!page.waitForFunction) return true;
+        try {
+          // The page itself reports readiness: `raf` polling runs in the document, so the wait ends on
+          // the frame the text appears instead of on the next crossing to this process.
+          await untilAborted(page.waitForFunction(
+            (minimum: number) => (document.body?.innerText ?? '').trim().length >= minimum,
+            READABLE_TEXT_MIN_CHARS,
+            { timeout: Math.max(0, budgetMs), polling: 'raf' },
+          ));
+          return true;
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          return false;
+        }
+      };
+
       const judge = async (): Promise<Judged> => {
         const capture = await untilAborted(readDocument(activePage, maxDomBytes));
         if (typeof capture.tooLarge === 'number') return { capture };
@@ -523,6 +545,13 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       if (statusCode !== undefined && statusCode >= 400) {
         await activePage.waitForLoadState?.('load', { timeout: 3_000 }).catch(() => undefined);
         await activePage.waitForFunction?.(() => document.title.trim().length > 0, undefined, { timeout: 3_000 }).catch(() => undefined);
+      } else {
+        // A client-rendered page is a shell at `domcontentloaded`: Discourse, React and Vue apps put the
+        // forum in the DOM a moment later. Waiting for readable text costs nothing on a static page and
+        // turns an empty capture into the real one. Bounded by the route budget, never waits for a person.
+        if (!(await waitForReadableText(activePage, Math.min(RENDER_WINDOW_MS, request.routeTimeoutMs)))) {
+          notes.push('The captured document held almost no readable text after the render window; a client-rendered page may not have finished before the capture.');
+        }
       }
       let judged = await judge();
       if (typeof judged.capture.tooLarge === 'number') return limitResult();
