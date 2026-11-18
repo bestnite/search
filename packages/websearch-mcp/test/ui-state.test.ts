@@ -41,12 +41,11 @@ test('a valid save keeps credentials, unknown keys and a backup', async () => {
   const search = defaultConfig();
   const { path } = await workspace({ search, credentials: { exa: 'secret-value' }, compactByDefault: false, custom: { keep: true } });
   const next = defaultConfig();
-  next.mode = 'single';
-  next.singleBackend = 'reddit';
+  next.recency = 'week';
   next.backends.reddit!.enabled = true;
   const saved = await saveConfig(path, { config: next, compactByDefault: true });
   const written = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
-  assert.equal((written.search as { mode: string }).mode, 'single');
+  assert.equal((written.search as { recency: string }).recency, 'week');
   assert.deepEqual(written.credentials, { exa: 'secret-value' });
   assert.equal(written.compactByDefault, true);
   assert.deepEqual(written.custom, { keep: true });
@@ -111,7 +110,7 @@ test('an unparseable file still opens the page on defaults', async () => {
   await writeFile(path, '{ not json', 'utf8');
   const current = await snapshot(path);
   assert.ok(current.loadError);
-  assert.equal(current.config.mode, defaultConfig().mode);
+  assert.equal(current.config.maxResults, defaultConfig().maxResults);
 });
 
 test('a container copy rewrites loopback endpoints and keeps everything else', () => {

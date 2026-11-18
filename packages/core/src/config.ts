@@ -16,7 +16,7 @@ export function browserCredentialRef(): string {
 }
 export function defaultConfig(): SearchConfig {
   return {
-    mode:'parallel', singleBackend:'keenable', maxResults:8, concurrency:4, overallTimeoutMs:30000,
+    maxResults:8, concurrency:4, overallTimeoutMs:30000,
     language:'', region:'', recency:'any', safeSearch:true, includeDomains:[], excludeDomains:[],dedup:'url',fusion:'rrf',
     browser:{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:DEFAULT_MAX_CONCURRENT_READS},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
@@ -50,7 +50,7 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   const num=(v:number,min:number,max:number,p:string)=>{if(!Number.isInteger(v)||v<min||v>max)fail(p,`Expected an integer between ${min} and ${max}.`);};
   if(c.language&&!(LANGUAGES as readonly string[]).includes(c.language))fail('language','Unsupported language code.');
   if(c.region&&!(REGIONS as readonly string[]).includes(c.region))fail('region','Unsupported region code.');
-  choice(c.mode,['single','parallel'],'mode');choice(c.singleBackend,catalog.map(x=>x.id),'singleBackend');choice(c.recency,['any','day','week','month','year'],'recency');choice(c.dedup,['url','url-title'],'dedup');choice(c.fusion,['rrf','ordered'],'fusion');
+  choice(c.recency,['any','day','week','month','year'],'recency');choice(c.dedup,['url','url-title'],'dedup');choice(c.fusion,['rrf','ordered'],'fusion');
   num(c.maxResults,1,50,'maxResults');num(c.concurrency,1,20,'concurrency');num(c.overallTimeoutMs,1000,180000,'overallTimeoutMs');
   num(c.retry.maxRetries,0,5,'retry.maxRetries');num(c.retry.initialDelayMs,0,60000,'retry.initialDelayMs');num(c.retry.maxDelayMs,0,120000,'retry.maxDelayMs');
   if(c.retry.initialDelayMs>c.retry.maxDelayMs)fail('retry.maxDelayMs','Maximum delay must not be shorter than initial delay.');
@@ -98,6 +98,9 @@ export function parseConfig(value:unknown):SearchConfig{
     // is filled: an explicit null, wrong type or out-of-range value is left for validation to reject,
     // and unknown sibling keys stay unknown.
     if(raw.browser&&typeof raw.browser==='object'&&!Array.isArray(raw.browser)&&!Object.hasOwn(raw.browser,'maxConcurrentReads'))raw.browser.maxConcurrentReads=defaults.browser.maxConcurrentReads;
+    // How many backends a search runs is decided by the call, not by a saved mode: `mode` and
+    // `singleBackend` are retired fields, dropped on load instead of failing the whole file.
+    delete raw.mode;delete raw.singleBackend;
     value=raw;
   }
   const issues=validateConfig(value);

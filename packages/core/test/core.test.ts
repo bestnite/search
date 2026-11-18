@@ -22,7 +22,7 @@ test('cancellation stops before request',async()=>{const controller=new AbortCon
 test('Retry-After is parsed and never shortened beyond configured bound',async()=>{assert.equal(retryAfter('2'),2000);assert.equal(retryAfter('invalid'),undefined);let calls=0;const c=config();const e=new SearchEngine(c,async()=>undefined,mock(()=>{calls++;return new Response('',{status:429,headers:{'Retry-After':'60'}});}));const r=await e.search({query:'hello'});assert.equal(calls,1);assert.match(r.content,/retry delay exceeds/);});
 test('malformed successful response is a protocol failure not no-results',async()=>{const r=await new SearchEngine(config(),async()=>undefined,mock(()=>Response.json({wrong:[]}))).search({query:'hello'});assert.equal(r.outcomes[0]!.error!.kind,'protocol');});
 test('configuration rejects credential-bearing and malformed endpoints but accepts plaintext on any host',()=>{for(const endpoint of ['https://u:p@example.org','https://example.org?key=secret','ws://example.org/socket#secret','ftp://example.org']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.ok(validateConfig(c).some(i=>i.path.endsWith('.endpoint')),`${endpoint} should be rejected`);}for(const endpoint of ['http://search.example.org/api','http://host.containers.internal:3030/socket']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.deepEqual(validateConfig(c).filter(i=>i.path.endsWith('.endpoint')),[],`${endpoint} should be accepted`);}});
-test('an adapter that leaves fields undefined cannot break the JSON boundary',async()=>{const c=defaultConfig();c.backends.keenable!.enabled=true;c.mode='single';c.singleBackend='keenable';c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:[{url:'https://example.org/a'}]})));const r=await e.search({query:'q'},new AbortController().signal);const walk=(v:any,path:string)=>{if(v===undefined)throw new Error(`undefined at ${path}`);if(v&&typeof v==='object')for(const[k,item]of Object.entries(v))walk(item,`${path}.${k}`);};walk(r,'result');assert.equal(JSON.parse(JSON.stringify(r)).sources.length,1);});
+test('an adapter that leaves fields undefined cannot break the JSON boundary',async()=>{const c=defaultConfig();c.backends.keenable!.enabled=true;c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:[{url:'https://example.org/a'}]})));const r=await e.search({query:'q'},new AbortController().signal);const walk=(v:any,path:string)=>{if(v===undefined)throw new Error(`undefined at ${path}`);if(v&&typeof v==='object')for(const[k,item]of Object.entries(v))walk(item,`${path}.${k}`);};walk(r,'result');assert.equal(JSON.parse(JSON.stringify(r)).sources.length,1);});
 test('browser-backed readers share one endpoint, one token reference and one session file',async()=>{const {defaultConfig}=await import('../src/config.js');const {validateConfig}=await import('../src/config.js');const {browserBackends}=await import('../src/adapters.js');
  const c=defaultConfig();assert.deepEqual(c.browser,{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:2},'the shared browser block carries no credential name');
  assert.ok(browserBackends.xiaohongshu,'the browser registry carries the Xiaohongshu reader');
@@ -40,21 +40,25 @@ test('Zhihu case-sensitive GET contract includes timestamp and bearer',async()=>
 test('free anonymous tiers are not labelled unavailable, and live evidence is recorded',async()=>{const {catalog}=await import('../src/catalog.js');for(const id of ['exa','anysearch','parallel','you','keenable']){const def=catalog.find(item=>item.id===id)!;assert.equal(def.evidence,'live',`${id} should carry live evidence`);assert.ok(def.modes.some(mode=>mode.mode==='anonymous'&&mode.tier==='free'),`${id} anonymous mode should be a free tier`);}const exa=catalog.find(item=>item.id==='exa')!;assert.equal(exa.modes.find(mode=>mode.mode==='anonymous')!.tier,'free');for(const def of catalog){if(def.status==='unverified')continue;for(const mode of def.modes)assert.notEqual(mode.tier,'unverified',`${def.id}/${mode.mode} must not be tiered as unavailable`);}});
 
 test('a retired backend id in a saved row is pruned instead of blocking load, and new ids are backfilled',async()=>{const {parseConfig}=await import('../src/config.js');const saved:any=defaultConfig();saved.backends.serper={enabled:false,mode:'key',endpoint:'https://google.serper.dev/search',timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:{}};delete saved.backends.exa;const loaded=parseConfig(saved);assert.equal('serper' in loaded.backends,false);assert.ok(loaded.backends.exa);assert.deepEqual(validateConfig(loaded),[]);});
+test('a saved mode and singleBackend are dropped on load instead of failing the file',async()=>{const {parseConfig}=await import('../src/config.js');const saved:any=defaultConfig();saved.mode='single';saved.singleBackend='keenable';const loaded=parseConfig(saved);assert.equal('mode' in loaded,false,'the saved mode is retired');assert.equal('singleBackend' in loaded,false,'the saved single backend is retired');assert.deepEqual(validateConfig(loaded),[]);});
 
 test('language and region codes are validated and translated per backend',async()=>{const {LANGUAGES,REGIONS,languageFor,regionFor}=await import('../src/locale-map.js');assert.equal(languageFor('brave','zh-Hans'),'zh-hans');assert.equal(languageFor('serper','zh-Hans'),'zh-cn');assert.equal(languageFor('serper','zh-Hant'),'zh-tw');assert.equal(languageFor('searxng','zh-Hans'),'zh-CN');assert.equal(languageFor('you','zh-Hant'),'ZH');assert.equal(languageFor('anysearch','zh-Hans'),'zh');assert.equal(languageFor('keenable','en'),undefined);assert.equal(languageFor('brave','xx'),undefined);assert.equal(regionFor('brave','CN'),'CN');assert.equal(regionFor('serper','CN'),'cn');assert.equal(regionFor('searxng','CN'),undefined);const c=defaultConfig();c.language='xx' as any;assert.ok(validateConfig(c).some(i=>i.path==='language'));const d=defaultConfig();d.region='ZZ' as any;assert.ok(validateConfig(d).some(i=>i.path==='region'));const e=defaultConfig();e.language='zh-Hans';e.region='CN';assert.deepEqual(validateConfig(e),[]);assert.ok(LANGUAGES.includes('zh-Hans')&&REGIONS.includes('CN'));});
 
 test('per-call overrides pick a backend subset and report the ones they had to skip',async()=>{const c=defaultConfig();c.backends.keenable!.enabled=true;c.backends.exa!.enabled=true;c.retry.enabled=false;const urls:string[]=[];const e=new SearchEngine(c,async()=>undefined,mock(url=>{urls.push(url);return Response.json(payload);}));
- const narrowed=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:['exa','not-a-backend']});
+ const narrowed=await e.search({query:'hello'},undefined,undefined,{backends:['exa','not-a-backend']});
  assert.equal(narrowed.outcomes.length,1);assert.equal(narrowed.outcomes[0]!.backend,'exa');assert.match(narrowed.content,/Ignored backends that are not enabled: not-a-backend\./);
- const empty=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:['not-a-backend']});
+ const empty=await e.search({query:'hello'},undefined,undefined,{backends:['not-a-backend']});
  assert.equal(empty.outcomes.length,0);assert.match(empty.content,/None of the requested backends are enabled/);});
-test('a backend argument is refused out loud when single mode wins',async()=>{const c=config();c.mode='single';c.singleBackend='keenable';c.backends.exa!.enabled=true;const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json(payload)));
- const r=await e.search({query:'hello'},undefined,undefined,{backend:'exa'});
- assert.deepEqual(r.outcomes.map(outcome=>outcome.backend),['keenable']);assert.match(r.content,/single mode ignores the requested backend selection/);
- const parallel=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backend:'exa'});
- assert.match(parallel.content,/parallel mode ignores a single backend argument/);});
+test('the backends array is the strategy: one id runs one backend, several run in parallel',async()=>{const c=config();c.backends.searxng!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';const urls:string[]=[];const e=new SearchEngine(c,async()=>undefined,mock(url=>{urls.push(url);return Response.json(payload);}));
+ const one=await e.search({query:'one'},undefined,undefined,{backends:['searxng']});
+ assert.deepEqual(one.outcomes.map(outcome=>outcome.backend),['searxng']);
+ assert.equal(urls.length,1,'one requested id must not fan out to every enabled backend');
+ const both=await e.search({query:'both'},undefined,undefined,{backends:['searxng','keenable']});
+ assert.deepEqual(both.outcomes.map(outcome=>outcome.backend).sort(),['keenable','searxng']);
+ const unselected=await e.search({query:'none selected'});
+ assert.deepEqual(unselected.outcomes.map(outcome=>outcome.backend).sort(),['keenable','searxng'],'a call without a selection runs every enabled backend');});
 test('a per-call result bound is enforced and never cached over a different bound',async()=>{const c=defaultConfig();c.backends.searxng!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;c.cache.enabled=true;c.cache.ttlSeconds=60;const rows=[1,2,3].map(index=>({title:`T${index}`,url:`https://example.org/${index}`,content:`snippet ${index}`}));const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:rows})));
- const bounded=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',maxResults:2});
+ const bounded=await e.search({query:'hello'},undefined,undefined,{maxResults:2});
  assert.equal(bounded.sources.length,2);assert.equal(bounded.truncated,true);
  await assert.rejects(e.search({query:'hello'},undefined,undefined,{maxResults:99}),/1–50/);});
 
@@ -66,17 +70,17 @@ test('every mode that needs a credential tells the UI what to paste',async()=>{c
  }});
 
 test('allBackends plus an exclusion names the set that actually ran',async()=>{const c=defaultConfig();for(const id of['keenable','exa','searxng'])c.backends[id]!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>new Response('boom',{status:500})));
- const r=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:'all',exclude:['exa','ghost']});
+ const r=await e.search({query:'hello'},undefined,undefined,{backends:'all',exclude:['exa','ghost']});
  assert.deepEqual(r.outcomes.map(outcome=>outcome.backend).sort(),['keenable','searxng']);
  assert.match(r.content,/Ignored exclusions for backends that are not enabled: ghost\./);
  assert.match(r.content,/Backends used in this call: .*(keenable|searxng)/);
- const none=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',exclude:['exa']});
+ const none=await e.search({query:'hello'},undefined,undefined,{exclude:['exa']});
  assert.equal(none.outcomes.length,2);
- const mismatch=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',backends:['keenable'],exclude:['nope']});
+ const mismatch=await e.search({query:'hello'},undefined,undefined,{backends:['keenable'],exclude:['nope']});
  assert.match(mismatch.content,/Ignored exclusions for backends that are not enabled: nope\./);});
 test('compact returns links without snippets',async()=>{const c=defaultConfig();c.backends.searxng!.enabled=true;c.backends.searxng!.endpoint='http://127.0.0.1:8385/search';c.retry.enabled=false;c.cache.enabled=false;const rows=[1,2].map(index=>({title:`T${index}`,url:`https://example.org/${index}`,content:'x'.repeat(400)}));const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:rows})));
- const full=await e.search({query:'hello'},undefined,undefined,{mode:'parallel'});
- assert.ok(full.sources[0]!.snippet,);const compact=await e.search({query:'hello'},undefined,undefined,{mode:'parallel',compact:true});
+ const full=await e.search({query:'hello'},undefined,undefined,{});
+ assert.ok(full.sources[0]!.snippet,);const compact=await e.search({query:'hello'},undefined,undefined,{compact:true});
  assert.equal(compact.sources.length,2);assert.equal(compact.sources[0]!.snippet,undefined);assert.equal(compact.sources[0]!.summary,undefined);assert.ok(compact.sources[0]!.url);assert.ok(compact.sources[0]!.title);
  assert.ok(JSON.stringify(compact.sources).length*2<JSON.stringify(full.sources).length*2);});
 
@@ -103,8 +107,8 @@ test('compact becomes the default from configuration yet stays overridable per c
  const rows=[{title:'T',url:'https://example.org/1',content:'a long snippet '.repeat(30)}];
  const compactConfig=build();compactConfig.tools.compactByDefault=true;
  const tight=new SearchEngine(compactConfig,async()=>undefined,mock(()=>Response.json({results:rows})));
- assert.equal((await tight.search({query:'hello'},undefined,undefined,{mode:'parallel'})).sources[0]!.snippet,undefined,'the strategy path honours the saved default');
- assert.ok((await tight.search({query:'hello'},undefined,undefined,{mode:'parallel',compact:false})).sources[0]!.snippet,'an explicit false wins over the saved default');
+ assert.equal((await tight.search({query:'hello'},undefined,undefined,{})).sources[0]!.snippet,undefined,'the strategy path honours the saved default');
+ assert.ok((await tight.search({query:'hello'},undefined,undefined,{compact:false})).sources[0]!.snippet,'an explicit false wins over the saved default');
  const plain=build();plain.tools.compactByDefault=true;
  const provider=new SearchEngine(plain,async()=>undefined,mock(()=>Response.json({results:rows})));
  assert.ok((await provider.search({query:'hello'})).sources[0]!.snippet,'the plain web_search path keeps snippets regardless');});

@@ -71,16 +71,14 @@ export function createTools(
   const searchTool: ToolDefinition = {
     name: 'web_search',
     description:
-      'Search the web through the configured backends and return citeable sources. The strategy is explicit: pick parallel or single mode, choose which enabled backends to use, and how much of each source to return. Failures are named instead of being hidden behind an empty result, and the response reports every request that failed. Nothing falls back to another backend, mode or credential.',
+      'Search the web through the enabled backends and return citeable sources. The backends array is the whole strategy: one id runs that backend alone, several ids run in parallel, allBackends with exclude is the same choice written as a set, and leaving it out runs every enabled backend. Failures are named instead of being hidden behind an empty result, and the response reports every request that failed. Nothing falls back to another backend, access mode or credential.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search query.' },
-        mode: { type: 'string', enum: ['single', 'parallel'], description: 'Strategy for this call. Omit to use the configured mode.' },
-        backends: { type: 'array', items: { type: 'string' }, description: 'Enabled backend ids to use, for example ["exa","reddit"].' },
-        allBackends: { type: 'boolean', description: 'Use every enabled backend before exclusions.' },
-        exclude: { type: 'array', items: { type: 'string' }, description: 'Backends to leave out of this call.' },
-        backend: { type: 'string', description: 'Single backend id; ignored with a note when the effective mode is single.' },
+        backends: { type: 'array', items: { type: 'string' }, description: 'Enabled backend ids to run: one id runs only that backend, several run in parallel. Omit to run every enabled backend.' },
+        allBackends: { type: 'boolean', description: 'Run every enabled backend before exclusions.' },
+        exclude: { type: 'array', items: { type: 'string' }, description: 'Backends to leave out of this call, applied to allBackends or to the backends list.' },
         compact: { type: 'boolean', description: 'Return only URL, title and date per source, dropping snippets.' },
         maxResults: { type: 'integer', minimum: 1, maximum: 50, description: 'Upper bound on returned sources.' },
       },
@@ -92,11 +90,9 @@ export function createTools(
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('web_search needs a non-empty query.');
       const overrides: SearchOverrides = {
-        ...(typeof args.mode === 'string' ? { mode: args.mode as 'single' | 'parallel' } : {}),
         ...(args.allBackends === true ? { backends: 'all' as const } : {}),
         ...(strings(args.backends) ? { backends: strings(args.backends)! } : {}),
         ...(strings(args.exclude) ? { exclude: strings(args.exclude)! } : {}),
-        ...(typeof args.backend === 'string' && args.backend !== '' ? { backend: args.backend } : {}),
         compact: bool(args.compact) ?? config.compactByDefault,
         ...(int(args.maxResults) !== undefined ? { maxResults: int(args.maxResults)! } : {}),
       };

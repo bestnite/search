@@ -1,7 +1,5 @@
 {
   "search": {
-    "mode": "parallel",
-    "singleBackend": "keenable",
     "maxResults": 8,
     "concurrency": 4,
     "overallTimeoutMs": 30000,

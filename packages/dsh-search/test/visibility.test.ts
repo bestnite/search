@@ -3,13 +3,11 @@ import assert from 'node:assert/strict';
 import { defaultConfig } from '@nite07/search-core/static';
 import { blockersOf, visible } from '../src/visibility.js';
 
-test('single-backend selection is only applicable in single mode and its value survives mode switches', () => {
+test('the retired mode settings are gone from the configuration, not hidden in it', () => {
   const config = defaultConfig();
-  config.mode = 'parallel';
-  assert.equal(visible('singleBackend', config), false);
-  config.mode = 'single';
-  assert.equal(visible('singleBackend', config), true);
-  assert.equal(visible('mode', config), true);
+  assert.equal('mode' in config, false);
+  assert.equal('singleBackend' in config, false);
+  assert.equal(visible('mode', config), true, 'an unknown path stays visible; nothing here hides it');
 });
 
 test('dependent settings are hidden by their owning switch without being reset', () => {
@@ -32,11 +30,6 @@ test('pre-flight blockers name the exact problem and target', () => {
   const ids = Object.keys(config.backends);
   const none = blockersOf(config, ids, () => false);
   assert.deepEqual(none.map(item => item.key), ['blockNoBackends']);
-  config.mode = 'single';
-  config.singleBackend = 'keenable';
-  const single = blockersOf(config, ids, () => false, id => id.toUpperCase());
-  assert.deepEqual(single.map(item => item.key), ['blockNoBackends', 'blockSingleDisabled']);
-  assert.equal(single[1]!.vars.backend, 'KEENABLE');
   config.backends.keenable!.enabled = true;
   config.backends.keenable!.mode = 'key';
   const missing = blockersOf(config, ids, () => false, id => id.toUpperCase());

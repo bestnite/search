@@ -25,7 +25,7 @@ export interface BackendConfig {
   rateLimitPerMinute: number; dailyAttemptLimit: number; options: Record<string, string | number | boolean>;
 }
 export interface SearchConfig {
-  mode: 'single' | 'parallel'; singleBackend: string; maxResults: number; concurrency: number;
+  maxResults: number; concurrency: number;
   overallTimeoutMs: number; language: string; region: string; recency: 'any' | 'day' | 'week' | 'month' | 'year';
   safeSearch: boolean; includeDomains: string[]; excludeDomains: string[]; dedup: 'url' | 'url-title';
   fusion: 'rrf' | 'ordered'; retry: RetryConfig;
@@ -55,8 +55,12 @@ export interface BrowserConfig {
 
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
 export interface SearchInput { query: string; maxResults?: number }
-/** Per-call strategy; it never mutates saved configuration. */
-export interface SearchOverrides { mode?: 'single' | 'parallel'; backends?: string[] | 'all'; exclude?: string[]; backend?: string; maxResults?: number; compact?: boolean }
+/**
+ * Per-call strategy; it never mutates saved configuration. There is no mode here: the length of
+ * `backends` is the strategy. One id runs that one backend, several run in parallel, and leaving the
+ * selection out runs every enabled backend.
+ */
+export interface SearchOverrides { backends?: string[] | 'all'; exclude?: string[]; maxResults?: number; compact?: boolean }
 export interface AdapterInput {
   query: string; maxResults: number; config: SearchConfig; backend: BackendConfig; key?: string; signal: AbortSignal;
 }

@@ -25,7 +25,7 @@ test('a missing file explains exactly what to create', async () => {
 test('the starter config is itself valid', async () => {
   const path = await writeTemp(starterConfig());
   const config = await loadConfig({ configPath: path, env: {} });
-  assert.equal(config.search.mode, defaultConfig().mode);
+  assert.equal(config.search.maxResults, defaultConfig().maxResults);
   assert.equal(enabledBackendIds(config).length, 0, 'nothing is enabled by default');
   assert.equal(config.compactByDefault, false);
 });
@@ -40,11 +40,11 @@ test('credential values are literal and cannot reference arbitrary environment v
 
 test('an invalid configuration lists every issue', async () => {
   const search = JSON.parse(JSON.stringify(defaultConfig()));
-  search.mode = 'nonsense';
+  search.recency = 'nonsense';
   const path = await writeTemp({ search });
   await assert.rejects(loadConfig({ configPath: path, env: {} }), (error: unknown) => {
     assert.ok(error instanceof ConfigError);
-    assert.ok(error.details.some(detail => detail.startsWith('mode:')));
+    assert.ok(error.details.some(detail => detail.startsWith('recency:')));
     return true;
   });
 });

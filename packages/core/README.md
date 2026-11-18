@@ -88,8 +88,11 @@ result.outcomes;  // per-backend detail: ok, error kind, duration, attempts
 A partial failure keeps what worked. A total failure says the search failed instead of returning an
 empty list, and failures are never cached.
 
-`search(input, signal?, onlyBackend?, overrides?)` accepts per-call strategy overrides — `mode`,
-`backends`, `exclude`, `backend`, `compact`, `maxResults` — without touching the saved configuration.
+`search(input, signal?, onlyBackend?, overrides?)` accepts per-call strategy overrides — `backends`,
+`exclude`, `compact`, `maxResults` — without touching the saved configuration. How many backends run is
+decided by the call: one id in `backends` runs that backend alone, several run in parallel, and a call
+that names none runs every enabled backend. `onlyBackend` is the internal single-backend probe the
+settings page and `search_manage` use.
 
 ## MCP-backed backends
 

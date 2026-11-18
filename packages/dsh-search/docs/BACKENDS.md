@@ -374,11 +374,9 @@ Choosing a different access mode used to lock the credential field until the con
 
 | Argument | Effect |
 | --- | --- |
-| `mode` | `single` or `parallel` for this call; omitted means the configured mode |
-| `backends` | Subset of the enabled backends; anything disabled or unknown is named in the result |
+| `backends` | The enabled backends to run: one id runs that backend alone, several run in parallel. Omitting it runs every enabled backend |
 | `allBackends` | Every enabled backend, before exclusions; cheaper to write than listing ids |
 | `exclude` | Backends to leave out, applied to `allBackends` or to the `backends` list |
-| `backend` | Single backend id; ignored with a note in single mode, where the configured backend wins, and in parallel mode |
 | `compact` | Return `url`, `title` and `publishedAt` only, dropping snippets — the largest lever on result size |
 | `maxResults` | Result bound for this call, 1–50 |
 

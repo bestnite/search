@@ -93,11 +93,11 @@ test('a rejected save answers 400 and leaves the file untouched', async () => {
   try {
     const before = await readFile(h.configPath, 'utf8');
     const broken = defaultConfig();
-    broken.mode = 'nonsense' as unknown as typeof broken.mode;
+    broken.recency = 'nonsense' as unknown as typeof broken.recency;
     const response = await fetch(`${h.base}/api/settings`, { method: 'PUT', body: JSON.stringify({ config: broken }), ...asJson(h.cookie) });
     assert.equal(response.status, 400);
     const body = (await response.json()) as { issues: Array<{ path: string }> };
-    assert.ok(body.issues.some(issue => issue.path === 'mode'));
+    assert.ok(body.issues.some(issue => issue.path === 'recency'));
     assert.equal(await readFile(h.configPath, 'utf8'), before);
   } finally {
     await h.close();

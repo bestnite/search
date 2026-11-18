@@ -30,11 +30,11 @@ test('web_search passes the strategy through and reports the enabled set', async
   const { engine, seen } = stubEngine();
   const tools = createTools(configWith(['exa', 'reddit']), identity, engine);
   const search = tools.find(tool => tool.name === 'web_search')!;
-  const value = await search.call({ query: 'cordis', mode: 'parallel', allBackends: true, exclude: ['reddit'], compact: true, maxResults: 5 }, new AbortController().signal) as Record<string, unknown>;
+  const value = await search.call({ query: 'cordis', allBackends: true, exclude: ['reddit'], compact: true, maxResults: 5 }, new AbortController().signal) as Record<string, unknown>;
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0]!.input, { query: 'cordis' });
   const overrides = seen[0]!.overrides as Record<string, unknown>;
-  assert.equal(overrides.mode, 'parallel');
+  assert.equal(overrides.mode, undefined, 'the saved mode is gone; the call decides');
   assert.equal(overrides.backends, 'all');
   assert.deepEqual(overrides.exclude, ['reddit']);
   assert.equal(overrides.compact, true);
@@ -115,10 +115,12 @@ test('an X thread is rendered with its replies and depth', async () => {
 
 test('tool schemas stay honest about their bounds', () => {
   const tools = createTools(configWith([]), identity);
-  const search = tools.find(tool => tool.name === 'web_search')!.inputSchema as { properties: Record<string, { maximum?: number; minimum?: number; enum?: string[] }>; required: string[] };
+  const search = tools.find(tool => tool.name === 'web_search')!.inputSchema as { properties: Record<string, { maximum?: number; minimum?: number; enum?: string[]; description?: string }>; required: string[] };
   assert.deepEqual(search.required, ['query']);
   assert.equal(search.properties.maxResults!.maximum, 50);
-  assert.deepEqual(search.properties.mode!.enum, ['single', 'parallel']);
+  assert.equal(search.properties.mode, undefined, 'the backends array is the strategy, so there is no mode argument');
+  assert.equal(search.properties.backend, undefined, 'one backend is backends:["id"], not its own argument');
+  assert.match(String(search.properties.backends!.description), /several run in parallel/);
   const thread = tools.find(tool => tool.name === 'read_thread')!.inputSchema as { properties: Record<string, { maximum?: number }> };
   assert.equal(thread.properties.depth!.maximum, 8);
   assert.equal(thread.properties.limit!.maximum, 500);

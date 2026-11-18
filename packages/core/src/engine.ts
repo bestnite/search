@@ -44,14 +44,13 @@ export class SearchEngine {
     const enabledIds=()=>catalog.filter(d=>c.backends[d.id]?.enabled).map(d=>d.id);
     const resolveIds=():string[]=>{
       if(onlyBackend)return [onlyBackend];
-      const mode=overrides?.mode??c.mode;
-      if(mode==='single'){
-        if(overrides?.backend||overrides?.backends==='all'||overrides?.backends?.length||overrides?.exclude?.length)notes.push('Note: single mode ignores the requested backend selection; the configured single backend was used.');
-        return [c.singleBackend];
-      }
-      if(overrides?.backend)notes.push('Note: parallel mode ignores a single backend argument; pass backends or exclude instead.');
       const enabled=enabledIds();
       const requested=overrides?.backends;
+      const excluded=[...new Set((overrides?.exclude??[]).map(value=>String(value).trim()).filter(Boolean))];
+      // A call that says nothing about backends runs every enabled one. Any selection speaks for
+      // itself and its length is the whole strategy: one id runs that one backend, several run in
+      // parallel. Nothing else decides how many run.
+      if(requested===undefined&&!excluded.length)return [...enabled];
       const rejected:string[]=[];
       let base:string[];
       if(requested===undefined||requested==='all')base=[...enabled];
@@ -60,7 +59,6 @@ export class SearchEngine {
         base=wanted.filter(id=>enabled.includes(id));
         rejected.push(...wanted.filter(id=>!enabled.includes(id)));
       }
-      const excluded=[...new Set((overrides?.exclude??[]).map(value=>String(value).trim()).filter(Boolean))];
       if(excluded.length){
         const removed=base.filter(id=>excluded.includes(id));
         base=base.filter(id=>!excluded.includes(id));

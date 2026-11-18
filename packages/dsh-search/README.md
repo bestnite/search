@@ -83,12 +83,12 @@ queries. A 429 answer lowers the per-site cap to 1 for the rest of that browser 
 
 ## Tools
 
-- `web_search` — the backend fan-out described above.
-- `web_search_plus` — search with a strategy for this call only: `mode` (single or parallel),
-  `backends` (a subset of the enabled ones), `allBackends` + `exclude` (everything except a few),
-  `compact` (links and titles only, the biggest lever on result size) and `maxResults`. Saved
-  configuration is untouched, a backend that is not enabled is reported rather than silently dropped,
-  and the result names the backends that actually ran. Can be switched off in settings.
+- `web_search` — the backend fan-out described above: every enabled backend.
+- `web_search_plus` — search with a strategy for this call only: `backends` (a subset of the enabled
+  ones; one id runs that backend alone, several run in parallel), `allBackends` + `exclude` (everything
+  except a few), `compact` (links and titles only, the biggest lever on result size) and `maxResults`.
+  Saved configuration is untouched, a backend that is not enabled is reported rather than silently
+  dropped, and the result names the backends that actually ran. Can be switched off in settings.
 - `x_thread` — read one X post with its replies. Needs the X backend in session mode; depth, reply
   count and character budget are capped.
 - `xiaohongshu_note` — read one note: text, author, engagement counts, tags, pictures, and optionally

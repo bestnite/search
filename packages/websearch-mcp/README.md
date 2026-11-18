@@ -13,9 +13,9 @@ MCP client: Claude Code, Codex, DeepSeek Harness, or your own.
 
 Most MCP search servers pick a provider for you and hide what happens when it fails. This one does the
 opposite: every backend has an explicit access mode, every access mode carries a cost tier, and a
-failure comes back named instead of as an empty result. The model can also steer a single call —
-parallel or single, which backends, how much of each source — so a cheap lookup does not cost the same
-as a broad sweep.
+failure comes back named instead of as an empty result. The model can also steer a single call — which
+backends, how much of each source — so a cheap lookup does not cost the same as a broad sweep. How many
+run is the caller's decision: one id in `backends` runs one backend, several run in parallel.
 
 ## Install
 
@@ -149,7 +149,7 @@ carries the token the read needs) or a note id an earlier search returned.
 
 | Tool | What it does |
 | --- | --- |
-| `web_search` | Search across the enabled backends. Takes `query`, plus optional `mode`, `backends`, `allBackends`, `exclude`, `backend`, `compact` and `maxResults`. Anything that cannot be honoured is named in the report rather than silently dropped. |
+| `web_search` | Search across the enabled backends. Takes `query`, plus optional `backends`, `allBackends`, `exclude`, `compact` and `maxResults`. `backends` decides how many run: one id runs that backend alone, several run in parallel, and omitting it runs every enabled backend. Anything that cannot be honoured is named in the report rather than silently dropped. |
 | `read_thread` | Read one discussion, with the pictures a post carries returned as MCP image content (bounded by count, per-file size and a per-call budget, with every link listed): `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
 | `xiaohongshu_note` | Read one note: text, author, engagement counts, tags, pictures as image
 content, and optionally its top-level comments (depth is one level, `commentLimit` 1–50). Needs the
@@ -173,7 +173,7 @@ The wire protocol is the [official TypeScript SDK](https://ts.sdk.modelcontextpr
   the config. Retries stay on the same provider and mode.
 - **Failures are visible.** Partial failures return the sources that worked and name the ones that did
   not; total failures say the search failed. Failed calls are never cached.
-- **Per-call strategy, saved config untouched.** `mode`, `backends` and `compact` apply to that one
+- **Per-call strategy, saved config untouched.** `backends`, `exclude` and `compact` apply to that one
   call, so a narrow lookup and a broad sweep can coexist without editing the file.
 - **Reddit is anonymous by default.** No account needed; the adapter uses the same anonymous token the
   Android client obtains, because Reddit's public REST search answers 403 to anonymous callers.
