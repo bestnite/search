@@ -16,7 +16,7 @@ Both hosts now require exactly `@nite07/search-core@0.1.6`. All three were teste
 
 Histories were imported with non-squashed Git subtrees under `packages/core`, `packages/dsh-search` and `packages/websearch-mcp`. Source repositories and remote branches were not rewritten or removed.
 
-Before importing core, a disposable bare clone was filtered with `git-filter-repo` to remove `.xhs-keep.mjs` from all imported commits. That temporary helper contained a browser credential. Filtering changed affected core commit IDs; the original tip above is provenance, not the imported rewritten ID. No credential value is recorded here. Original repositories may still contain that credential in history; rotating or revoking it is a separate operator action.
+Before importing core, a disposable bare clone was filtered with `git-filter-repo` to remove `.xhs-keep.mjs` from all imported commits. A final reachable-object scan found the same credential in historical `.open.mjs`; that helper was also removed from the new migration branch's imported history. The final scan verified that neither helper nor the known credential value remains reachable from the monorepo branch. Filtering changed affected commit IDs; the original tips above are provenance, not necessarily the imported rewritten IDs. No credential value is recorded here. Original repositories may still contain that credential in history; rotating or revoking it is a separate operator action.
 
 Only the filtered branch is imported; do not later attach an unfiltered core remote or push its legacy tags into this repository. A browser image tag can be created from the migrated tree after its build context is verified.
 
