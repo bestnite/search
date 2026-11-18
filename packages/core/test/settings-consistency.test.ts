@@ -210,18 +210,37 @@ test('an unreachable endpoint and a version mismatch are different causes', asyn
 test('a late connection is closed instead of leaking, and a deadline is reported as a timeout', async () => {
   const state = track();
   const late = new Promise<VerificationBrowser>(resolve => {
-    setTimeout(() => resolve(fakeBrowser(state)), 60);
+    setTimeout(() => resolve(fakeBrowser(state)), 50);
   });
+  // The issue reports the *remaining* total budget, not the configured constant: on a real clock a
+  // 20 ms check can report 19 because a millisecond went to scheduling. A frozen clock makes the
+  // assertion exact without pinning a number the save path does not promise.
   const result = await verifyBrowserDependencies(browserEnabled(), {
     timeoutMs: 20,
+    now: () => 0,
     connect: () => { state.connects += 1; return late; },
   });
   assert.equal(result.ok, false);
   assert.equal(result.issues[0]?.code, 'browser.timeout');
-  assert.equal(result.issues[0]?.params?.timeoutMs, 20);
-  await new Promise(resolve => setTimeout(resolve, 90));
+  const reported = Number(result.issues[0]?.params?.timeoutMs);
+  assert.equal(reported, 20, 'with no budget spent yet, the whole 20 ms is what remains');
+  assert.ok(Number.isInteger(reported) && reported >= 1 && reported <= 20, 'the reported bound is a positive part of the configured budget');
+  await new Promise(resolve => setTimeout(resolve, 200));
   assert.equal(state.browserClosed, 1, 'the browser that arrived after the deadline was closed');
   assert.equal(state.contexts, 0, 'no context was created after the deadline');
+});
+
+test('time spent before the probe is deducted from the one total budget', async () => {
+  // The clock advances during the token read, exactly as a slow credential store would.
+  let clock = 0;
+  const result = await verifyBrowserDependencies(browserEnabled(), {
+    timeoutMs: 20,
+    now: () => clock,
+    resolveToken: () => { clock = 6; return undefined; },
+    connect: () => new Promise<VerificationBrowser>(() => undefined),
+  });
+  assert.equal(result.issues[0]?.code, 'browser.timeout');
+  assert.equal(result.issues[0]?.params?.timeoutMs, 14, 'a check that already spent 6 ms of 20 reports the remaining 14');
 });
 
 test('a context failure closes the browser and reports the context cause', async () => {
