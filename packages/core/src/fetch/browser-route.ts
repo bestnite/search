@@ -123,6 +123,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
     // error such as net::ERR_TUNNEL_CONNECTION_FAILED contains the word "connection" without the
     // browser ever failing to attach.
     let stage: 'attach' | 'navigate' = 'attach';
+    // What the main document already answered, kept outside the try so a failure after the response
+    // can still report the status and the URL instead of discarding them.
+    let observedStatus: number | undefined;
+    let observedUrl: string | undefined;
     let stopped = false;
     // Close operations started for a resource that arrived after teardown began; awaited before the
     // fetch settles so a late connection cannot outlive the call that made it.
@@ -256,6 +260,8 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       if (request.settleMs > 0) await abortableWait(request.settleMs, request.signal);
       const statusCode = response?.status();
       const finalUrl = page.url();
+      observedStatus = statusCode;
+      observedUrl = finalUrl;
       // Bound the capture inside the page: the remote side measures UTF-8 bytes and, when the
       // document is over the bound, reports only the size instead of serializing it across the wire.
       const target = page;
@@ -321,13 +327,17 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         : undefined;
       if (attach) return routeFailure(failureKind(attach), { kind: failureKind(attach), message: attach.message }, { notes });
       const message = error instanceof Error ? error.message : String(error);
+      const observed = observedStatus === undefined
+        ? ''
+        : ` The target answered HTTP ${observedStatus} before the read failed.`;
+      const kept = { notes, ...(observedStatus === undefined ? {} : { statusCode: observedStatus }), ...(observedUrl === undefined ? {} : { finalUrl: observedUrl }) };
       if (/timeout/i.test(message)) {
-        return routeFailure('timeout', { kind: 'timeout', message: 'The browser did not finish loading the page within the route timeout.' }, { notes });
+        return routeFailure('timeout', { kind: 'timeout', message: `The browser did not finish loading the page within the route timeout.${observed}` }, kept);
       }
       // A navigation failure is useless without its cause: "could not load the page" covers a wrong
       // proxy, a refused connection, a redirect loop and a certificate problem alike. Keep the
       // driver's own code (net::ERR_*), never the URL or anything the target sent back.
-      return routeFailure('network', { kind: 'network', message: `The browser could not load the target page${diagnosticCode(message)}.` }, { notes });
+      return routeFailure('network', { kind: 'network', message: `The browser could not load the target page${diagnosticCode(message)}.${observed}` }, kept);
     } finally {
       request.signal.removeEventListener('abort', onAbort);
       await release();

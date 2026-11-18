@@ -1977,3 +1977,35 @@ test('a document that navigates while it is being read is read once more, not fa
   assert.equal(result.outcome, 'ok');
   assert.match(result.html ?? '', /ok/);
 });
+
+test('a failure after the response keeps the status the target already answered', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  const fetcher = createBrowserFetcher(async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        goto: async () => ({ status: () => 403 }),
+        url: () => 'https://www.zhihu.com/signin',
+        waitForLoadState: async () => undefined,
+        evaluate: async () => { throw new Error('Target page, context or browser has been closed'); },
+        close: async () => undefined,
+      }),
+      close: async () => undefined,
+    }),
+    close: async () => undefined,
+  }) as never);
+  const result = await fetcher({
+    url: new URL('https://www.zhihu.com/question/1'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(result.outcome, 'network');
+  assert.equal(result.statusCode, 403, 'the observed status survives the later failure');
+  assert.equal(result.finalUrl, 'https://www.zhihu.com/signin');
+  assert.match(result.error?.message ?? '', /answered HTTP 403 before the read failed/);
+});
