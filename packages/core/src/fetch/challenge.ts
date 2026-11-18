@@ -34,6 +34,24 @@ export const CHALLENGE_HTML_MARKERS: readonly string[] = [
   'cf-turnstile',
 ];
 
+/**
+ * Markers only an interstitial carries. They decide the question on their own.
+ *
+ * A normal page embeds Turnstile for its own login form, so the platform's script names and its widget
+ * frame appear on ordinary pages too: linux.do is a forum that answers 200, renders its real content and
+ * still loads challenge-platform and a challenges.cloudflare.com frame. Treating those as a challenge
+ * turned a healthy page into a failed fetch.
+ */
+export const CHALLENGE_DECISIVE_MARKERS: readonly string[] = ['cf_chl_opt', '__cf_chl_', 'cf-chl-'];
+
+/** Markers that only support a challenge claim when the title or the status already says so. */
+export const CHALLENGE_SUPPORTING_MARKERS: readonly string[] = ['challenge-platform', 'challenges.cloudflare.com', 'cf-turnstile'];
+
+/** A refusal is part of the claim: no status, no support from the supporting markers. */
+function isRefusal(statusCode: number | undefined): boolean {
+  return statusCode !== undefined && (statusCode === 403 || statusCode === 429 || statusCode >= 500);
+}
+
 /** The only host a Turnstile widget frame is served from. */
 export const CHALLENGE_FRAME_HOST = 'challenges.cloudflare.com';
 
@@ -92,19 +110,31 @@ export const isChallengeFrameUrl = (url: string): boolean => {
  */
 export function detectCloudflareChallenge(signals: ChallengeSignals): ChallengeDetection {
   const markers: string[] = [];
+  const supporting: string[] = [];
   const title = signals.title?.trim().toLowerCase() ?? '';
+  let titleClaim = false;
   if (title) {
     const matched = CHALLENGE_TITLE_PATTERNS.find(pattern => title.includes(pattern.needle));
-    if (matched) markers.push(`the title matched "${matched.display}"`);
+    if (matched) {
+      markers.push(`the title matched "${matched.display}"`);
+      titleClaim = true;
+    }
   }
-  if ((signals.frameUrls ?? []).some(isChallengeFrameUrl)) markers.push('a frame pointed at challenges.cloudflare.com');
+  const frameClaim = (signals.frameUrls ?? []).some(isChallengeFrameUrl);
   for (const needle of signals.htmlMatches ?? []) {
     const phrase = HTML_MARKER_PHRASES[needle];
-    if (phrase && !markers.includes(phrase)) markers.push(phrase);
+    if (!phrase) continue;
+    if (CHALLENGE_DECISIVE_MARKERS.includes(needle)) markers.push(phrase);
+    else supporting.push(phrase);
   }
+  if (frameClaim) supporting.push('a frame pointed at challenges.cloudflare.com');
+  // A challenge is claimed by a title that says so, by a marker only an interstitial writes, or by
+  // support that arrives together with a refusal. Embedded platform files alone claim nothing.
+  const decisive = titleClaim || markers.length > 0;
+  const challenge = decisive || (isRefusal(signals.statusCode) && supporting.length > 0);
   return {
-    challenge: markers.length > 0,
-    markers,
+    challenge,
+    markers: challenge ? [...markers, ...supporting] : [],
     ...(signals.statusCode === undefined ? {} : { statusCode: signals.statusCode }),
   };
 }

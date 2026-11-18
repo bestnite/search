@@ -178,9 +178,14 @@ test('a challenge is identified from independent markers, never from the bare wo
   assert.equal(byMarker.challenge, true);
   assert.match(byMarker.markers.join(' | '), /the document carried a cf-chl marker/);
 
-  const byFrame = detectCloudflareChallenge({ frameUrls: [CHALLENGE_FRAME_URL] });
-  assert.equal(byFrame.challenge, true);
-  assert.match(byFrame.markers.join(' | '), /a frame pointed at challenges.cloudflare.com/);
+  // An embedded Turnstile widget on a healthy page is not a challenge: only a refusal makes the
+  // platform's own files count as evidence.
+  const frameOnly = detectCloudflareChallenge({ frameUrls: [CHALLENGE_FRAME_URL], statusCode: 200 });
+  assert.equal(frameOnly.challenge, false, 'a widget frame alone is not a challenge');
+
+  const refused = detectCloudflareChallenge({ frameUrls: [CHALLENGE_FRAME_URL], statusCode: 403 });
+  assert.equal(refused.challenge, true, 'the same frame with a refusal is a challenge');
+  assert.match(refused.markers.join(' | '), /a frame pointed at challenges.cloudflare.com/);
 
   // A normal page that merely mentions the company, its insights script or its dashboard is a page.
   const mention = detectCloudflareChallenge({
@@ -212,7 +217,7 @@ test('the challenge note names the markers and the observed status without inven
   assert.equal(
     challengeNote(detection),
     'The page looked like a Cloudflare challenge after the main document answered HTTP 403'
-      + ' (the title matched "Attention Required", a frame pointed at challenges.cloudflare.com, the document carried a cf-chl marker).',
+      + ' (the title matched "Attention Required", the document carried a cf-chl marker, a frame pointed at challenges.cloudflare.com).',
   );
   const withoutStatus = challengeNote(detectCloudflareChallenge({ title: 'Verifying you are human' }));
   assert.equal(withoutStatus, 'The page looked like a Cloudflare challenge (the title matched "Verifying you are human").');
@@ -391,4 +396,41 @@ test('a widget that is in the document but not laid out yet is clicked once it h
   assert.ok(fixture.page.clicks >= 1, 'the widget was pressed after it gained a size');
   assert.match(fixture.page.clickedSelectors[0] ?? '', /checkbox|challenge-stage|body/);
   assert.equal(result.statusCode, 403, 'a challenge that never clears keeps its status');
+});
+
+test('a healthy page that embeds Turnstile is not reported as a challenge', () => {
+  // linux.do answers 200, renders its forum, and still loads challenge-platform plus a Turnstile
+  // frame for its own login form. That page must never enter the solver.
+  const forum = detectCloudflareChallenge({
+    title: 'LINUX DO - 新的理想型社区',
+    htmlMatches: challengeHtmlMatches('<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script><div class="cf-turnstile"></div><script src="/cdn-cgi/challenge-platform/h/b/scripts/jsd/main.js"></script>'),
+    frameUrls: [CHALLENGE_FRAME_URL],
+    statusCode: 200,
+  });
+  assert.equal(forum.challenge, false);
+  assert.deepEqual(forum.markers, []);
+
+  // An interstitial marker still decides on its own, whatever the status says.
+  const interstitial = detectCloudflareChallenge({
+    title: 'linux.do',
+    htmlMatches: challengeHtmlMatches('<script>window._cf_chl_opt={cvId:"3"}</script>'),
+    statusCode: 200,
+  });
+  assert.equal(interstitial.challenge, true);
+});
+
+test('a page that answers 200 while embedding Turnstile is fetched, not challenged', async () => {
+  const forum = {
+    title: 'LINUX DO - 新的理想型社区',
+    html: '<html><head><title>LINUX DO - 新的理想型社区</title>'
+      + '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script></head>'
+      + '<body><div class="cf-turnstile"></div><main>' + '论坛正文 '.repeat(80) + '</main></body></html>',
+  };
+  const fixture = browserFixture({ steps: [{ status: 200, document: forum }] });
+  const result = await fixture.fetcher(request());
+  assert.equal(result.outcome, 'ok');
+  assert.equal(result.statusCode, 200);
+  assert.equal(fixture.page.clicks, 0, 'no click was attempted on a healthy page');
+  assert.equal(fixture.page.loads, 1, 'and no extra navigation either');
+  assert.ok(!result.notes.some(note => /Cloudflare challenge/.test(note)), 'no challenge note is written');
 });
