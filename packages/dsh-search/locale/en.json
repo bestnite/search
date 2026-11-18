@@ -236,7 +236,7 @@
   "help.browser.endpoint": "The Playwright endpoint every browser-backed reader shares, for example ws://<host>:3000/ws. When set it wins over a backend's own endpoint; leave it empty to let each backend name its own.",
   "help.browser.statePath": "Optional. Where the browser container writes the signed-in session; empty uses the search core default.",
   "help.browser.timeoutMs": "How long one browser read may take.",
-  "help.browser.maxConcurrentReads": "How many browser reads may run at once on one site. This is not the parallel backend count above: global concurrency bounds search requests across providers, while this bounds reads on the one shared browser page. A 429 rate-limit answer lowers it to 1 for the rest of that browser session; it is a local safety bound, not a site quota.",
+  "help.browser.maxConcurrentReads": "How many browser reads may run at once on one site. This differs from “Parallel concurrency” under “Search behavior”: that setting bounds search requests across providers, while this bounds reads on the one shared browser page. A 429 rate-limit answer lowers it to 1 for the rest of that browser session; it is a local safety bound, not a site quota.",
   "sharedBrowser": "Shared browser",
   "sharedBrowserHint": "This block describes the browser container you host: its endpoint, its endpoint token, the session file, the read timeout and the per-site read cap. Every backend in browser mode shares it.",
   "browserTokenTitle": "Endpoint token",
