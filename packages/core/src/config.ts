@@ -348,6 +348,21 @@ export function parseConfig(value:unknown):SearchConfig{
     // Fetch fields arrived after search fields: a configuration saved by an older release gets the
     // page-fetch block and the per-provider fetch settings added, and nothing else is touched.
     fillMissing(raw, defaults);
+    // A route saved before the empty-content rule existed would stop on a client-rendered page with
+    // nothing in hand. The rule is a default, so an older save gets it once; a save that already names
+    // the rule — enabled or not — is left exactly as the user set it.
+    if (Array.isArray(raw.pageFetch?.routes)) {
+      for (const route of raw.pageFetch.routes as unknown[]) {
+        if (!route || typeof route !== 'object') continue;
+        const record = route as Record<string, unknown>;
+        const rules = record.rules;
+        if (!Array.isArray(rules)) continue;
+        const named = rules.some(rule => !!rule && typeof rule === 'object' && (rule as Record<string, unknown>).id === 'empty-content');
+        if (named) continue;
+        const template = DEFAULT_FALLBACK_RULES.find(rule => rule.id === 'empty-content');
+        if (template) rules.push(structuredClone(template));
+      }
+    }
     // A provider that had no fetch operation in an older release kept an inert fetch record: the
     // provider's first search mode, no endpoint, no options. When such a provider becomes
     // fetch-capable without declaring that search mode (You.com fetches with a key but searches

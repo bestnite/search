@@ -871,7 +871,7 @@ test('the retired delegated-fetching switch is dropped on load and an enabled ro
   assert.equal(parseConfig(privateOn).pageFetch.allowPrivateNetworks, true);
 });
 
-test('saved rules and route order survive a load unchanged', () => {
+test('saved rules and route order survive a load, and an older save gains only the empty-content rule', () => {
   const saved = structuredClone(defaultConfig()) as unknown as Record<string, any>;
   const customRules = [rule('keep-me', { type: 'match', field: 'text', operator: 'equals', value: 'exact', caseSensitive: true })];
   saved.pageFetch.routes[0].rules = customRules;
@@ -881,7 +881,10 @@ test('saved rules and route order survive a load unchanged', () => {
   saved.tools.webExtract = true;
   const loaded = parseConfig(saved);
   assert.deepEqual(loaded.pageFetch.routes.map(route => route.kind), ['provider', 'http', 'browser']);
-  assert.deepEqual(loaded.pageFetch.routes[1]!.rules, customRules, 'rules are not merged with defaults');
+  // The custom rule keeps its place and shape; the default empty-content rule is appended once, because
+  // this save predates it. Nothing else from the defaults is merged in.
+  assert.deepEqual(loaded.pageFetch.routes[1]!.rules.slice(0, customRules.length), customRules, 'custom rules are not merged with defaults');
+  assert.deepEqual(loaded.pageFetch.routes[1]!.rules.slice(customRules.length).map((entry: { id: string }) => entry.id), ['empty-content']);
   assert.equal(loaded.tools.webExtract, true);
 });
 
@@ -2172,4 +2175,34 @@ test('the browser route waits for readable text and says so when the document st
   });
   assert.equal(waited, 1, 'readiness was awaited exactly once, in the page');
   assert.ok(result.notes.some(note => /render window/.test(note)), 'the shell is explained');
+});
+
+test('an older saved configuration gains the empty-content rule once, and a deliberate removal sticks', async () => {
+  const { defaultConfig, parseConfig } = await import('../src/config.js');
+  const saved = structuredClone(defaultConfig()) as unknown as Record<string, any>;
+  // A save from before the rule existed: network and timeout only, as the user's own file has it.
+  saved.pageFetch.routes = saved.pageFetch.routes.map((route: any) => ({
+    ...route,
+    rules: route.rules.filter((rule: any) => rule.id !== 'empty-content'),
+  }));
+  const migrated = parseConfig(saved);
+  for (const route of migrated.pageFetch.routes) {
+    assert.deepEqual(route.rules.map(rule => rule.id), ['network', 'timeout', 'empty-content'], `${route.kind} gained the rule once`);
+  }
+
+  // Saving again keeps exactly one copy, wherever the rules sit in the array.
+  const again = parseConfig(migrated as unknown as Record<string, any>);
+  for (const route of again.pageFetch.routes) {
+    assert.equal(route.rules.filter(rule => rule.id === 'empty-content').length, 1);
+  }
+
+  // A save that names the rule but disabled it is the user's choice and is not re-enabled.
+  const disabled = structuredClone(migrated) as unknown as Record<string, any>;
+  for (const route of disabled.pageFetch.routes) {
+    for (const rule of route.rules) if (rule.id === 'empty-content') rule.enabled = false;
+  }
+  const kept = parseConfig(disabled);
+  for (const route of kept.pageFetch.routes) {
+    assert.equal(route.rules.find(rule => rule.id === 'empty-content')?.enabled, false);
+  }
 });
