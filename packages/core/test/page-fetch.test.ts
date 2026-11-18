@@ -2071,3 +2071,38 @@ test('a bare 4xx page is not retried, so a real 404 still stops the chain', asyn
   assert.equal(result.outcome, 'http-error');
   assert.equal(result.statusCode, 404);
 });
+
+test('session mode with no configured path reads the standard session file, isolated mode never does', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  const seen: (string | undefined)[] = [];
+  const make = (capture: (value: string | undefined) => void) => createBrowserFetcher(async () => ({
+    newContext: async (options: { storageState?: unknown }) => {
+      capture(typeof options.storageState === 'string' ? options.storageState : undefined);
+      return {
+        newPage: async () => ({
+          goto: async () => ({ status: () => 200 }),
+          url: () => 'https://example.com/',
+          evaluate: async () => ({ html: '<html><head><title>t</title></head><body>ok</body></html>' }),
+          close: async () => undefined,
+        }),
+        close: async () => undefined,
+      };
+    },
+    close: async () => undefined,
+  }) as never);
+  const request = {
+    url: new URL('https://example.com'),
+    format: 'markdown' as const,
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  };
+  await make(value => seen.push(value))({ ...request, contextMode: 'session' as const });
+  await make(value => seen.push(value))({ ...request, contextMode: 'isolated' as const });
+  assert.equal(seen.length, 2);
+  assert.match(String(seen[0] ?? ''), /dsh-search\/browser\/state\.json$/, 'session mode defaults to the standard file');
+  assert.equal(seen[1], undefined, 'isolated mode reads no session file');
+});

@@ -2,8 +2,19 @@
 // Both sides of the connection must share a major.minor, so the browser image pins the same version.
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS } from './browser-limits.js';
 import { SearchError } from './transport.js';
+
+/**
+ * Where the browser container writes the signed-in session when no explicit path is configured.
+ * The container writes this file and every reader reads the same one, so leaving the field empty
+ * means "the standard location", not "no session".
+ */
+export function defaultBrowserStatePath(): string {
+  return join(homedir(), '.config', 'dsh-search', 'browser', 'state.json');
+}
 
 // The bound itself lives in a browser-safe module: the settings UI bundles the configuration schema
 // and must not pull patchright in. Re-exported here because this is where callers expect it.

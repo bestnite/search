@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
 import { delegatedNote } from './notes.js';
-import { connectFailure } from '../browser.js';
+import { connectFailure, defaultBrowserStatePath } from '../browser.js';
 import type { SearchError } from '../transport.js';
 import type { FetchBrowserContextMode, FetchFormat } from './types.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
@@ -263,7 +263,9 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       if (request.signal.aborted) throw new Error('The page fetch was cancelled.');
       // Everything from here on runs inside an attached browser.
       stage = 'navigate';
-      const statePath = request.contextMode === 'session' ? request.statePath : undefined;
+      // An empty path in session mode is not "no session": it means the standard file the browser
+      // container writes. A configured path always wins.
+      const statePath = request.contextMode === 'session' ? (request.statePath || defaultBrowserStatePath()) : undefined;
       const usableState = statePath && existsSync(statePath) ? statePath : undefined;
       if (request.contextMode === 'session' && !usableState) notes.push('Session context requested but no saved state file exists; the fetch ran with an empty context.');
       const creatingContext = browser.newContext({
@@ -301,6 +303,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       // still renders the real page. Asking once more with that cookie turns a refused load into a
       // 200. The retry only happens when the first document is a real page, never for a bare 4xx.
       if (statusCode !== undefined && statusCode >= 400) {
+        // An anti-bot answer often returns a bare shell and then hydrates the real document from the
+        // same response. Give the page a bounded moment to finish that before judging it.
+        await page.waitForLoadState?.('load', { timeout: 3_000 }).catch(() => undefined);
+        await page.waitForFunction?.(() => document.title.trim().length > 0, undefined, { timeout: 3_000 }).catch(() => undefined);
         const firstDocument = await readDocument(page, maxDomBytes);
         if (!('html' in firstDocument) || !looksLikeRealPage(firstDocument.html ?? '')) {
           // Not a rendered page: keep the refusal as the outcome instead of asking again.
