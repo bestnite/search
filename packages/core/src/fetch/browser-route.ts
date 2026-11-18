@@ -13,7 +13,7 @@ import {
   isChallengeFrameUrl,
   type ChallengeDetection,
 } from './challenge.js';
-import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS, READABLE_TEXT_MIN_CHARS, RENDER_WINDOW_MS } from './limits.js';
+import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_RENDER_WINDOW_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS, READABLE_TEXT_MIN_CHARS, RENDER_WINDOW_MS } from './limits.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { parseHtmlDocument } from './html.js';
 import { utf8ByteLength } from './bytes.js';
@@ -511,7 +511,7 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * readable text, and reports whether that happened.
        */
       const finishClearedChallenge = async (): Promise<boolean> => {
-        const budget = Math.min(RENDER_WINDOW_MS, request.routeTimeoutMs);
+        const budget = Math.min(CHALLENGE_RENDER_WINDOW_MS, request.routeTimeoutMs);
         const deadlineAt = Date.now() + budget;
         for (;;) {
           const live = await liveChallenge();

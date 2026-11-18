@@ -44,6 +44,8 @@ interface Scenario {
   refuseClick?: boolean;
   /** Keep the widget at 0x0 for this many geometry reads, the way an un-laid-out widget looks. */
   layoutAfterReads?: number;
+  /** Hold the document as a shell for this long after the click, the way a booting app behaves. */
+  renderDelayMs?: number;
 }
 
 interface PageState {
@@ -92,7 +94,14 @@ function browserFixture(scenario: Scenario): Fixture {
     count: async (): Promise<number> => (scenario.refuseClick ? 0 : 1),
     click: async (): Promise<void> => {
       page.clicks += 1;
-      if (scenario.afterClick) current = scenario.afterClick;
+      if (!scenario.afterClick) return;
+      if (!scenario.renderDelayMs) {
+        current = scenario.afterClick;
+        return;
+      }
+      // The click landed; the document stays a shell until the application boots.
+      const ready = scenario.afterClick;
+      setTimeout(() => { current = ready; }, scenario.renderDelayMs);
     },
   };
 
@@ -286,8 +295,7 @@ test('auto that never clears stays a 403 challenge page, with bounded polling an
 
   assert.equal(result.outcome, 'http-error', 'the refusal is kept, never fabricated as success');
   assert.equal(result.statusCode, 403);
-  assert.ok(fixture.page.clicks >= 1, 'the widget was pressed at least once, then polling was bounded');
-  assert.ok(fixture.page.clicks <= 3, 'the click cap holds');
+  assert.equal(fixture.page.clicks, 1, 'exactly one press: pressing again while verifying restarts the challenge');
   assert.equal(fixture.page.loads, 1, 'nothing was reloaded: a reload cannot pass a challenge');
   assert.ok(fixture.page.loads <= MAX_FETCH_NAVIGATIONS);
   assert.ok(elapsed < 5_000, `the solve window is clipped by the route timeout (${elapsed}ms)`);
@@ -437,4 +445,22 @@ test('a page that answers 200 while embedding Turnstile is fetched, not challeng
   assert.equal(fixture.page.clicks, 0, 'no click was attempted on a healthy page');
   assert.equal(fixture.page.loads, 1, 'and no extra navigation either');
   assert.ok(!result.notes.some(note => /Cloudflare challenge/.test(note)), 'no challenge note is written');
+});
+
+test('a page that clears slowly still gets its render window instead of being closed early', async () => {
+  // The widget clears at once, but the forum behind it boots for six seconds — past the render window a
+  // plain page load gets. The route must wait, not close the window on a page that is still rendering.
+  const slowPage = {
+    title: 'LINUX DO - 新的理想型社区',
+    html: '<html><head><title>LINUX DO</title></head><body>' + '论坛帖子 '.repeat(120) + '</body></html>',
+  };
+  const fixture = browserFixture({
+    steps: [{ status: 200, document: challengeDocument() }],
+    afterClick: slowPage,
+    renderDelayMs: 6_000,
+  });
+  const result = await fixture.fetcher(request({ routeTimeoutMs: 20_000 }));
+  assert.equal(fixture.page.clicks, 1, 'one press only');
+  assert.equal(result.outcome, 'ok', 'the slowly rendered document is the result');
+  assert.ok(result.notes.some(note => /finished on its own after the widget cleared/.test(note)));
 });

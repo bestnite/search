@@ -41,12 +41,21 @@ export const MAX_FETCH_NAVIGATIONS = 3;
 
 /** How long one automatic challenge attempt may poll for the challenge to disappear. */
 export const CHALLENGE_SOLVE_WINDOW_MS = 10_000;
-/** How many times one attempt may press the widget; a widget that is not laid out yet is clicked again. */
-export const CHALLENGE_MAX_CLICKS = 3;
+/**
+ * One press per attempt. Pressing again while the widget is verifying is what restarts a challenge
+ * that was already passing, and a second press has never turned a refusal into a page.
+ */
+export const CHALLENGE_MAX_CLICKS = 1;
 /** Text a reader would see, below which a captured document still looks like an unrendered shell. */
 export const READABLE_TEXT_MIN_CHARS = 200;
 /** How long a client-rendered page gets to produce that text before the capture is taken as it is. */
 export const RENDER_WINDOW_MS = 5_000;
+/**
+ * How long a page that just cleared a challenge gets to render. Longer than a plain page load: the
+ * challenge platform has to install its clearance cookie, reload, and boot the application behind it.
+ * Discourse forums take several seconds, and closing the window before that throws the pass away.
+ */
+export const CHALLENGE_RENDER_WINDOW_MS = 15_000;
 /** The wait between two presses, so a slow render is not clicked three times in one frame. */
 export const CHALLENGE_CLICK_INTERVAL_MS = 2_000;
 export const CHALLENGE_POLL_INTERVAL_MS = 500;
