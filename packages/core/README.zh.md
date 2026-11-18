@@ -104,7 +104,3 @@ config.backends.xiaohongshu!.mode = 'browser';
 ## 许可
 
 MIT。
-
-## 友链
-
-- [LINUX DO](https://linux.do)

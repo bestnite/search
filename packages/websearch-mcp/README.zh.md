@@ -120,7 +120,3 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 ## 许可
 
 MIT。
-
-## 友链
-
-- [LINUX DO](https://linux.do)

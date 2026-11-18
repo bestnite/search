@@ -83,7 +83,3 @@ workspace 的命令见 [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md)。设计
 ## 许可
 
 MIT。
-
-## 友链
-
-- [LINUX DO](https://linux.do) — 这个插件的后端调研最早从这里开始。

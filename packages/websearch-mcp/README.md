@@ -143,7 +143,3 @@ See [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
 ## License
 
 MIT.
-
-## Friends
-
-- [LINUX DO](https://linux.do)

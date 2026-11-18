@@ -114,7 +114,3 @@ See [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md) for the workspace commands.
 ## License
 
 MIT.
-
-## Friends
-
-- [LINUX DO](https://linux.do) — the community where this plugin's backend survey started.

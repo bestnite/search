@@ -18,6 +18,42 @@ podman logs search-browser              # 打印端点和令牌
 
 不用 compose 的话，等价做法是一次 `podman build` 加一次 `podman run`，端口、卷和 `--shm-size=1gb` 保持一致。
 
+## Docker
+
+同一份 `compose.yaml` 用 Docker 也能跑，只是命令名不同：
+
+```sh
+cp env.example .env && chmod 600 .env   # 然后编辑它
+docker compose up -d --build
+docker logs search-browser
+```
+
+不用 compose 就直接构建再跑：
+
+```sh
+docker build -t search-browser .
+
+docker run -d --name search-browser \
+  -p 127.0.0.1:3000:3000 \
+  -p 127.0.0.1:6080:6080 \
+  -e BROWSER_VNC_PASSWORD=changeme \
+  -v search-browser-state:/profile \
+  --shm-size=1gb \
+  search-browser
+
+docker logs search-browser
+```
+
+`docker logs` 会打印端点和令牌，和 compose 那条路打印的是同样两个值。
+
+几个 Docker 特有的注意点：
+
+- `--shm-size=1gb` 不是可选项。Docker 默认只给 64 MB 共享内存，Chromium 会崩；而且表现像浏览器读到一半挂掉，而不是容器退出，很容易误判。
+- 镜像里已经设了 `BROWSER_WS_PATH=/ws`、`BROWSER_PUBLIC_PORT=3000`、`BROWSER_STATE_DIR=/profile`，所以 `docker run` 只需要端口、卷和 `--shm-size`。VNC 端口只要不是只有本机能访问，就补 `-e BROWSER_VNC_PASSWORD=…`；想让窗口直接打开某个站点，补 `-e BROWSER_START_URL=https://…`。
+- 要让宿主读到会话文件，就把命名卷换成 bind mount。SELinux 的宿主要加 `:z`/`:Z`：`-v /path/to/data:/profile:Z`。
+- 也可以直接拉 `ghcr.io/nite07/search-browser:latest`——`compose.yaml` 在不加 `--build` 时拉的就是它。不想本地构建就把 `docker run` 最后一行换成这个镜像名。
+- `--restart unless-stopped` 和 `compose.yaml` 的行为一致；想让容器在重启后自己回来就加上。
+
 ## 登录
 
 容器一直开着一扇浏览器窗口，不需要你手动去起：
@@ -89,7 +125,3 @@ MCP 服务里对应的是 `search.browser.endpoint`、`search.browser.statePath`
 ## 许可
 
 MIT。
-
-## 友链
-
-- [LINUX DO](https://linux.do)

@@ -23,6 +23,50 @@ both when configuring the host.
 Without compose, the equivalent is one `podman build` and one `podman run` with the same ports,
 volume and `--shm-size=1gb`.
 
+## Docker
+
+The same `compose.yaml` works with Docker; only the command name changes:
+
+```sh
+cp env.example .env && chmod 600 .env   # then edit it
+docker compose up -d --build
+docker logs search-browser
+```
+
+Without compose, build and run it directly:
+
+```sh
+docker build -t search-browser .
+
+docker run -d --name search-browser \
+  -p 127.0.0.1:3000:3000 \
+  -p 127.0.0.1:6080:6080 \
+  -e BROWSER_VNC_PASSWORD=changeme \
+  -v search-browser-state:/profile \
+  --shm-size=1gb \
+  search-browser
+
+docker logs search-browser
+```
+
+`docker logs` prints the endpoint and the bearer token, the same two values the compose path prints.
+
+Notes for Docker specifically:
+
+- `--shm-size=1gb` is not optional. Chromium crashes on Docker's default 64 MB of shared memory, and
+  the failure looks like a browser that dies mid-read rather than a container that exits.
+- The image already sets `BROWSER_WS_PATH=/ws`, `BROWSER_PUBLIC_PORT=3000` and
+  `BROWSER_STATE_DIR=/profile`, so a plain `docker run` needs only the ports, the volume and
+  `--shm-size`. Add `-e BROWSER_VNC_PASSWORD=…` whenever the VNC port is reachable from anywhere but
+  loopback, and `-e BROWSER_START_URL=https://…` to have the window open on the site directly.
+- To let the host read the session file, use a bind mount instead of the named volume. On an SELinux
+  host that needs the `:z`/`:Z` suffix: `-v /path/to/data:/profile:Z`.
+- A prebuilt image is available as `ghcr.io/nite07/search-browser:latest`, which is what
+  `compose.yaml` pulls when you skip `--build`. Swap the last line of the `docker run` command for it
+  if you would rather not build locally.
+- `--restart unless-stopped` matches what `compose.yaml` does; add it if you want the container back
+  after a reboot.
+
 ## Sign in
 
 The container keeps one browser window open for you, so there is nothing to start by hand:
@@ -92,7 +136,8 @@ behind a token check.
 | Symptom | Cause and fix |
 | --- | --- |
 | `428 Precondition Required` when a reader attaches | The Patchright driver in the image and the client in `search-core` disagree on major.minor. Rebuild or upgrade so both match. |
-| Endpoint looks dead after `podman restart` | In rootless mode a plain restart can bring the container back with its published address unbound. Recreate it instead: `podman compose up -d --force-recreate`, or restart the unit that owns the container. |
+| Endpoint looks dead after a restart | With rootless Podman a plain `restart` can bring the container back with its published address unbound. Recreate it instead: `podman compose up -d --force-recreate`, or restart the unit that owns the container. |
+| Chrome dies mid-read, or the container exits under load | Shared memory is too small. `--shm-size=1gb` is required; Docker's default 64 MB is not enough. |
 | Container restart-loops on X | A stale X lock in `/tmp` after a restart. The entrypoint removes it; make sure you are on a current image. |
 | Reads come back signed out | The host is not reading the file this container writes. Check the session path. |
 | VNC page will not connect | `BROWSER_VNC_PASSWORD` must be set as soon as the port is not loopback. |
@@ -107,7 +152,3 @@ publish, or run the workflow manually for `latest` plus `sha-<short>`.
 ## License
 
 MIT.
-
-## Friends
-
-- [LINUX DO](https://linux.do)

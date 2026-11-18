@@ -122,7 +122,3 @@ How sessions, generations and recycling work internally: [docs/BROWSER-SESSIONS.
 ## License
 
 MIT.
-
-## Friends
-
-- [LINUX DO](https://linux.do)
