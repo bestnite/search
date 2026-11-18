@@ -1,4 +1,4 @@
-import type { BackendDefinition, BackendOutcome, SearchConfig } from '@nite07/search-core';
+import type { BackendDefinition, BackendOutcome, FetchReadinessProblem, Localized, OptionField, SearchConfig } from '@nite07/search-core';
 
 /** Shape of the settings page payload; it belongs to the plugin, not to the engine. */
 export interface SettingsSnapshot {
@@ -9,4 +9,34 @@ export interface SettingsSnapshot {
   /** State of the endpoint token, which belongs to the shared browser rather than to one backend. */
   browser: { credentialConfigured: boolean; writable: boolean };
   diagnostics: BackendOutcome[]; counters: Record<string, { attempts: number; day: string }>;
+  /** Page fetching: the fetch-capable providers and whether the saved chain can run at all. */
+  fetch: FetchSettingsState;
+}
+
+/** One fetch-capable catalog entry as the Fetch tab needs it; nothing here is a user toggle. */
+export interface FetchProviderInfo {
+  id: string; title: string;
+  /** Formats this provider can satisfy for a caller. */
+  serves: string[];
+  /** Access modes in which its fetch operation was verified. */
+  modes: string[];
+  options: OptionField[];
+  /** Configured fetch endpoint, which is deliberately separate from the search endpoint. */
+  endpoint: string;
+  docs: string;
+  verifiedAt: string;
+  notes?: Localized;
+  credentialRequired: boolean;
+  credentialConfigured: boolean;
+}
+
+/** One readiness reason, localized by the page and rendered in English by the status tool. */
+export type FetchProblem = FetchReadinessProblem;
+
+export interface FetchSettingsState {
+  providerId: string;
+  providers: FetchProviderInfo[];
+  /** Why the saved chain would fail before a request, said in the page instead of after a user test. */
+  problems: FetchProblem[];
+  ready: boolean;
 }

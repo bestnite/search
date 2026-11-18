@@ -24,6 +24,23 @@
 
 DSH 插件和 MCP 服务都只是同一个 core 的外壳，所以在一处启用的后端，在另一处行为一致。
 
+## 页面抓取（可选）
+
+同一个 core 也支持按顺序、可配置的路由抓取**单个页面**：HTTP 直连、共享浏览器，或选定的一个服务商，
+每条路由有自己的回退规则，输出 HTML 或 Markdown。DSH 中的 agent 工具叫 `web_extract`，默认
+**隐藏**：先在设置页打开 `tools.webExtract`，agent 才能调用。MCP 外壳接入暂缓，待 DSH 实测后再推进。
+路由顺序、服务商选择、凭证与安全上限都
+属于保存的配置，不是调用参数。
+
+```text
+web_extract(url, format)   format 必填：markdown 用来读，html 用来看结构
+```
+
+一次只抓一个页面，不做爬取；路由串行执行、不并行；结果会列出每次尝试的目标状态码、服务商 API 状态码、
+命中的规则与脱敏后的错误。默认只允许公网目标，并把连接绑定到已校验的地址；浏览器或服务商在别处解析
+目标地址，所以这类路由必须显式打开「委托抓取」。详见[设计文档](docs/PAGE-FETCH-DESIGN.md)、
+[服务商证据](docs/PAGE-FETCH-PROVIDERS.md)与[依赖证据](docs/PAGE-FETCH-DEPENDENCIES.md)。
+
 ## 从这里开始
 
 **DeepSeek Harness**

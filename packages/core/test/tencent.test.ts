@@ -11,7 +11,8 @@ function input(maxResults = 5): AdapterInput {
     query: 'test', maxResults, config, key: JSON.stringify({ secretId: 'test-id', secretKey: 'test-secret' }),
     signal: new AbortController().signal,
     backend: { enabled: true, mode: 'key', endpoint: 'https://wsa.tencentcloudapi.com/',
-      timeoutMs: 1000, rateLimitPerMinute: 0, dailyAttemptLimit: 0, options: { Mode: 2 } },
+      timeoutMs: 1000, rateLimitPerMinute: 0, dailyAttemptLimit: 0, options: { Mode: 2 },
+      fetch: config.backends['tencent-wsa']!.fetch },
   };
 }
 function transport(handler: (url: string, init: RequestInit) => Response): TransportOptions {

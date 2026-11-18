@@ -15,8 +15,13 @@ test('every config scalar and array has an editable client field or generated ba
  // Paths are declared either as quoted literals in a fields()/section() array or, for backend rows, as a `${base}.x` template.
  const covered=(path:string)=>{if(path.startsWith('backends.')){const tail=path.split('.').slice(2).join('.');return client.includes('`${base}.'+tail+'`');}return client.includes(`'${path}'`);};
  function visit(v:any,path:string){if(path==='backends')return; if(v&&typeof v==='object'&&!Array.isArray(v)){for(const[k,x]of Object.entries(v))visit(x,path?`${path}.${k}`:k);}else assert.ok(covered(path),`Missing form field ${path}`);}visit(defaults,'');
- for(const key of Object.keys(defaults.backends.keenable!)){if(key==='options')continue;assert.ok(covered(`backends.keenable.${key}`),`Missing backend field ${key}`);}
- assert.ok(client.includes('def.options.map(option => field('));});
+ // Structured sub-records have their own editors rather than one field per leaf: the search options
+ // render per catalog entry, and the fetch operation has its own panel on the Fetch tab.
+ for(const key of Object.keys(defaults.backends.keenable!)){if(key==='options'||key==='fetch')continue;assert.ok(covered(`backends.keenable.${key}`),`Missing backend field ${key}`);}
+ assert.ok(client.includes('def.options.map(option => field('));
+ for(const leaf of ['fetch.mode','fetch.endpoint','fetch.timeoutMs','fetch.options.']){assert.ok(client.includes(leaf),`the fetch settings editor renders ${leaf}`);}
+ for(const path of ['pageFetch.overallTimeoutMs','pageFetch.allowDelegatedFetching','pageFetch.browser.context','panel-fetch']){assert.ok(client.includes(path),`the Fetch tab renders ${path}`);}
+});
 
 test('the shared browser per-site cap is a schema default, an editable field with its own help',async()=>{
  const {readFile}=await import('node:fs/promises');const defaults=defaultConfig();

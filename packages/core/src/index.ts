@@ -4,7 +4,16 @@
  * Nothing here depends on DeepSeek Harness, so any host can drive it.
  */
 export { catalog } from './catalog.js';
-export { backendCredentialRef, browserCredentialRef, defaultConfig, parseConfig, validateConfig } from './config.js';
+export {
+  backendCredentialRef,
+  browserCredentialRef,
+  defaultConfig,
+  defaultFetchBackendConfig,
+  defaultFetchRoutes,
+  defaultPageFetchConfig,
+  parseConfig,
+  validateConfig,
+} from './config.js';
 export { SearchEngine } from './engine.js';
 export { revision } from './engine.js';
 export type { ConfigIssue, SearchOverrides, SearchResult, BackendOutcome } from './types.js';
@@ -13,6 +22,7 @@ export type {
   BackendConfig,
   BackendDefinition,
   CostTier,
+  Localized,
   ModeDefinition,
   OptionField,
   RetryConfig,
@@ -39,3 +49,46 @@ export { materialiseImages, mediaDir, type MediaImage, type MediaOptions } from 
 export { BrowserSession, closeBrowserSessions, connectFailure, sessionFor, type BrowserReader, type BrowserSessionOptions } from './browser.js';
 export type { XThread } from './x/thread.js';
 export type { XReply, XThreadPost } from './x/parse.js';
+// Page fetching: one URL in, one bounded page out, through ordered configurable routes.
+export { PageFetchEngine, createPageFetchEngine, type PageFetchDependencies } from './fetch/engine.js';
+export { renderPageFetchReport } from './fetch/report.js';
+export { fetchReadiness, fetchProblemText, fetchReadinessProviders } from './fetch/readiness.js';
+export type { FetchReadinessProblem, FetchReadinessProvider } from './fetch/readiness.js';
+export { PageFetchError } from './fetch/types.js';
+export type {
+  FetchAttempt,
+  FetchApiStatusCondition,
+  FetchBackendConfig,
+  FetchBrowserContextMode,
+  FetchConditionField,
+  FetchErrorCondition,
+  FetchFailureKind,
+  FetchFallbackCondition,
+  FetchFallbackRule,
+  FetchFormat,
+  FetchMatchCondition,
+  FetchMatchOperator,
+  FetchNetworkCondition,
+  FetchOperationDefinition,
+  FetchOutcomeKind,
+  FetchRepresentation,
+  FetchRouteConfig,
+  FetchRouteKind,
+  FetchStatusCondition,
+  FetchStopReason,
+  FetchTimeoutCondition,
+  PageFetchConfig,
+  PageFetchErrorKind,
+  PageFetchInput,
+  PageFetchResult,
+} from './fetch/types.js';
+export { evaluateRules, validateRules, type RuleEvaluation, type RuleInputs } from './fetch/rules.js';
+export {
+  FETCH_BOUNDS,
+  FETCH_CONDITION_FIELDS,
+  FETCH_CONDITION_TYPES,
+  FETCH_FAILURE_KINDS,
+  FETCH_MATCH_OPERATORS,
+  FETCH_ROUTE_KINDS,
+} from './fetch/limits.js';
+export { CLOUDFLARE_CHALLENGE_PRESET, DEFAULT_FALLBACK_RULES, STATUS_ERROR_PRESET } from './fetch/rules.js';

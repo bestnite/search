@@ -1,3 +1,5 @@
+import type { FetchBackendConfig, FetchOperationDefinition, PageFetchConfig } from './fetch/types.js';
+
 export type AccessMode = 'anonymous' | 'key' | 'oauth' | 'session' | 'browser';
 export type CostTier = 'free' | 'allowance' | 'trial' | 'paid' | 'self-hosted' | 'account' | 'unverified';
 export type Localized = { en: string; zh: string };
@@ -9,12 +11,22 @@ export interface ModeDefinition {
   mode: AccessMode; endpoint: string; tier: CostTier; limits: Localized; pricingUrl: string;
   /** What the credential field expects, shown next to it; absent means no credential is used. */
   credentialShape?: Localized;
+  /**
+   * Endpoint of the fetch operation in this access mode, when it differs from the search endpoint.
+   * Absent means this mode has no verified fetch endpoint, so it cannot be selected for fetching.
+   */
+  fetchEndpoint?: string;
 }
 export interface BackendDefinition {
   id: string; title: string; status: 'documented' | 'unverified'; docs: string; verifiedAt: string;
   /** 'live' means this deployment completed a real call to the backend, not merely that docs describe it. */
   evidence: 'documented' | 'live';
   modes: ModeDefinition[]; options: OptionField[]; capabilities: string[];
+  /**
+   * The typed fetch operation, when the provider contract supports one. Metadata, not a user toggle:
+   * a search-only provider has no such entry and can never be selected for a page fetch.
+   */
+  fetch?: FetchOperationDefinition;
 }
 export interface RetryConfig {
   enabled: boolean; statuses: number[]; maxRetries: number; initialDelayMs: number; maxDelayMs: number;
@@ -23,6 +35,11 @@ export interface RetryConfig {
 export interface BackendConfig {
   enabled: boolean; mode: AccessMode; endpoint: string; timeoutMs: number;
   rateLimitPerMinute: number; dailyAttemptLimit: number; options: Record<string, string | number | boolean>;
+  /**
+   * Operation-specific fetch settings. Sharing a provider does not mean sharing an endpoint, access
+   * mode, timeout or options: fetching often uses a different endpoint than searching.
+   */
+  fetch: FetchBackendConfig;
 }
 export interface SearchConfig {
   maxResults: number; concurrency: number;
@@ -35,8 +52,10 @@ export interface SearchConfig {
   breaker: { enabled: boolean; threshold: number; cooldownMs: number };
   diagnostics: { enabled: boolean; maxEntries: number };
   /** Agent-facing switches; turning one off removes that tool instead of letting the agent ask for it. */
-  tools: { webSearchPlus: boolean; compactByDefault: boolean };
+  tools: { webSearchPlus: boolean; compactByDefault: boolean; webExtract: boolean };
   backends: Record<string, BackendConfig>;
+  /** Page fetching: ordered routes, fallback rules and the bounds every route shares. */
+  pageFetch: PageFetchConfig;
 }
 /**
  * One browser, shared by every backend that reads through one. A backend that set its own endpoint
@@ -65,7 +84,7 @@ export interface AdapterInput {
   query: string; maxResults: number; config: SearchConfig; backend: BackendConfig; key?: string; signal: AbortSignal;
 }
 export interface AdapterResult { sources: Source[]; content?: string; warnings?: string[] }
-export type FailureKind = 'configuration' | 'authentication' | 'quota' | 'rate-limit' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'budget' | 'circuit-open' | 'unverified';
+export type FailureKind = 'configuration' | 'authentication' | 'quota' | 'rate-limit' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'budget' | 'circuit-open' | 'unverified' | 'limit';
 export interface BackendOutcome {
   backend: string; mode: AccessMode; ok: boolean; attempts: number; durationMs: number;
   sources: Source[]; warnings: string[]; error?: { kind: FailureKind; message: string; status?: number }; at?: number;

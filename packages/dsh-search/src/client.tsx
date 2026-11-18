@@ -2,11 +2,18 @@ import styles from './client.css';
 import overrides from './client.overrides.css';
 import en from '../locale/en.json';
 import zh from '../locale/zh.json';
-import { catalog, defaultConfig, LANGUAGES, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS, REGIONS, validateConfig } from '@nite07/search-core/static';
-import type { BackendDefinition, ConfigIssue, SearchConfig } from '@nite07/search-core/static';
+import {
+  catalog, CLOUDFLARE_CHALLENGE_PRESET, DEFAULT_FALLBACK_RULES, FETCH_BOUNDS, FETCH_CONDITION_FIELDS, FETCH_CONDITION_TYPES,
+  FETCH_FAILURE_KINDS, FETCH_MATCH_OPERATORS, LANGUAGES, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS, REGIONS,
+  STATUS_ERROR_PRESET, defaultConfig, validateConfig,
+} from '@nite07/search-core/static';
+import type {
+  BackendDefinition, ConfigIssue, FetchConditionField, FetchFallbackCondition, FetchFallbackRule, FetchMatchOperator,
+  FetchRouteConfig, SearchConfig,
+} from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
 import { blockersOf, visible } from './visibility';
-import type { SettingsSnapshot } from './types';
+import type { FetchProblem, FetchProviderInfo, SettingsSnapshot } from './types';
 
 const API = '/api/nite-search';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -66,6 +73,9 @@ export function createClient(React: any) {
         const [importText, setImportText] = React.useState('');
         const [showTransfer, setShowTransfer] = React.useState(false);
         const [backendQuery, setBackendQuery] = React.useState('');
+        const [fetchTestUrl, setFetchTestUrl] = React.useState('');
+        const [fetchTestFormat, setFetchTestFormat] = React.useState('markdown');
+        const [fetchTestResult, setFetchTestResult] = React.useState(null as any);
         const [backendFilter, setBackendFilter] = React.useState('all');
         const [confirming, setConfirming] = React.useState(null as { kind: string; backendId?: string } | null);
         const [tab, setTab] = React.useState('behavior');
@@ -94,6 +104,7 @@ export function createClient(React: any) {
         /** Reveal the tab that owns a path, then reveal its section and focus the control. */
         function focusPath(path: string) {
           if (path === 'backends' || path === 'sec-backends') { setTab('backends'); setPendingFocus('sec-backends'); return; }
+          if (path.startsWith('pageFetch') || path === 'sec-fetch-routes') { setTab('fetch'); setPendingFocus(path === 'pageFetch.routes' ? 'sec-fetch-routes' : path); return; }
           const reliability = path.startsWith('retry.') || path.startsWith('breaker.') || path.startsWith('cache.') || path === 'diagnostics.enabled' || path === 'diagnostics.maxEntries';
           setTab(path.startsWith('backends.') || path.startsWith('browser.') ? 'backends' : reliability ? 'reliability' : 'behavior');
           setPendingFocus(path);
@@ -149,7 +160,7 @@ export function createClient(React: any) {
         }
         async function action(actionName: string, extra: Record<string, unknown> = {}) {
           setPending(actionName); setFailed(false); setNotice('working');
-          try { const result = await request('action', { action: actionName, ...extra }); if (actionName === 'test') setTestResult(result); await refresh(); setNotice('done'); }
+          try { const result = await request('action', { action: actionName, ...extra }); if (actionName === 'test') setTestResult(result); if (actionName === 'fetch-test') setFetchTestResult(result); await refresh(); setNotice('done'); }
           catch { setFailed(true); setNotice('actionFailed'); } finally { setPending(''); }
         }
         async function credential(id: string, remove: boolean) {
@@ -172,6 +183,98 @@ export function createClient(React: any) {
         function exportConfig() {
           const blob = new Blob([JSON.stringify(redact(draft), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'nite-search.redacted.json'; link.click(); URL.revokeObjectURL(url);
         }
+
+        /** Rule and route editors for the Fetch tab. They edit the one shared draft, never the file. */
+        function parseStatusList(value: string): number[] {
+          return value.split(',').map(part => Number(part.trim())).filter(part => Number.isInteger(part));
+        }
+        function defaultCondition(type: string): FetchFallbackCondition {
+          if (type === 'status' || type === 'api-status') return { type, statuses: [404] };
+          if (type === 'error') return { type: 'error', kinds: ['protocol'] };
+          if (type === 'match') return { type: 'match', field: 'text', operator: 'contains', value: '', caseSensitive: false };
+          return { type: type === 'timeout' ? 'timeout' : 'network' };
+        }
+        function conditionEditor(routeIndex: number, conditionIndex: number, condition: FetchFallbackCondition, routeKind: string, replaceRule: (at: number, change: (rule: FetchFallbackRule) => FetchFallbackRule) => void) {
+          const patch = (next: FetchFallbackCondition) => replaceRule(routeIndex, item => ({ ...item, conditions: item.conditions.map((entry, at) => at === conditionIndex ? next : entry) }));
+          const remove = () => replaceRule(routeIndex, item => ({ ...item, conditions: item.conditions.filter((_entry, at) => at !== conditionIndex) }));
+          const types = (FETCH_CONDITION_TYPES as readonly string[]).filter(type => type !== 'api-status' || routeKind === 'provider');
+          return <div className="ns-condition" key={conditionIndex}>
+            <select aria-label={t('fetchConditionType')} value={condition.type} disabled={!!pending} onChange={(event: any) => patch(defaultCondition(event.target.value))}>
+              {types.map(type => <option key={type} value={type}>{t(`condition.${type}`)}</option>)}
+            </select>
+            {(condition.type === 'status' || condition.type === 'api-status') && <input aria-label={t('fetchConditionStatuses')} value={condition.statuses.join(', ')} placeholder="404, 500" disabled={!!pending} onChange={(event: any) => patch({ type: condition.type as 'status' | 'api-status', statuses: parseStatusList(event.target.value) })} />}
+            {condition.type === 'error' && <span className="ns-actions">{FETCH_FAILURE_KINDS.map(kind => <label key={kind} className="ns-check"><input type="checkbox" checked={condition.kinds.includes(kind)} disabled={!!pending} onChange={(event: any) => patch({ type: 'error', kinds: event.target.checked ? [...condition.kinds, kind] : condition.kinds.filter(item => item !== kind) })} />{t(`failure.${kind}`)}</label>)}</span>}
+            {condition.type === 'match' && <>
+              <select aria-label={t('fetchConditionField')} value={condition.field} disabled={!!pending} onChange={(event: any) => patch({ ...condition, field: event.target.value as FetchConditionField })}>
+                {(FETCH_CONDITION_FIELDS as readonly string[]).map(name => <option key={name} value={name}>{t(`matchField.${name}`)}</option>)}
+              </select>
+              <select aria-label={t('fetchConditionOperator')} value={condition.operator} disabled={!!pending} onChange={(event: any) => patch({ ...condition, operator: event.target.value as FetchMatchOperator })}>
+                {(FETCH_MATCH_OPERATORS as readonly string[]).map(operator => <option key={operator} value={operator}>{t(`matchOperator.${operator}`)}</option>)}
+              </select>
+              <input aria-label={t('fetchConditionValue')} value={condition.value} disabled={!!pending} onChange={(event: any) => patch({ ...condition, value: event.target.value })} />
+              <label className="ns-check"><input type="checkbox" checked={condition.caseSensitive} disabled={!!pending} onChange={(event: any) => patch({ ...condition, caseSensitive: event.target.checked })} />{t('fetchConditionCase')}</label>
+            </>}
+            <button type="button" className="ns-link" disabled={!!pending} onClick={remove}>{t('fetchRemoveCondition')}</button>
+          </div>;
+        }
+        function ruleEditor(routeIndex: number, route: FetchRouteConfig) {
+          const rules = route.rules ?? [];
+          const write = (next: FetchFallbackRule[]) => update(`${fetchRoutesPath}.${routeIndex}.rules`, next);
+          const replaceRule = (at: number, change: (rule: FetchFallbackRule) => FetchFallbackRule) => write(rules.map((item, index) => (index === at ? change(clone(item)) : item)));
+          const nextId = (base: string) => {
+            let candidate = base; let counter = 2;
+            while (rules.some(item => item.id === candidate)) { candidate = `${base}-${counter}`; counter += 1; }
+            return candidate;
+          };
+          const canAdd = rules.length < FETCH_BOUNDS.rulesPerRoute;
+          return <details className="ns-advanced">
+            <summary>{t('fetchRules')} <span className="ns-muted">{tr('fetchRulesCount', { count: rules.length, max: FETCH_BOUNDS.rulesPerRoute })}</span></summary>
+            <p className="ns-muted">{t('fetchRulesHelp')}</p>
+            {rules.map((rule, ruleIndex) => <div className="ns-rule" key={`${route.kind}-${rule.id}-${ruleIndex}`}>
+              <div className="ns-rule-head">
+                <label className="ns-check"><input type="checkbox" checked={rule.enabled} disabled={!!pending} onChange={(event: any) => replaceRule(ruleIndex, item => ({ ...item, enabled: event.target.checked }))} /><code>{rule.id}</code></label>
+                <button type="button" className="ns-link" disabled={!!pending} onClick={() => write(rules.filter((_item, at) => at !== ruleIndex))}>{t('fetchRemoveRule')}</button>
+              </div>
+              {rule.conditions.map((condition, conditionIndex) => conditionEditor(ruleIndex, conditionIndex, condition, route.kind, replaceRule))}
+              <button type="button" className="ns-link" disabled={!!pending || rule.conditions.length >= FETCH_BOUNDS.conditionsPerRule} onClick={() => replaceRule(ruleIndex, item => ({ ...item, conditions: [...item.conditions, { type: 'network' }] }))}>{t('fetchAddCondition')}</button>
+            </div>)}
+            <div className="ns-actions">
+              <button type="button" disabled={!!pending || !canAdd} onClick={() => write([...rules, { id: nextId('custom'), enabled: true, conditions: [{ type: 'network' }] }])}>{t('fetchAddRule')}</button>
+              <button type="button" disabled={!!pending || !canAdd} onClick={() => write([...rules, { ...clone(STATUS_ERROR_PRESET), id: nextId('status-errors') }])}>{t('fetchAddStatusPreset')}</button>
+              <button type="button" disabled={!!pending || !canAdd} onClick={() => write([...rules, { ...clone(CLOUDFLARE_CHALLENGE_PRESET), id: nextId('cloudflare-challenge') }])}>{t('fetchAddCloudflarePreset')}</button>
+              <button type="button" disabled={!!pending} onClick={() => write(DEFAULT_FALLBACK_RULES.map(item => clone(item)))}>{t('fetchRestoreDefaultRules')}</button>
+            </div>
+            <p className="ns-muted">{t('fetchPresetsHelp')}</p>
+          </details>;
+        }
+        function fetchRouteRows() {
+          const routes: FetchRouteConfig[] = draft.pageFetch?.routes ?? [];
+          const move = (index: number, delta: number) => {
+            const next = routes.slice();
+            const target = index + delta;
+            if (target < 0 || target >= next.length) return;
+            const current = next[index]!;
+            next[index] = next[target]!;
+            next[target] = current;
+            update(fetchRoutesPath, next);
+          };
+          return routes.map((route, index) => <div className="ns-fetch-route" key={route.kind}>
+            <div className="ns-rule-head">
+              <strong>{t(`fetchRoute.${route.kind}`)}</strong>
+              <span className="ns-muted">{t(`fetchRouteHelp.${route.kind}`)}</span>
+              <div className="ns-actions">
+                <button type="button" disabled={!!pending || index === 0} aria-label={t('fetchMoveUp')} onClick={() => move(index, -1)}>↑</button>
+                <button type="button" disabled={!!pending || index === routes.length - 1} aria-label={t('fetchMoveDown')} onClick={() => move(index, 1)}>↓</button>
+              </div>
+            </div>
+            <div className="ns-grid">
+              {field(`${fetchRoutesPath}.${index}.enabled`, { type: 'checkbox', customLabel: t('fetchEnabled') })}
+              {field(`${fetchRoutesPath}.${index}.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
+            </div>
+            {ruleEditor(index, route as FetchRouteConfig)}
+          </div>);
+        }
+
         function confirmRow(kind: string, text: string, run: () => void, backendId?: string) {
           if (confirming?.kind !== kind) return null;
           return <div className="ns-confirm" role="alert">
@@ -182,6 +285,8 @@ export function createClient(React: any) {
 
         const enabledCount = definitions.filter(def => draft.backends[def.id]?.enabled).length;
         const blockers = snapshot ? blockersOf(draft, definitions.filter(def => def.status === 'documented').map(def => def.id), id => !!snapshot.credentials[id]?.configured, id => definitions.find(def => def.id === id)?.title || id) : [];
+        const fetchProviders: FetchProviderInfo[] = snapshot?.fetch.providers ?? [];
+        const selectedFetchProvider: FetchProviderInfo | undefined = fetchProviders.find((provider: FetchProviderInfo) => provider.id === draft.pageFetch.providerId);
         const normalizedQuery = backendQuery.trim().toLowerCase();
         const matches = (def: BackendDefinition) => {
           if (normalizedQuery && !def.title.toLowerCase().includes(normalizedQuery) && !def.id.includes(normalizedQuery)) return false;
@@ -204,7 +309,10 @@ export function createClient(React: any) {
         const ranked = definitions.slice().sort((left, right) => tierRank(bestTier(left)) - tierRank(bestTier(right)) || readyRank(left) - readyRank(right) || left.title.localeCompare(right.title));
         const tierRisk = (tier: string) => tier === 'paid' || tier === 'trial' ? 'ns-chip--risk' : tier === 'unverified' ? 'ns-chip--off' : tier === 'allowance' ? 'ns-chip--warn' : 'ns-chip--ok';
 
-        const TABS = ['behavior', 'reliability', 'diagnostics', 'backends'] as const;
+        // Search and fetch are separate views over one shared draft: switching tabs never saves,
+        // never discards edits, and never moves a value between the two operation records.
+        const TABS = ['behavior', 'reliability', 'diagnostics', 'backends', 'fetch'] as const;
+        const fetchRoutesPath = 'pageFetch.routes';
         const credentialDisabledReason = (id: string): string => {
         if (pending) return t('credentialPending');
         if (snapshot?.credentials[id] && !snapshot.credentials[id]!.writable) return t('credentialReadOnly');
@@ -220,7 +328,7 @@ export function createClient(React: any) {
           {!!blockers.length && <div className="ns-blockers" role="status" aria-live="polite"><h3>{t('blockersTitle')}</h3><ul>{blockers.map(blocker => <li key={blocker.key}>{tr(blocker.key, blocker.vars)} <button type="button" className="ns-link" onClick={() => focusPath(blocker.jump)}>{t('fixIt')}</button></li>)}</ul></div>}
           {!snapshot ? <button disabled={!!pending} onClick={async () => { setPending('load'); try { const next = await refresh(); setDraft(clone(next.config)); setNotice(''); setFailed(false); } catch { setFailed(true); setNotice('loadFailed'); } finally { setPending(''); } }}>{t('reload')}</button> : <>
           <div className="ns-tabs" role="tablist" aria-label={t('tabsLabel')}>
-            {TABS.map(id => <button key={id} role="tab" type="button" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} className={`ns-tab ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{t(`tab.${id}`)}{id === 'backends' && <span className="ns-tab-count">{enabledCount}/{definitions.length}</span>}</button>)}
+            {TABS.map(id => <button key={id} role="tab" type="button" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} className={`ns-tab ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{t(`tab.${id}`)}{id === 'backends' && <span className="ns-tab-count">{enabledCount}/{definitions.length}</span>}{id === 'fetch' && <span className="ns-tab-count">{draft.pageFetch.routes.filter((route: FetchRouteConfig) => route.enabled).length}/{draft.pageFetch.routes.length}</span>}</button>)}
           </div>
           {tab === 'behavior' && <div role="tabpanel" id="panel-behavior" aria-labelledby="tab-behavior">
             <section className="ns-card" aria-labelledby="sec-behavior"><h3 id="sec-behavior">{t('general')}</h3><div className="ns-grid">{fields(['safeSearch', 'tools.webSearchPlus', 'tools.compactByDefault', 'maxResults', 'concurrency', 'overallTimeoutMs', 'language', 'region', 'recency', 'includeDomains', 'excludeDomains', 'dedup', 'fusion'], { 'tools.webSearchPlus': { type: 'checkbox' }, 'tools.compactByDefault': { type: 'checkbox' }, maxResults: { type: 'number' }, concurrency: { type: 'number' }, overallTimeoutMs: { type: 'number' }, language: { choices: [...LANGUAGES] }, region: { choices: [...REGIONS] }, recency: { choices: ['any', 'day', 'week', 'month', 'year'] }, safeSearch: { type: 'checkbox' }, includeDomains: { type: 'list' }, excludeDomains: { type: 'list' }, dedup: { choices: ['url', 'url-title'] }, fusion: { choices: ['rrf', 'ordered'] } })}</div></section>
@@ -240,6 +348,49 @@ export function createClient(React: any) {
             <section className="ns-card" aria-labelledby="sec-diagnostics"><h3 id="sec-diagnostics">{t('diagnosticsTitle')}</h3><p>{t('diagnosticsHelp')}</p><div className="ns-actions"><button disabled={!!pending} onClick={() => action('clear-cache')}>{t('clearCache')}</button><button disabled={!!pending} onClick={() => setConfirming({ kind: 'clear-diagnostics' })}>{t('clearDiagnostics')}</button><button disabled={!!pending} onClick={async () => { setPending('refresh'); try { await refresh(); setNotice('done'); setFailed(false); } catch { setFailed(true); setNotice('actionFailed'); } finally { setPending(''); } }}>{t('refreshDiagnostics')}</button></div>{confirmRow('clear-diagnostics', 'clearDiagnosticsConfirm', () => { void action('clear-diagnostics'); })}
               {snapshot.diagnostics.length ? <div className="ns-table-wrap"><table><thead><tr>{['time', 'backend', 'mode', 'result', 'attempts', 'message'].map(key => <th key={key}>{t(`diagnostic.${key}`)}</th>)}</tr></thead><tbody>{[...snapshot.diagnostics].reverse().map((item: BackendOutcome, index: number) => <tr key={`${item.backend}-${index}`}><td>{item.at ? new Date(item.at).toLocaleTimeString(locale.active) : '—'}</td><td>{item.backend}</td><td>{t(`choice.${item.mode}`)}</td><td className={item.ok ? 'ns-success' : 'ns-error'}>{item.ok ? t('ok') : t(`failure.${item.error?.kind || 'protocol'}`)}</td><td>{item.attempts}</td><td className="ns-cell-message">{item.ok ? (item.warnings[0] ? t('hasWarnings') : '') : (item.error?.message || '')}</td></tr>)}</tbody></table></div> : <p className="ns-muted">{t('noDiagnostics')}</p>}</section>
             <section className="ns-card" aria-labelledby="sec-transfer"><h3 id="sec-transfer">{t('transferTitle')}</h3><p>{t('transferHelp')}</p><div className="ns-actions"><button disabled={!!pending} onClick={exportConfig}>{t('export')}</button><button disabled={!!pending} aria-expanded={showTransfer} onClick={() => setShowTransfer(!showTransfer)}>{t('import')}</button><button disabled={!!pending} onClick={() => setConfirming({ kind: 'restore-defaults' })}>{t('restoreDefaults')}</button></div>{confirmRow('restore-defaults', 'defaultsConfirm', () => { setDraft(clone(snapshot.defaults)); setIssues([]); setNotice('defaultsRestored'); })}{showTransfer && <div className="ns-field"><label htmlFor="ns-import">{t('importLabel')}</label><textarea id="ns-import" value={importText} disabled={!!pending} onChange={(event: any) => setImportText(event.target.value)} rows={8} /><button disabled={!!pending || !importText.trim()} onClick={importConfig}>{t('applyImport')}</button></div>}</section>
+          </div>}
+          {tab === 'fetch' && <div role="tabpanel" id="panel-fetch" aria-labelledby="tab-fetch">
+            <section className="ns-card" aria-labelledby="sec-fetch-tool"><h3 id="sec-fetch-tool">{t('fetchToolTitle')}</h3><p className="ns-muted">{t('fetchToolHelp')}</p><div className="ns-grid">{fields(['tools.webExtract'], { 'tools.webExtract': { type: 'checkbox' } })}</div></section>
+            <section className="ns-card" aria-labelledby="sec-fetch-ready"><h3 id="sec-fetch-ready">{t('fetchReadyTitle')}</h3>
+              {snapshot?.fetch.ready ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{(snapshot?.fetch.problems ?? []).map((problem: FetchProblem) => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}</li>)}</ul>}
+              <p className="ns-muted">{t('fetchReadyHelp')}</p>
+            </section>
+            <section className="ns-card" aria-labelledby="sec-fetch-routes"><h3 id="sec-fetch-routes">{t('fetchRoutesTitle')}</h3><p className="ns-muted">{t('fetchRoutesHelp')}</p><div id={fetchRoutesPath}>{fetchRouteRows()}</div></section>
+            <section className="ns-card" aria-labelledby="sec-fetch-provider"><h3 id="sec-fetch-provider">{t('fetchProviderTitle')}</h3><p className="ns-muted">{t('fetchProviderHelp')}</p>
+              <div className="ns-field"><label htmlFor="ns-fetch-provider">{t('fetchProviderSelect')}</label><select id="ns-fetch-provider" disabled={!!pending} value={draft.pageFetch.providerId} onChange={(event: any) => update('pageFetch.providerId', event.target.value)}><option value="">{t('fetchProviderNone')}</option>{fetchProviders.map((provider: FetchProviderInfo) => <option key={provider.id} value={provider.id}>{provider.title} · {provider.serves.join('/')}</option>)}</select></div>
+              {selectedFetchProvider && <div>
+                <p>{tr('fetchProviderServes', { formats: selectedFetchProvider.serves.join(', ') })} · <a href={selectedFetchProvider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {t('verifiedAt')} {selectedFetchProvider.verifiedAt}</p>
+                {selectedFetchProvider.notes && <p className="ns-muted">{selectedFetchProvider.notes[lang]}</p>}
+                <p className={selectedFetchProvider.credentialRequired && !selectedFetchProvider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{selectedFetchProvider.credentialRequired ? t(selectedFetchProvider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
+                {!selectedFetchProvider.serves.includes('html') && <p className="ns-muted">{t('fetchProviderMarkdownOnly')}</p>}
+                <p className="ns-muted">{t('fetchProviderFields')}</p>
+                <div className="ns-grid">
+                  {field(`backends.${selectedFetchProvider.id}.fetch.mode`, { choices: selectedFetchProvider.modes, customLabel: t('fetchMode'), help: t('fetchModeHelp') })}
+                  {field(`backends.${selectedFetchProvider.id}.fetch.endpoint`, { customLabel: t('fetchEndpoint'), help: t('fetchEndpointHelp') })}
+                  {field(`backends.${selectedFetchProvider.id}.fetch.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchProviderTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
+                </div>
+                {selectedFetchProvider.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{selectedFetchProvider.options.map((option: any) => field(`backends.${selectedFetchProvider.id}.fetch.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], min: option.min, max: option.max }))}</div></details>}
+              </div>}
+            </section>
+            {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.allowDelegatedFetching', 'pageFetch.browser.context', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
+              'pageFetch.overallTimeoutMs': { type: 'number', min: FETCH_BOUNDS.overallTimeoutMs.min, max: FETCH_BOUNDS.overallTimeoutMs.max },
+              'pageFetch.maxRedirects': { type: 'number', min: FETCH_BOUNDS.maxRedirects.min, max: FETCH_BOUNDS.maxRedirects.max },
+              'pageFetch.maxBodyBytes': { type: 'number', min: FETCH_BOUNDS.maxBodyBytes.min, max: FETCH_BOUNDS.maxBodyBytes.max },
+              'pageFetch.maxOutputChars': { type: 'number', min: FETCH_BOUNDS.maxOutputChars.min, max: FETCH_BOUNDS.maxOutputChars.max },
+              'pageFetch.maxRuleScanChars': { type: 'number', min: FETCH_BOUNDS.maxRuleScanChars.min, max: FETCH_BOUNDS.maxRuleScanChars.max },
+              'pageFetch.allowPrivateNetworks': { type: 'checkbox' },
+              'pageFetch.allowDelegatedFetching': { type: 'checkbox' },
+              'pageFetch.browser.context': { choices: ['isolated', 'session'] },
+              'pageFetch.browser.settleMs': { type: 'number', min: FETCH_BOUNDS.settleMs.min, max: FETCH_BOUNDS.settleMs.max },
+            })}
+            <section className="ns-card" aria-labelledby="sec-fetch-test"><h3 id="sec-fetch-test">{t('fetchTestTitle')}</h3><p>{t('fetchTestHelp')}</p>
+              <div className="ns-grid">
+                <div className="ns-field"><label htmlFor="ns-fetch-url">{t('fetchTestUrl')}</label><input id="ns-fetch-url" value={fetchTestUrl} disabled={!!pending || dirty} onChange={(event: any) => setFetchTestUrl(event.target.value)} placeholder="https://example.com/page" /></div>
+                <div className="ns-field"><label htmlFor="ns-fetch-format">{t('fetchTestFormat')}</label><select id="ns-fetch-format" value={fetchTestFormat} disabled={!!pending || dirty} onChange={(event: any) => setFetchTestFormat(event.target.value)}><option value="markdown">{t('fetchFormat.markdown')}</option><option value="html">{t('fetchFormat.html')}</option></select></div>
+              </div>
+              <div className="ns-test-actions"><button className="ns-primary" disabled={!!pending || dirty || !fetchTestUrl.trim()} onClick={() => action('fetch-test', { url: fetchTestUrl.trim(), format: fetchTestFormat })}>{t('runTest')}</button>{dirty && <small>{t('saveBeforeTest')}</small>}</div>
+              {fetchTestResult && <div className="ns-result"><h4>{t('fetchTestResult')}</h4><pre>{fetchTestResult.text ?? JSON.stringify(fetchTestResult, null, 2)}</pre></div>}
+            </section>
           </div>}
           {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
             <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p><div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' } })}</div>

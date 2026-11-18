@@ -41,3 +41,18 @@ npm run pack
 ```
 
 `verify:workspace` checks manifest/lock agreement and that both hosts really resolve the local core build. Packaging does not publish. Browser integration tests remain opt-in and are not rerun during repository migration.
+
+## Page-fetch configuration (2026-11-18)
+
+The page-fetch feature is additive to the saved configuration. Loading an older file now fills only
+the fields it lacks:
+
+- `pageFetch` with three route records (HTTP enabled, browser and provider off), no selected provider,
+  the documented time/size/redirect limits and `allowPrivateNetworks` / `allowDelegatedFetching` off.
+- `fetch` on every backend record, holding the operation's access mode, endpoint, timeout and options.
+  Search settings, endpoints, options, browser settings and credential names are untouched.
+- `tools.webExtract`, defaulting to `false`: the agent tool stays hidden until a user turns it on.
+
+Explicit values are never replaced: a saved `null`, wrong type, unknown key or out-of-range number is
+reported by validation instead of being reset. Credential names remain fixed in code, so a saved
+reference still cannot redirect a lookup. No package version was bumped for this change.

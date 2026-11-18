@@ -112,6 +112,44 @@ config.backends.xiaohongshu!.mode = 'browser';
 
 会话、代际和回收的内部机制见 [docs/BROWSER-SESSIONS.md](../../docs/BROWSER-SESSIONS.md)。
 
+## 页面抓取
+
+搜索回答「有哪些页面」，页面抓取返回一个已经存在的页面。两者共用配置与凭证，但其它部分互不相干：
+抓取有自己的路由、规则与上限。
+
+```ts
+import { PageFetchEngine, defaultConfig } from '@nite07/search-core';
+
+const engine = new PageFetchEngine(defaultConfig(), {
+  resolveCredential: async reference => process.env[reference], // 与搜索相同的固定名称
+});
+
+const page = await engine.fetchPage({ url: 'https://example.com/article', format: 'markdown' }, signal);
+if (page.ok) console.log(page.content);
+console.log(page.stopReason, page.attempts);
+```
+
+`format` 必填：`markdown` 用来读，`html` 用来看结构；没有保存的默认值，也不会在两者之间隐式转换。
+
+路由按保存的顺序串行执行（默认 HTTP、共享浏览器、一个选定服务商），每条路由评估自己的回退规则：
+规则之间是「或」，同一条规则内条件是「且」，条件结果是真、假或不可用，缺失的标题或状态码不会被当作
+空字符串。命中规则继续下一条，未命中则停止。取消、总期限、被拒绝的目标、无效的全局配置与采集上限
+都是致命的，不会回退。
+
+结果有界且可 JSON 化：`content`、`contentRoute`、`contentProvider`、`representation`、
+`statusCode`（仅目标文档）、`ok`、`stopReason`、`truncated`，以及每条实际执行路由的一条
+`attempts[]` 记录（耗时、结果类型、目标状态码、服务商 API 状态码、命中的规则、不可用字段与脱敏错误）。
+只有拿到可用内容、目标响应成功（已知时）且没有命中拒绝规则，才算成功。
+
+安全默认只允许公网目标：HTTP 传输在 socket lookup 内解析、校验全部地址并连接刚校验过的地址，
+因此不存在「检查与连接之间被重绑定」的窗口；重定向逐跳手动跟随并重新检查。浏览器与服务商在别处解析
+目标地址，这类路由必须显式打开 `allowDelegatedFetching`，结果里会写明这个信任边界。
+
+抓取适配器是 catalog 元数据而不是用户开关：本版本提供 Exa（`web_fetch_exa`）与 Parallel
+（`web_fetch`），两者都返回原生 Markdown。向只支持 Markdown 的服务商请求 HTML 会在不发送请求的情况下
+跳过，并继续下一条启用的路由。证据见
+[docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md)。
+
 ## 字段映射
 
 每个适配器读哪个响应字段、对着官方文档核实过的结果，以及哪些缺口不算 bug，都记在

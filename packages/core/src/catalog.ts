@@ -1,3 +1,4 @@
+import type { FetchOperationDefinition } from './fetch/types.js';
 import type { BackendDefinition, Localized, ModeDefinition, OptionField } from './types.js';
 const text = (en: string, zh: string): Localized => ({ en, zh });
 const option = (key: string, label: string, zh: string, value: string | number | boolean, choices?: string[]): OptionField => ({ key, type: choices ? 'select' : typeof value as 'string' | 'number' | 'boolean', label: text(label, zh), help: text(`Native ${key} parameter. See the backend documentation.`, `原生 ${key} 参数，详见后端文档。`), default: value, ...(choices ? { choices } : {}) });
@@ -30,3 +31,47 @@ export const catalog: BackendDefinition[] = [
   backend('tencent-wsa','Tencent Cloud WSA','https://cloud.tencent.com/document/product/1806/121811',[mode('key','https://wsa.tencentcloudapi.com/','paid','¥14/¥20/¥26 per 1,000 by tier. Store a JSON credential {secretId,secretKey}; no free allowance verified.','分档 ¥14／¥20／¥26 每千次。凭证填写 JSON {secretId,secretKey}；免费额度未核实。','https://cloud.tencent.com/product/wsa',{en:'{"secretId":"...","secretKey":"..."}',zh:'{"secretId":"...","secretKey":"..."}'})],[{...option('Mode','Search mode','搜索模式',0),min:0,max:2}]),
 ];
 export const backendById = (id: string): BackendDefinition | undefined => catalog.find(item => item.id === id);
+
+/**
+ * Fetch operations, declared only for providers whose contract was verified live.
+ *
+ * The metadata is a capability statement, not a user toggle: a provider without this entry can never
+ * be selected for a page fetch, and its search behaviour is untouched. Both verified providers return
+ * native Markdown and neither can serve page HTML, which the engine records as an `unsupported-format`
+ * skip before any request is sent. See docs/PAGE-FETCH-PROVIDERS.md.
+ */
+const fetchOption = (key: string, type: OptionField['type'], label: string, zh: string, value: string | number | boolean, help: string, helpZh: string): OptionField => ({ key, type, label: text(label, zh), help: text(help, helpZh), default: value });
+
+const exaFetch: FetchOperationDefinition = {
+  tool: 'web_fetch_exa',
+  modes: ['anonymous'],
+  serves: ['markdown'],
+  representation: 'provider-markdown',
+  options: [fetchOption('maxCharacters', 'number', 'Characters per page', '每页字符上限', 50000, 'Characters the provider may return per page. Its own default is 3000; a page fetch asks for more because the page itself is the result.', '供应商每页最多返回的字符数。其默认值是 3000；页面抓取要的是整页内容，所以这里请求更多。')],
+  characterOption: { key: 'maxCharacters', default: 50000 },
+  docs: 'https://exa.ai/docs/get-started/exa-mcp',
+  verifiedAt: '2026-11-18',
+  notes: text('Returns native Markdown; no page title and no target HTTP status are reported.', '返回原生 Markdown；不提供页面标题与目标 HTTP 状态码。'),
+};
+
+const parallelFetch: FetchOperationDefinition = {
+  tool: 'web_fetch',
+  modes: ['anonymous'],
+  serves: ['markdown'],
+  representation: 'provider-markdown',
+  options: [fetchOption('full_content', 'boolean', 'Full page content', '返回整页正文', true, 'Ask for the complete page rather than objective-focused excerpts. Excerpt mode is cheaper but is not the page.', '请求完整页面，而不是按目标筛选的摘要。摘要模式更省，但不是整页。')],
+  docs: 'https://docs.parallel.ai/integrations/mcp/quickstart',
+  verifiedAt: '2026-11-18',
+  notes: text('Returns native Markdown with a page title; target status is reported only when the target itself failed.', '返回原生 Markdown 与页面标题；只有目标页面失败时才报告目标状态码。'),
+};
+
+const fetchOperations: Record<string, FetchOperationDefinition> = { exa: exaFetch, parallel: parallelFetch };
+
+for (const definition of catalog) {
+  const operation = fetchOperations[definition.id];
+  if (!operation) continue;
+  definition.fetch = operation;
+  // The verified fetch endpoint of an access mode is the endpoint it was observed on, never a
+  // string replacement of the search URL.
+  for (const mode of definition.modes) if (operation.modes.includes(mode.mode)) mode.fetchEndpoint = mode.endpoint;
+}

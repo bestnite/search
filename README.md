@@ -28,6 +28,26 @@ were checked are in [BACKENDS.md](packages/dsh-search/docs/BACKENDS.md).
 Both DSH and the MCP server are thin shells over the same core, so a backend enabled in one behaves
 the same in the other.
 
+## Page fetching (optional)
+
+The same core also fetches one page at a time through ordered, configurable routes — HTTP, the shared
+browser, or one selected provider — with per-route fallback rules and HTML or Markdown output. The
+DSH agent tool is called `web_extract`, and it starts **hidden**: turn on `tools.webExtract` in
+the settings page before an agent can call it. MCP host integration is deferred until DSH user testing
+is complete. Route order, provider selection, credentials and the
+safety limits are saved configuration, not call parameters.
+
+```text
+web_extract(url, format)   format is required: markdown to read, html to inspect structure
+```
+
+Only one page per call, never a crawl; routes run one at a time, never in parallel; each result lists
+every attempt with target status, provider API status, matched rules and a sanitized error. Public
+targets only by default, with the connection pinned to the address that was validated. A provider or
+remote browser resolves the target elsewhere, so those routes need an explicit delegated-fetching
+opt-in. See the [design](docs/PAGE-FETCH-DESIGN.md), [provider evidence](docs/PAGE-FETCH-PROVIDERS.md)
+and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
+
 ## Start here
 
 **DeepSeek Harness**
@@ -68,6 +88,9 @@ Start with the runnable example in the [core README](packages/core/README.md).
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | workspace layout, build, test, release |
 | [docs/BROWSER-SESSIONS.md](docs/BROWSER-SESSIONS.md) | browser session internals |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | why this is a monorepo, and its history |
+| [docs/PAGE-FETCH-DESIGN.md](docs/PAGE-FETCH-DESIGN.md) | page-fetch requirements and design |
+| [docs/PAGE-FETCH-PROVIDERS.md](docs/PAGE-FETCH-PROVIDERS.md) | which fetch providers were verified, and how |
+| [docs/PAGE-FETCH-DEPENDENCIES.md](docs/PAGE-FETCH-DEPENDENCIES.md) | conversion, parsing and regex dependency evidence |
 
 ## License
 

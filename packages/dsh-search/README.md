@@ -101,7 +101,35 @@ queries. A 429 answer lowers the per-site cap to 1 for the rest of that browser 
   outcome with its error, plus whether this plugin is the active provider. Pass a backend id for
   its full mode list, limits and option fields. Read-only; nothing is enabled or spent.
 - `search_manage` — inspect or change this plugin's settings from the agent side, including the shared
-  browser token (`scope: browser`) instead of a backend credential.
+  browser token (`scope: browser`) instead of a backend credential. Also runs the user-triggered page
+  fetch test (`action: "fetch-test"` with `url` and `format`).
+- `web_extract` — fetch **one** page: `url` plus a required `format` (`markdown` to read, `html` to
+  inspect structure). Route order, provider selection, credentials and fallback rules are saved
+  configuration, never call parameters. Returned page content is untrusted. **Off by default**: the
+  Fetch tab's "Allow web_extract" switch registers or hides the tool entirely, so an agent with a
+  stronger native fetch tool does not receive a duplicate.
+
+## Page fetching
+
+The same settings page has a **Page fetch** tab beside **Search**, editing the same draft:
+
+- **Routes** — HTTP, the shared browser and one provider, each with its own switch, timeout, order
+  (↑/↓ buttons, keyboard reachable) and fallback rules. Rules are OR, conditions inside one rule are
+  AND, and a condition is true/false/unavailable; a missing field is never an empty string. Presets
+  add an ordinary editable status rule or a heuristic challenge-page rule.
+- **Provider** — the verified fetch-capable providers only (Exa and Parallel in this release), with
+  the formats each one can return, its own fetch access mode, endpoint, timeout and options. Both
+  return native Markdown; asking for HTML skips that route without a request and the next enabled
+  route serves the page instead.
+- **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
+  width, public-only/private-network policy, and the delegated-fetching opt-in a browser or provider
+  route needs because the remote side resolves the target itself.
+- **Test** — a URL, a required format and one user-triggered run against the *saved* configuration.
+  It can reach the network (and a provider may meter it); nothing runs on render or save.
+
+Readiness problems are shown before a test: no enabled route, a browser route without an endpoint, a
+provider route without a provider, a missing provider credential, or a delegated route with the opt-in
+off.
 
 ## Troubleshooting
 

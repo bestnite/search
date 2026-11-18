@@ -134,6 +134,51 @@ Direct readers are exported for hosts that want one call without the engine: `se
 
 How sessions, generations and recycling work internally: [docs/BROWSER-SESSIONS.md](../../docs/BROWSER-SESSIONS.md).
 
+## Page fetching
+
+Search answers "which pages exist"; page fetching returns one page that already exists. The two share
+configuration and credentials but nothing else: a fetch has its own routes, rules and limits.
+
+```ts
+import { PageFetchEngine, defaultConfig } from '@nite07/search-core';
+
+const config = defaultConfig();
+const engine = new PageFetchEngine(config, {
+  resolveCredential: async reference => process.env[reference], // same fixed names as search
+});
+
+const page = await engine.fetchPage({ url: 'https://example.com/article', format: 'markdown' }, signal);
+if (page.ok) console.log(page.content);
+console.log(page.stopReason, page.attempts);
+```
+
+`format` is required: `markdown` to read, `html` to inspect structure. There is no saved default and no
+implicit conversion from one to the other.
+
+Routes run one at a time in the saved order — HTTP, the shared browser, and one selected provider by
+default — and each route evaluates its own fallback rules. Rules are OR, conditions inside one rule are
+AND, and a condition is true, false or unavailable; a missing title or status is never treated as an
+empty string. A matched rule continues to the next route, no match stops. Cancellation, the overall
+deadline, a refused target, invalid global configuration and acquisition limits are fatal and never
+fall back.
+
+Results are bounded and JSON-safe: `content`, `contentRoute`, `contentProvider`, `representation`,
+`statusCode` (target only), `ok`, `stopReason`, `truncated`, and one `attempts[]` entry per executed
+route with its duration, outcome, target status, provider API status, matched rule ids, unavailable
+inputs and a sanitized error. A successful result requires usable content, a successful target response
+when one is known, and no matched rejection rule.
+
+Safety defaults are public-only targets. The HTTP transport resolves each name inside the socket
+lookup, applies the address policy to every answer and connects to the address it validated, so a
+rebinding window between check and connect does not exist. Redirects are followed manually, one bounded
+hop at a time, and re-checked. A browser or provider resolves the target elsewhere; those routes
+require `allowDelegatedFetching`, and the result notes the trust boundary.
+
+Fetch adapters are catalog metadata, not user toggles: this release ships Exa (`web_fetch_exa`) and
+Parallel (`web_fetch`), both returning native Markdown. Asking a Markdown-only provider for HTML skips
+it without a request and continues to the next enabled route. See
+[docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md) for the evidence.
+
 ## Field mapping
 
 Which response key each adapter reads, verified against the vendor docs, is recorded in
