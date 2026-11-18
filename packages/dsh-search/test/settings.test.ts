@@ -112,6 +112,8 @@ test('issue focus maps provider fetch fields to the Fetch tab and browser fields
   assert.deepEqual(focusForPath('cache.ttlSeconds'), { tab: 'reliability', target: 'cache.ttlSeconds' });
   assert.deepEqual(focusForPath('maxResults'), { tab: 'behavior', target: 'maxResults' });
   assert.equal(tabForPath('pageFetch.browser.settleMs'), 'fetch');
+  // The challenge attempt belongs to the fetch operation too, so its issues land on the Fetch tab.
+  assert.deepEqual(focusForPath('pageFetch.browser.challengeSolver'), { tab: 'fetch', target: 'pageFetch.browser.challengeSolver' });
 });
 
 test('a route label follows the route record through a reorder', () => {

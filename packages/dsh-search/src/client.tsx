@@ -300,7 +300,7 @@ export function createClient(React: any, ReactDOM?: any) {
           const props = { id, disabled: !!pending || disabled, 'aria-invalid': errors.length > 0, 'aria-describedby': `${id}-help${errors.length ? ` ${id}-error` : ''}` };
           return <div className={`ns-field ${type === 'checkbox' ? 'ns-check' : ''}`} key={path}>
             <label className="ns-label" htmlFor={id}>{customLabel || label(path)}</label>
-            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path === 'pageFetch.browser.context' ? t(`browserContext.${choice}`) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
+            {type === 'checkbox' ? <input {...props} type="checkbox" checked={!!value} onChange={(event: any) => update(path, event.target.checked)} /> : choices ? <select {...props} value={value} onChange={(event: any) => update(path, event.target.value)}>{choices.map(choice => <option key={choice} value={choice}>{path === 'language' || path === 'region' ? (choice === '' ? t('notSpecified') : choice) : path === 'pageFetch.browser.context' ? t(`browserContext.${choice}`) : path === 'pageFetch.browser.challengeSolver' ? t(`challengeSolver.${choice}`) : path.includes('.options.') || path.includes('.fetch.options.') ? choice : t(`choice.${choice}`)}</option>)}</select> : type === 'list' || type === 'numbers' ? <ListInput {...props} value={value} numeric={type === 'numbers'} onCommit={(next: unknown) => update(path, next)} /> : <input {...props} type={type} min={min} max={max} value={value ?? ''} onChange={(event: any) => { const raw = event.target.value; update(path, type === 'number' ? (raw === '' ? '' : Number(raw)) : raw); }} />}
             <small className="ns-help" id={`${id}-help`}>{help || t(`help.${path.replace(/^backends\.[^.]+\./, 'backend.')}`)}{type === 'number' && min !== undefined && max !== undefined ? ` (${min}–${max})` : ''}</small>
             {!!errors.length && <small className="ns-error" id={`${id}-error`}>{issueText(errors[0]!)}<button type="button" className="ns-link" onClick={() => focusIssue(errors[0]!)}>{t('showField')}</button></small>}
           </div>;
@@ -796,7 +796,7 @@ export function createClient(React: any, ReactDOM?: any) {
               })}
               </div>
             </section>
-            {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.browser.context', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
+            {section('fetchLimitsTitle', ['sec-fetch-limits'], ['pageFetch.overallTimeoutMs', 'pageFetch.maxRedirects', 'pageFetch.maxBodyBytes', 'pageFetch.maxOutputChars', 'pageFetch.maxRuleScanChars', 'pageFetch.allowPrivateNetworks', 'pageFetch.browser.context', 'pageFetch.browser.challengeSolver', 'pageFetch.browser.settleMs', 'pageFetch.browser.selectorWait'], {
               'pageFetch.overallTimeoutMs': { type: 'number', min: FETCH_BOUNDS.overallTimeoutMs.min, max: FETCH_BOUNDS.overallTimeoutMs.max },
               'pageFetch.maxRedirects': { type: 'number', min: FETCH_BOUNDS.maxRedirects.min, max: FETCH_BOUNDS.maxRedirects.max },
               'pageFetch.maxBodyBytes': { type: 'number', min: FETCH_BOUNDS.maxBodyBytes.min, max: FETCH_BOUNDS.maxBodyBytes.max },
@@ -804,6 +804,9 @@ export function createClient(React: any, ReactDOM?: any) {
               'pageFetch.maxRuleScanChars': { type: 'number', min: FETCH_BOUNDS.maxRuleScanChars.min, max: FETCH_BOUNDS.maxRuleScanChars.max },
               'pageFetch.allowPrivateNetworks': { type: 'checkbox' },
               'pageFetch.browser.context': { choices: ['isolated', 'session'] },
+              // The challenge attempt is a fetch-route behaviour, so its two states sit beside the
+              // other browser-route options rather than on the shared Browser tab.
+              'pageFetch.browser.challengeSolver': { choices: ['off', 'auto'] },
               'pageFetch.browser.settleMs': { type: 'number', min: FETCH_BOUNDS.settleMs.min, max: FETCH_BOUNDS.settleMs.max },
             })}
             <section className="ns-card" aria-labelledby="sec-fetch-test"><h3 id="sec-fetch-test">{t('fetchTestTitle')}</h3><p>{t('fetchTestHelp')}</p>

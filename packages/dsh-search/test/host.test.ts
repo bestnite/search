@@ -22,7 +22,7 @@ test('every config scalar and array has an editable client field or generated ba
  for(const key of Object.keys(defaults.backends.keenable!)){if(key==='options'||key==='fetch')continue;assert.ok(covered(`backends.keenable.${key}`),`Missing backend field ${key}`);}
  assert.ok(client.includes('def.options.map(option => field('));
  for(const leaf of ['fetch.mode','fetch.endpoint','fetch.timeoutMs','fetch.options.']){assert.ok(client.includes(leaf),`the fetch settings editor renders ${leaf}`);}
- for(const path of ['pageFetch.overallTimeoutMs','pageFetch.allowPrivateNetworks','pageFetch.browser.context','panel-fetch']){assert.ok(client.includes(path),`the Fetch tab renders ${path}`);}
+ for(const path of ['pageFetch.overallTimeoutMs','pageFetch.allowPrivateNetworks','pageFetch.browser.context','pageFetch.browser.challengeSolver','panel-fetch']){assert.ok(client.includes(path),`the Fetch tab renders ${path}`);}
  // The retired delegated switch must not come back as a control: enabling the route is the decision.
  assert.equal(client.includes('allowDelegatedFetching'), false, 'no delegated-fetching checkbox remains');
 });

@@ -228,7 +228,8 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'field.pageFetch.overallTimeoutMs', 'field.pageFetch.maxRedirects', 'field.pageFetch.maxBodyBytes',
     'field.pageFetch.maxOutputChars', 'field.pageFetch.maxRuleScanChars', 'field.pageFetch.allowPrivateNetworks',
     'field.pageFetch.browser.context', 'field.pageFetch.browser.settleMs',
-    'field.pageFetch.browser.selectorWait',
+    'field.pageFetch.browser.selectorWait', 'field.pageFetch.browser.challengeSolver',
+    'help.pageFetch.browser.challengeSolver', 'challengeSolver.off', 'challengeSolver.auto',
   ];
   const problemKeys = ['fetchNoRoutes', 'fetchBrowserNoEndpoint', 'fetchProviderMissing', 'fetchProviderMode', 'fetchProviderEndpoint', 'fetchProviderCredential'];
   const conditionKeys = ['condition.network', 'condition.timeout', 'condition.status', 'condition.api-status', 'condition.error', 'condition.match'];

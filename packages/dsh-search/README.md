@@ -55,7 +55,7 @@ between operations.
 | **Test & diagnostics** | One explicit backend test against saved settings, recent outcomes, import/export |
 | **Search** | The backend catalog: access mode, cost chips, search endpoint and credential |
 | **Browser** | The shared Playwright endpoint, endpoint token, session file, per-site read cap, and every enabled search or fetch feature that depends on it |
-| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
+| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/challenge-solver/settle/selector options |
 
 Search and page fetch render the same provider card. A backend's credential is one stored secret bound
 to one record: the control is rendered on the search card whenever either operation needs the key — so
@@ -210,9 +210,12 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   route still serves the page. Serpex, Linkup and You.com can return the page's own HTML; the rest
   return Markdown or plain text, so asking them for HTML skips that route without a request.
 - **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
-  width and the public-only/private-network policy. A browser or provider route resolves the target
-  itself, so switching that route on is the delegated-fetching decision; there is no separate switch,
-  and every result from such a route carries the trust-boundary note.
+  width, the public-only/private-network policy, and the browser route's Cloudflare challenge solver
+  (`auto` by default: one bounded attempt at an identified Turnstile page — the driver clicks the
+  widget, polls for up to 10 seconds, then navigates once more if it cleared, and it never waits for a
+  person; `off` leaves the page exactly as it answered). A browser or provider route resolves the
+  target itself, so switching that route on is the delegated-fetching decision; there is no separate
+  switch, and every result from such a route carries the trust-boundary note.
 - **Test** — a URL, a required format and one user-triggered run against the *saved* configuration.
   It can reach the network (and a provider may meter it); nothing runs on render or save.
 

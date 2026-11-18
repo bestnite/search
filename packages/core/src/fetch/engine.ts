@@ -419,6 +419,7 @@ export class PageFetchEngine {
         settleMs: context.settings.browser.settleMs,
         selectorWait: context.settings.browser.selectorWait,
         contextMode: context.settings.browser.context,
+        challengeSolver: context.settings.browser.challengeSolver,
         endpoint: context.browserEndpoint!,
         ...(token ? { token } : {}),
         ...(this.config.browser.statePath ? { statePath: this.config.browser.statePath } : {}),

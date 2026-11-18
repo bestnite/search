@@ -232,6 +232,51 @@ Navigate to DOMContentLoaded, with an optional bounded settle delay or explicitl
 
 Only target URL is sent to a provider after browser fallback; never forward browser cookies, HTML, or local session state to it.
 
+### Cloudflare challenge identification and one bounded attempt (2026-11-18)
+
+A live Cloudflare Turnstile demo page (`https://nopecha.com/demo/cloudflare`) arrived as an anonymous
+403 in both routes: HTTP saw one refused answer, and the browser route saw a rendered challenge page,
+spent its existing anti-bot retry, and still held a 403. The record therefore said "HTTP 403" and
+nothing about the shield page in front of it, so a caller could not tell an interstitial from a page
+that really answered 403.
+
+**What is identified.** The browser route judges the main-document status, the document title, the
+captured DOM and the frame URLs the driver knows about. Several independent markers are checked and
+any one of them is enough: title patterns (`Just a moment`, `Attention Required`,
+`Verifying you are human`, `Checking your browser`, `请稍候`, `正在验证`); DOM markers (`cf-chl-`,
+`challenge-platform`, `challenges.cloudflare.com`, `__cf_chl_`, `cf_chl_opt`, `cf-turnstile`); and a
+frame whose host is `challenges.cloudflare.com`, compared by parsed host rather than substring. The
+bare word "cloudflare" is deliberately not a marker, because a normal page may mention the company,
+load its insights script or link to its dashboard. Identification adds one bounded English note
+(`The page looked like a Cloudflare challenge after the main document answered HTTP 403 (…markers…).`)
+and changes nothing else: the outcome, the status and the failure kind stay what the route observed. A
+plain 404 page is not identified.
+
+**What the one attempt does.** `pageFetch.browser.challengeSolver` sits beside the other browser-route
+options of the Page fetch tab, defaults to `auto`, and `off` disables the behaviour completely. With
+`auto`, and only when a challenge was identified, the route makes exactly one attempt: it finds the
+frame served from `challenges.cloudflare.com` and clicks the widget through the driver, because a page
+script cannot reach a cross-origin frame while the driver holds that frame's handle. The widget's
+internal markup changes between Cloudflare releases, so the click tries a real `input[type=checkbox]`
+first, then the `#challenge-stage` wrapper, then the frame body, using a fixed offset inside the widget
+box for the two container shapes. It then polls every 500 ms for at most 10 seconds — always clipped by
+the route timeout and the overall deadline, since the route signal already carries the caller, the route
+timeout and the deadline — for the markers to disappear from the main document. Success is decided only
+by the markers disappearing. On success the route navigates once more and that answer decides the
+outcome; on failure the observed refusal stays the outcome and the notes say the attempt did not clear
+the challenge, that no challenge frame was found, or that the widget could not be clicked. The existing
+"a 4xx that rendered a real page" retry is unchanged and still runs; both share one cap of three
+navigations per fetch, so neither can stack on the other into an unbounded loop. Nothing in this path
+waits for a person, and every wait in it is cancellable.
+
+**What it cannot do.** It does not defeat an interactive managed challenge, a challenge that demands
+human confirmation, a site key only a person can satisfy, a fingerprint the remote browser does not
+have, or a page that keeps its marker after the widget was pressed. It is not a FlareSolverr-style
+service and never proxies a browser to the caller. The click itself is a heuristic against markup this
+repository does not control. The demo page used to reproduce the problem exists to demonstrate a
+solvable widget; the automated attempt against it was not verified live in this change, and no live
+browser run was performed (see the completion report).
+
 ## 11. Safety and privacy
 
 Allow only HTTP(S) target URLs without embedded credentials. Reject unsupported schemes. Apply configurable public-only/private-network policy uniformly across routes and redirects. Default public-only. Explicit private-network opt-in must not expose credentials in diagnostics.

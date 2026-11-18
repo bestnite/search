@@ -11,7 +11,9 @@ import {
   DEFAULT_MAX_REDIRECTS,
   DEFAULT_MAX_RULE_SCAN_CHARS,
   DEFAULT_ROUTE_TIMEOUT_MS,
+  DEFAULT_CHALLENGE_SOLVER,
   FETCH_BROWSER_CONTEXT_MODES,
+  FETCH_CHALLENGE_SOLVERS,
   FETCH_ROUTE_KINDS,
   MAX_BROWSER_SETTLE_MS,
   MAX_FETCH_BODY_BYTES,
@@ -61,7 +63,7 @@ export function defaultPageFetchConfig(): PageFetchConfig {
     maxOutputChars: DEFAULT_MAX_OUTPUT_CHARS,
     maxRuleScanChars: DEFAULT_MAX_RULE_SCAN_CHARS,
     allowPrivateNetworks: false,
-    browser: { context: 'isolated', settleMs: 0, selectorWait: '' },
+    browser: { context: 'isolated', settleMs: 0, selectorWait: '', challengeSolver: DEFAULT_CHALLENGE_SOLVER },
   };
 }
 
@@ -258,6 +260,9 @@ function validatePageFetch(c: SearchConfig, fail: IssueSink): void {
   if (!(FETCH_BROWSER_CONTEXT_MODES as readonly string[]).includes(page.browser.context)) fail('pageFetch.browser.context', 'Unsupported selection.', 'field.unsupported', { allowed: FETCH_BROWSER_CONTEXT_MODES.join(', ') });
   num(page.browser.settleMs, 0, MAX_BROWSER_SETTLE_MS, 'pageFetch.browser.settleMs');
   if (page.browser.selectorWait.length > MAX_SELECTOR_LENGTH) fail('pageFetch.browser.selectorWait', `At most ${MAX_SELECTOR_LENGTH} characters.`, 'field.tooLong', { max: MAX_SELECTOR_LENGTH });
+  // A saved file written before the solver existed gets the default from `parseConfig`; any other
+  // value has to be one of the two the behaviour implements.
+  if (!(FETCH_CHALLENGE_SOLVERS as readonly string[]).includes(page.browser.challengeSolver)) fail('pageFetch.browser.challengeSolver', 'Unsupported selection.', 'field.unsupported', { allowed: FETCH_CHALLENGE_SOLVERS.join(', ') });
 
   const selected = page.providerId;
   if (typeof selected !== 'string') {

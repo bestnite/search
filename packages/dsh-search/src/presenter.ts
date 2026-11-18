@@ -55,7 +55,8 @@ export const fetchCredentialFieldId = (backendId: string): string => `secret-fet
 export function tabForPath(path: string): SettingsTab {
   if (path === 'backends' || path === 'sec-backends') return 'backends';
   if (path.startsWith('browser.')) return 'browser';
-  // pageFetch.browser.* (context, settle, selector) describes the fetch operation, not the shared browser.
+  // pageFetch.browser.* (context, solver, settle, selector) describes the fetch operation, not the
+  // shared browser.
   if (path.startsWith('pageFetch')) return 'fetch';
   if (/^backends\.[^.]+\.fetch\./.test(path)) return 'fetch';
   if (path.startsWith('backends.')) return 'backends';

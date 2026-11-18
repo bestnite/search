@@ -1,9 +1,19 @@
 import { existsSync } from 'node:fs';
-import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
+import { chromium, type Browser, type BrowserContext, type Frame, type Page } from 'patchright-core';
 import { delegatedNote } from './notes.js';
 import { connectFailure, defaultBrowserStatePath } from '../browser.js';
 import type { SearchError } from '../transport.js';
-import type { FetchBrowserContextMode, FetchFormat } from './types.js';
+import type { FetchBrowserContextMode, FetchChallengeSolver, FetchFormat } from './types.js';
+import {
+  CHALLENGE_HTML_MARKERS,
+  CHALLENGE_SCAN_CHARS,
+  challengeHtmlMatches,
+  challengeNote,
+  detectCloudflareChallenge,
+  isChallengeFrameUrl,
+  type ChallengeDetection,
+} from './challenge.js';
+import { CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS } from './limits.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { parseHtmlDocument } from './html.js';
 import { utf8ByteLength } from './bytes.js';
@@ -31,6 +41,8 @@ export interface BrowserRouteRequest {
   settleMs: number;
   selectorWait: string;
   contextMode: FetchBrowserContextMode;
+  /** `off` disables the challenge attempt entirely; `auto` spends one bounded attempt. */
+  challengeSolver: FetchChallengeSolver;
   endpoint: string;
   token?: string;
   statePath?: string;
@@ -102,6 +114,18 @@ function diagnosticCode(message: string): string {
   return line ? ` (${line})` : '';
 }
 
+/**
+ * The document title, as far as challenge identification needs it.
+ *
+ * A bounded read of the head is enough here: the authoritative title of the returned result still
+ * comes from the one full parse at the end, and this one only feeds the marker check. Parsing a large
+ * document twice just to compare a title would be work the fetch does not need to do.
+ */
+function titleFromHtml(html: string): string {
+  const match = /<title[^>]*>([\s\S]{0,512}?)<\/title>/i.exec(html.slice(0, 65_536));
+  return (match?.[1] ?? '').replace(/\s+/g, ' ').trim();
+}
+
 /** What a page has to look like before a refused status is worth asking about again. */
 function looksLikeRealPage(html: string): boolean {
   const parsed = parseHtmlDocument(html, 'about:blank');
@@ -140,6 +164,51 @@ interface Capture {
   html?: string;
   tooLarge?: number;
 }
+
+/** One judged document: the capture that becomes the result, and the challenge identification. */
+interface Judged {
+  capture: Capture;
+  detection?: ChallengeDetection;
+}
+
+/** How one automatic challenge attempt ended. Only `cleared` earns a retried navigation. */
+type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout' };
+
+/**
+ * The widget shapes a challenge frame renders, tried in order.
+ *
+ * A real checkbox is clicked at its own centre. The wrapper and the frame body are containers, so
+ * the click goes to a fixed offset inside the widget box: a widget is roughly 300x65 CSS pixels and
+ * its top-left corner is the frame border, which a click can miss.
+ */
+const CHALLENGE_WIDGET_CANDIDATES: readonly { selector: string; position?: { x: number; y: number } }[] = [
+  { selector: 'input[type=checkbox]' },
+  { selector: '#challenge-stage', position: { x: 30, y: 26 } },
+  { selector: 'body', position: { x: 30, y: 26 } },
+];
+
+/** Frames the driver knows about. A page's own script cannot list a cross-origin frame. */
+const knownFrames = (page: Page): Frame[] => {
+  try {
+    return page.frames?.() ?? [];
+  } catch {
+    return [];
+  }
+};
+
+const frameUrl = (frame: Frame): string => {
+  try {
+    return frame.url();
+  } catch {
+    return '';
+  }
+};
+
+/** The frame URLs of one page, for challenge identification. */
+const frameUrlsOf = (page: Page): string[] => knownFrames(page).map(frameUrl);
+
+/** The Turnstile widget's own frame, when the page has one attached. */
+const challengeFrame = (page: Page): Frame | undefined => knownFrames(page).find(frame => isChallengeFrameUrl(frameUrl(frame)));
 
 /**
  * Build the browser transport around one connect operation. Production passes the real driver; tests
@@ -284,10 +353,13 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       });
       page = adopt(openedPage, value => value.close());
 
-      let response = await untilAborted(page.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
+      // Everything below judges one page handle. Teardown may clear `page` at any moment, so this
+      // local keeps every call bound to the page this fetch created.
+      const activePage = page;
+      let response = await untilAborted(activePage.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
       if (request.selectorWait) {
         try {
-          await page.waitForSelector(request.selectorWait, { timeout: Math.min(request.routeTimeoutMs, 10_000) });
+          await activePage.waitForSelector(request.selectorWait, { timeout: Math.min(request.routeTimeoutMs, 10_000) });
         } catch {
           notes.push('The configured selector did not appear before the wait ended; the captured DOM may be incomplete.');
         }
@@ -297,44 +369,183 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       // Record what the first navigation already answered, so a failure while reading can still
       // report the status and URL instead of losing them.
       observedStatus = statusCode;
-      observedUrl = page.url();
+      observedUrl = activePage.url();
+      // Every automatic navigation is counted here, so the anti-bot retry and the challenge attempt
+      // share one cap instead of each spending its own.
+      let navigations = 1;
+
+      const limitResult = (): RouteResult =>
+        routeFailure(
+          'limit',
+          { kind: 'limit', message: `The rendered document exceeded the ${maxDomBytes}-byte acquisition limit.` },
+          { fatal: true, ...(statusCode === undefined ? {} : { statusCode }), finalUrl: activePage.url(), notes },
+        );
+
+      /**
+       * Read and judge the document the page holds now: one capture, reused as the result, and the
+       * challenge identification over that same capture.
+       */
+      const judge = async (): Promise<Judged> => {
+        const capture = await untilAborted(readDocument(activePage, maxDomBytes));
+        if (typeof capture.tooLarge === 'number') return { capture };
+        const html = capture.html ?? '';
+        const detection = detectCloudflareChallenge({
+          title: titleFromHtml(html),
+          htmlMatches: challengeHtmlMatches(html),
+          frameUrls: frameUrlsOf(activePage),
+          ...(statusCode === undefined ? {} : { statusCode }),
+        });
+        return { capture, detection };
+      };
+
+      /**
+       * One more navigation for a document worth asking about again. False when the cap is reached or
+       * the driver refused the load, in which case the previous status and document stay in place.
+       */
+      const navigateAgain = async (): Promise<boolean> => {
+        if (navigations >= MAX_FETCH_NAVIGATIONS) return false;
+        navigations += 1;
+        try {
+          const answer = await untilAborted(activePage.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
+          statusCode = answer?.status();
+        } catch (error) {
+          // A failed retry keeps the status and the document already read; an abort is not a retry.
+          if (request.signal.aborted) throw error;
+          return false;
+        }
+        return true;
+      };
+
+      /**
+       * Identify a challenge from the live document without serializing it: the needle scan runs
+       * inside the page, so polling costs one small round trip instead of the whole DOM.
+       */
+      const liveChallenge = async (): Promise<ChallengeDetection> => {
+        const answer = await untilAborted(activePage.evaluate((options: { needles: readonly string[]; scan: number }) => {
+          const root = document.documentElement;
+          const html = (root ? root.outerHTML : '').slice(0, options.scan).toLowerCase();
+          return { title: document.title, htmlMatches: options.needles.filter(needle => html.includes(needle)) };
+        }, { needles: CHALLENGE_HTML_MARKERS, scan: CHALLENGE_SCAN_CHARS }));
+        return detectCloudflareChallenge({
+          title: answer.title,
+          htmlMatches: answer.htmlMatches,
+          frameUrls: frameUrlsOf(activePage),
+          ...(statusCode === undefined ? {} : { statusCode }),
+        });
+      };
+
+      /** Click the widget through one frame handle, trying the shapes in order. */
+      const clickChallengeWidget = async (frame: Frame, timeoutMs: number): Promise<boolean> => {
+        for (const candidate of CHALLENGE_WIDGET_CANDIDATES) {
+          try {
+            const widget = frame.locator(candidate.selector).first();
+            if (await untilAborted(widget.count()) === 0) continue;
+            await untilAborted(widget.click({ timeout: timeoutMs, ...(candidate.position ? { position: candidate.position } : {}) }));
+            return true;
+          } catch (error) {
+            if (request.signal.aborted) throw error;
+            // The widget's internal markup differs between releases: try the next shape.
+          }
+        }
+        return false;
+      };
+
+      /**
+       * One bounded attempt to clear a Turnstile challenge, run entirely by the driver.
+       *
+       * The widget lives in a cross-origin frame, so no page script can reach it; the driver holds a
+       * handle for that frame and clicks inside it. Success is decided only by the markers vanishing
+       * from the main document — a click that "worked" but left the interstitial in place is a
+       * failure, never a success.
+       */
+      const solveChallenge = async (): Promise<SolveOutcome> => {
+        // The window is clipped by the route timeout, and the route signal already carries the
+        // caller, the route timeout and the overall deadline, so every wait here is both bounded and
+        // cancellable. Nothing in this loop waits for a person.
+        const windowMs = Math.max(CHALLENGE_POLL_INTERVAL_MS, Math.min(CHALLENGE_SOLVE_WINDOW_MS, request.routeTimeoutMs));
+        const deadline = Date.now() + windowMs;
+        let frameSeen = false;
+        let clicked = false;
+        while (Date.now() < deadline) {
+          const frame = challengeFrame(activePage);
+          if (frame) {
+            frameSeen = true;
+            // A failed click is retried on the next pass: the widget may still have been attaching.
+            if (!clicked) clicked = await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())));
+          }
+          if (clicked && !(await liveChallenge()).challenge) return { status: 'cleared' };
+          await abortableWait(Math.max(0, Math.min(CHALLENGE_POLL_INTERVAL_MS, deadline - Date.now())), request.signal);
+        }
+        if (!frameSeen) return { status: 'frame-missing' };
+        return clicked ? { status: 'timeout' } : { status: 'click-failed' };
+      };
+
+      // An anti-bot answer often returns a bare shell and then hydrates the real document from the
+      // same response. Give the page a bounded moment to finish that before judging it.
+      if (statusCode !== undefined && statusCode >= 400) {
+        await activePage.waitForLoadState?.('load', { timeout: 3_000 }).catch(() => undefined);
+        await activePage.waitForFunction?.(() => document.title.trim().length > 0, undefined, { timeout: 3_000 }).catch(() => undefined);
+      }
+      let judged = await judge();
+      if (typeof judged.capture.tooLarge === 'number') return limitResult();
+      // Honest identification: a shield page and a plain refusal become distinguishable in the record.
+      // The note never changes the outcome on its own.
+      let challengeNoted = false;
+      if (judged.detection?.challenge) {
+        notes.push(challengeNote(judged.detection));
+        challengeNoted = true;
+      }
+
       // Some anti-bot fronts answer the first document with a 4xx while handing the browser the
       // cookie that unlocks the next one; Zhihu does exactly this, and the first document it returns
       // still renders the real page. Asking once more with that cookie turns a refused load into a
       // 200. The retry only happens when the first document is a real page, never for a bare 4xx.
-      if (statusCode !== undefined && statusCode >= 400) {
-        // An anti-bot answer often returns a bare shell and then hydrates the real document from the
-        // same response. Give the page a bounded moment to finish that before judging it.
-        await page.waitForLoadState?.('load', { timeout: 3_000 }).catch(() => undefined);
-        await page.waitForFunction?.(() => document.title.trim().length > 0, undefined, { timeout: 3_000 }).catch(() => undefined);
-        const firstDocument = await readDocument(page, maxDomBytes);
-        if (!('html' in firstDocument) || !looksLikeRealPage(firstDocument.html ?? '')) {
-          // Not a rendered page: keep the refusal as the outcome instead of asking again.
-        } else {
-          notes.push(`The first document answered HTTP ${statusCode}; it rendered a page, so the navigation was retried once with the cookies that answer set.`);
-          try {
-            response = await untilAborted(page.goto(request.url.href, { waitUntil: 'domcontentloaded', timeout: request.routeTimeoutMs }));
-            statusCode = response?.status();
-          } catch {
-            // The retry failing keeps the first status and the document already read below.
+      if (statusCode !== undefined && statusCode >= 400 && looksLikeRealPage(judged.capture.html ?? '')) {
+        notes.push(`The first document answered HTTP ${statusCode}; it rendered a page, so the navigation was retried once with the cookies that answer set.`);
+        if (await navigateAgain()) {
+          judged = await judge();
+          if (typeof judged.capture.tooLarge === 'number') return limitResult();
+          if (judged.detection?.challenge && !challengeNoted) {
+            notes.push(challengeNote(judged.detection));
+            challengeNoted = true;
           }
         }
       }
-      const finalUrl = page.url();
+
+      // One bounded automatic attempt, only for an identified challenge and only when the saved
+      // setting allows it. The anti-bot retry above is unchanged and still runs: the two share the
+      // navigation cap rather than replacing each other.
+      if (judged.detection?.challenge) {
+        if (request.challengeSolver !== 'auto') {
+          notes.push('The Cloudflare challenge solver is off, so the challenge page was left exactly as it answered.');
+        } else if (navigations >= MAX_FETCH_NAVIGATIONS) {
+          // Defensive: the branch above the solver already stops at the cap, so this guard exists to
+          // keep a future change to the cap from spending a navigation the route did not budget for.
+          notes.push('The navigation budget was already spent, so the automatic challenge attempt did not run.');
+        } else {
+          const solved = await solveChallenge();
+          if (solved.status === 'frame-missing') {
+            notes.push('No frame pointed at challenges.cloudflare.com, so the automatic challenge attempt sent no click; the challenge was not cleared.');
+          } else if (solved.status === 'click-failed') {
+            notes.push('The challenge widget could not be clicked, so the automatic attempt did not clear the challenge.');
+          } else if (solved.status === 'timeout') {
+            notes.push('The automatic Cloudflare challenge attempt clicked the widget, but the challenge was still present when the solve window ended; it was not cleared.');
+          } else if (await navigateAgain()) {
+            judged = await judge();
+            if (typeof judged.capture.tooLarge === 'number') return limitResult();
+            notes.push(judged.detection?.challenge
+              ? 'The automatic Cloudflare challenge attempt cleared the widget, but the retried navigation still answered a challenge page.'
+              : 'The automatic Cloudflare challenge attempt cleared the widget; the retried navigation decided the outcome.');
+          } else {
+            notes.push('The automatic Cloudflare challenge attempt cleared the widget, but the retry navigation did not happen (no budget left or the driver refused the load); the captured document is still the challenge page.');
+          }
+        }
+      }
+
+      const finalUrl = activePage.url();
       observedStatus = statusCode;
       observedUrl = finalUrl;
-      // Bound the capture inside the page: the remote side measures UTF-8 bytes and, when the
-      // document is over the bound, reports only the size instead of serializing it across the wire.
-      const target = page;
-      const captured = await untilAborted(readDocument(target, maxDomBytes));
-      if (typeof captured.tooLarge === 'number') {
-        return routeFailure(
-          'limit',
-          { kind: 'limit', message: `The rendered document exceeded the ${maxDomBytes}-byte acquisition limit.` },
-          { fatal: true, ...(statusCode === undefined ? {} : { statusCode }), finalUrl, notes },
-        );
-      }
-      const html = captured.html ?? '';
+      const html = judged.capture.html ?? '';
       // Defense in depth: a page context without the measuring helper, or an older remote page, can
       // still return an oversized body, and the byte bound applies before any parsing happens.
       if (utf8ByteLength(html) > maxDomBytes) {

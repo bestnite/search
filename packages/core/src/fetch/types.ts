@@ -1,6 +1,7 @@
 import type { AccessMode, Localized } from '../types.js';
 import type {
   FETCH_BROWSER_CONTEXT_MODES,
+  FETCH_CHALLENGE_SOLVERS,
   FETCH_CONDITION_FIELDS,
   FETCH_FAILURE_KINDS,
   FETCH_FORMATS,
@@ -20,6 +21,7 @@ export type FetchFailureKind = (typeof FETCH_FAILURE_KINDS)[number];
 export type FetchConditionField = (typeof FETCH_CONDITION_FIELDS)[number];
 export type FetchMatchOperator = (typeof FETCH_MATCH_OPERATORS)[number];
 export type FetchBrowserContextMode = (typeof FETCH_BROWSER_CONTEXT_MODES)[number];
+export type FetchChallengeSolver = (typeof FETCH_CHALLENGE_SOLVERS)[number];
 
 /**
  * How one fetch access mode talks to the provider: the shared MCP tool call, or a plain REST POST to
@@ -188,6 +190,12 @@ export interface PageFetchConfig {
     context: FetchBrowserContextMode;
     settleMs: number;
     selectorWait: string;
+    /**
+     * `auto` spends one bounded attempt on a Cloudflare challenge the browser route identified: it
+     * clicks the widget through the driver, polls for the challenge to disappear, and navigates once
+     * more when it did. It never waits for a person, and `off` disables the behaviour completely.
+     */
+    challengeSolver: FetchChallengeSolver;
   };
 }
 

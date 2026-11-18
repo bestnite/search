@@ -24,6 +24,25 @@ export const FETCH_FAILURE_KINDS = ['network', 'timeout', 'http', 'provider', 'a
 
 export const FETCH_BROWSER_CONTEXT_MODES = ['isolated', 'session'] as const;
 
+/**
+ * Whether the browser route may spend one bounded attempt on a Cloudflare challenge it identified.
+ * `off` disables the behaviour entirely; `auto` is the default because a challenge page is a refused
+ * page, and one bounded attempt is cheaper for the user than a manual retry.
+ */
+export const FETCH_CHALLENGE_SOLVERS = ['off', 'auto'] as const;
+export const DEFAULT_CHALLENGE_SOLVER = 'auto';
+
+/**
+ * Every automatic navigation one page fetch may perform, counted across the whole route: the
+ * anti-bot retry and the challenge attempt share this cap, so neither can stack on the other into an
+ * unbounded loop. 1 initial + 1 anti-bot retry + 1 challenge retry.
+ */
+export const MAX_FETCH_NAVIGATIONS = 3;
+
+/** How long one automatic challenge attempt may poll for the challenge to disappear. */
+export const CHALLENGE_SOLVE_WINDOW_MS = 10_000;
+export const CHALLENGE_POLL_INTERVAL_MS = 500;
+
 /** Suggested, editable starting points rather than hidden retry policy. */
 export const DEFAULT_ROUTE_TIMEOUT_MS = { http: 20_000, browser: 45_000, provider: 30_000 } as const;
 export const DEFAULT_FETCH_OVERALL_TIMEOUT_MS = 90_000;
