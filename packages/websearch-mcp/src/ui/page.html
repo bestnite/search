@@ -216,7 +216,8 @@ const I18N = {
     fetchMode: '抓取接入模式', fetchEndpoint: '抓取端点', providerTimeout: '服务商调用超时 (ms)', providerCredentialRequired: '该模式需要凭证', providerCredentialOptional: '该模式不需要凭证',
     limitsTitle: '安全与上限',
     overallTimeout: '抓取总期限 (ms)', maxRedirects: '最大重定向次数', maxBodyBytes: '最大下载字节数', maxOutputChars: '输出最大字符数', maxRuleScanChars: '规则扫描字符数',
-    allowPrivateNetworks: '允许私有网络目标', allowDelegatedFetching: '允许委托抓取（浏览器/服务商）', browserContext: '浏览器上下文', contextIsolated: '隔离', contextSession: '会话',
+    allowPrivateNetworks: '允许私有网络目标', browserContext: '浏览器上下文', contextIsolated: '隔离', contextSession: '会话',
+    challengeSolver: 'Cloudflare 挑战处理', solverAuto: '尝试一次', solverOff: '不尝试',
     settleMs: '等待稳定延迟 (ms)', selectorWait: '等待的选择器',
     fetchTest: '页面抓取测试', fetchTestHelp: '针对已保存配置的手动测试，会访问网络且服务商可能计费；不会自动执行。', runFetchTest: '执行抓取测试',
     formatMarkdown: 'Markdown（阅读）', formatHtml: 'HTML（结构）', fetchTestResult: '测试结果', saveFirst: '请先保存再测试。',
@@ -283,7 +284,8 @@ const I18N = {
     fetchMode: 'Fetch access mode', fetchEndpoint: 'Fetch endpoint', providerTimeout: 'Provider call timeout (ms)', providerCredentialRequired: 'This mode needs a credential', providerCredentialOptional: 'No credential needed for this mode',
     limitsTitle: 'Safety and limits',
     overallTimeout: 'Overall fetch deadline (ms)', maxRedirects: 'Maximum redirects', maxBodyBytes: 'Maximum downloaded bytes', maxOutputChars: 'Maximum output characters', maxRuleScanChars: 'Rule scan characters',
-    allowPrivateNetworks: 'Allow private network targets', allowDelegatedFetching: 'Allow delegated fetching (browser/provider)', browserContext: 'Browser context', contextIsolated: 'Isolated', contextSession: 'Session',
+    allowPrivateNetworks: 'Allow private network targets', browserContext: 'Browser context', contextIsolated: 'Isolated', contextSession: 'Session',
+    challengeSolver: 'Cloudflare challenge handling', solverAuto: 'Attempt once', solverOff: 'Do not attempt',
     settleMs: 'Settle delay (ms)', selectorWait: 'Selector to wait for',
     fetchTest: 'Page fetch test', fetchTestHelp: 'A user-triggered test against the saved configuration. It reaches the network and a provider may meter the call; nothing runs automatically.', runFetchTest: 'Run fetch test',
     formatMarkdown: 'Markdown (reading)', formatHtml: 'HTML (structure)', fetchTestResult: 'Test result', saveFirst: 'Save your changes before testing.',
@@ -892,9 +894,9 @@ function fetchLimitsPanel() {
     field({ path: 'pageFetch.maxOutputChars', type: 'number', label: t('maxOutputChars'), min: bounds.maxOutputChars.min, max: bounds.maxOutputChars.max }),
     field({ path: 'pageFetch.maxRuleScanChars', type: 'number', label: t('maxRuleScanChars'), min: bounds.maxRuleScanChars.min, max: bounds.maxRuleScanChars.max }),
     field({ path: 'pageFetch.allowPrivateNetworks', type: 'check', label: t('allowPrivateNetworks') }),
-    field({ path: 'pageFetch.allowDelegatedFetching', type: 'check', label: t('allowDelegatedFetching') }),
     field({ path: 'pageFetch.browser.context', type: 'select', label: t('browserContext'), options: [['isolated', t('contextIsolated')], ['session', t('contextSession')]] }),
     field({ path: 'pageFetch.browser.settleMs', type: 'number', label: t('settleMs'), min: bounds.settleMs.min, max: bounds.settleMs.max }),
+    field({ path: 'pageFetch.browser.challengeSolver', type: 'select', label: t('challengeSolver'), options: [['auto', t('solverAuto')], ['off', t('solverOff')]] }),
     field({ path: 'pageFetch.browser.selectorWait', type: 'text', label: t('selectorWait') }))));
 }
 

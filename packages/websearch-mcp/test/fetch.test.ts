@@ -148,7 +148,7 @@ async function settingsFile(search = defaultConfig()): Promise<string> {
 test('the settings snapshot reports fetch providers and readiness without a request', async () => {
   const path = await settingsFile();
   const current = await snapshot(path);
-  assert.deepEqual(current.fetch.providers.map(provider => provider.id).sort(), ['exa', 'parallel']);
+  assert.deepEqual(current.fetch.providers.map(provider => provider.id).sort(), ['anysearch', 'deepseek', 'doubao', 'exa', 'keenable', 'linkup', 'open-websearch', 'parallel', 'serpex', 'tavily', 'you']);
   assert.equal(current.fetch.providerId, '');
   assert.equal(current.fetch.ready, true);
   assert.deepEqual(current.fetch.problems, []);
@@ -159,7 +159,7 @@ test('the settings snapshot reports fetch providers and readiness without a requ
   // A saved file cannot hold this state: validation refuses a browser route without an endpoint.
   // Readiness still names it, so a page that is about to enable the route can explain the refusal.
   const search = defaultConfig();
-  search.pageFetch.allowDelegatedFetching = true;
+  // Enabling the route is the delegated decision; the retired switch is gone.
   search.pageFetch.routes[1]!.enabled = true;
   search.browser.endpoint = '';
   const rejected = await snapshot(await settingsFile(search));
@@ -168,7 +168,6 @@ test('the settings snapshot reports fetch providers and readiness without a requ
   assert.deepEqual(fetchReadiness(search, rows).map(problem => problem.key), ['fetchBrowserNoEndpoint']);
 
   const providerSearch = defaultConfig();
-  providerSearch.pageFetch.allowDelegatedFetching = true;
   providerSearch.pageFetch.routes[2]!.enabled = true;
   providerSearch.pageFetch.providerId = 'exa';
   const providerReady = await snapshot(await settingsFile(providerSearch));
@@ -212,7 +211,7 @@ test('the fetch test endpoint validates its inputs before touching the network',
     const settings = await fetch(`${base}/api/settings`);
     const body = (await settings.json()) as Record<string, any>;
     assert.ok(body.fetch, 'the page payload carries the fetch section');
-    assert.equal(body.fetch.providers.length, 2);
+    assert.equal(body.fetch.providers.length, 11);
   } finally {
     await ui.close();
   }
@@ -248,4 +247,12 @@ test('the fetch test endpoint runs the saved chain against a local page and retu
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+test('the settings page offers the challenge solver and no retired delegated switch', async () => {
+  const page = await readFile(new URL('../src/ui/page.html', import.meta.url), 'utf8');
+  assert.match(page, /pageFetch\.browser\.challengeSolver/, 'the solver control is rendered');
+  assert.match(page, /challengeSolver: 'Cloudflare 挑战处理'/, 'the Chinese label exists');
+  assert.match(page, /challengeSolver: 'Cloudflare challenge handling'/, 'the English label exists');
+  assert.doesNotMatch(page, /pageFetch\.allowDelegatedFetching/, 'the retired switch is gone from the page');
 });

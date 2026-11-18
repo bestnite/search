@@ -132,6 +132,18 @@
                   "type": "timeout"
                 }
               ]
+            },
+            {
+              "id": "empty-content",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "error",
+                  "kinds": [
+                    "unsupported-content"
+                  ]
+                }
+              ]
             }
           ]
         },
@@ -155,6 +167,18 @@
               "conditions": [
                 {
                   "type": "timeout"
+                }
+              ]
+            },
+            {
+              "id": "empty-content",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "error",
+                  "kinds": [
+                    "unsupported-content"
+                  ]
                 }
               ]
             }
@@ -182,6 +206,18 @@
                   "type": "timeout"
                 }
               ]
+            },
+            {
+              "id": "empty-content",
+              "enabled": true,
+              "conditions": [
+                {
+                  "type": "error",
+                  "kinds": [
+                    "unsupported-content"
+                  ]
+                }
+              ]
             }
           ]
         }
@@ -197,6 +233,7 @@
       "browser": {
         "context": "isolated",
         "settleMs": 0,
+        "challengeSolver": "auto",
         "selectorWait": ""
       }
     }
