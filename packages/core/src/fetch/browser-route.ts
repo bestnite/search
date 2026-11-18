@@ -83,6 +83,16 @@ const abortableWait = (ms: number, signal: AbortSignal): Promise<void> =>
 const failureKind = (error: SearchError): 'authentication' | 'network' | 'protocol' =>
   error.kind === 'authentication' ? 'authentication' : error.kind === 'network' ? 'network' : 'protocol';
 
+/**
+ * The driver's own failure code, as a short parenthesised suffix for a message: `net::ERR_*`, an
+ * `ERR_*` symbol or an `NS_ERROR_*` one. Anything else — a URL, a redirect target, a body excerpt — is
+ * dropped, so a diagnostic can never carry what the target answered.
+ */
+function diagnosticCode(message: string): string {
+  const match = /\b((?:net::)?ERR_[A-Z0-9_]+|NS_ERROR_[A-Z0-9_]+)\b/.exec(message);
+  return match ? ` (${match[1]})` : '';
+}
+
 /** A captured main document, or the size that made it unacceptable. */
 interface Capture {
   html?: string;
@@ -100,6 +110,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
     let browser: Browser | undefined;
     let context: BrowserContext | undefined;
     let page: Page | undefined;
+    // Which step failed decides how the failure is reported. Message sniffing cannot: a navigation
+    // error such as net::ERR_TUNNEL_CONNECTION_FAILED contains the word "connection" without the
+    // browser ever failing to attach.
+    let stage: 'attach' | 'navigate' = 'attach';
     let stopped = false;
     // Close operations started for a resource that arrived after teardown began; awaited before the
     // fetch settles so a late connection cannot outlive the call that made it.
@@ -201,6 +215,8 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       });
       browser = adopt(connected, value => value.close());
       if (request.signal.aborted) throw new Error('The page fetch was cancelled.');
+      // Everything from here on runs inside an attached browser.
+      stage = 'navigate';
       const statePath = request.contextMode === 'session' ? request.statePath : undefined;
       const usableState = statePath && existsSync(statePath) ? statePath : undefined;
       if (request.contextMode === 'session' && !usableState) notes.push('Session context requested but no saved state file exists; the fetch ran with an empty context.');
@@ -278,8 +294,8 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       if (request.signal.aborted) {
         return routeFailure('cancelled', { kind: 'network', message: 'The page fetch was cancelled.' }, { fatal: true, notes });
       }
-      // A connection-level failure is classified once, by the code that already knows the endpoint.
-      const attach = error instanceof Error && /connect|ECONNREFUSED|ENOTFOUND|401|version mismatch|websocket/i.test(error.message)
+      // A failure while attaching is classified once, by the code that already knows the endpoint.
+      const attach = stage === 'attach'
         ? connectFailure(error, { wsEndpoint: request.endpoint, timeoutMs: request.routeTimeoutMs, siteUrl: 'about:blank' })
         : undefined;
       if (attach) return routeFailure(failureKind(attach), { kind: failureKind(attach), message: attach.message }, { notes });
@@ -287,7 +303,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       if (/timeout/i.test(message)) {
         return routeFailure('timeout', { kind: 'timeout', message: 'The browser did not finish loading the page within the route timeout.' }, { notes });
       }
-      return routeFailure('network', { kind: 'network', message: 'The browser could not load the target page.' }, { notes });
+      // A navigation failure is useless without its cause: "could not load the page" covers a wrong
+      // proxy, a refused connection, a redirect loop and a certificate problem alike. Keep the
+      // driver's own code (net::ERR_*), never the URL or anything the target sent back.
+      return routeFailure('network', { kind: 'network', message: `The browser could not load the target page${diagnosticCode(message)}.` }, { notes });
     } finally {
       request.signal.removeEventListener('abort', onAbort);
       await release();

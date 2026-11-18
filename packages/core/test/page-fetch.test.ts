@@ -1887,3 +1887,57 @@ test('an oversized SSE result is a prompt limit with the API status preserved', 
     await fixture.close();
   }
 });
+
+test('a browser navigation failure keeps the driver code and drops everything else', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  const failing = createBrowserFetcher(async () => {
+    const browser = {
+      newContext: async () => ({
+        newPage: async () => ({
+          goto: async () => { throw new Error('page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://example.com/secret?token=abc\nCall log: navigating'); },
+          close: async () => undefined,
+        }),
+        close: async () => undefined,
+      }),
+      close: async () => undefined,
+    };
+    return browser as never;
+  });
+  const result = await failing({
+    url: new URL('https://example.com'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(result.outcome, 'network');
+  assert.match(result.error?.message ?? '', /net::ERR_TUNNEL_CONNECTION_FAILED/);
+  assert.doesNotMatch(result.error?.message ?? '', /example\.com|token=abc|Call log/);
+});
+
+test('a navigation failure without a driver code reads the same as before', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  const failing = createBrowserFetcher(async () => ({
+    newContext: async () => ({
+      newPage: async () => ({ goto: async () => { throw new Error('something odd happened'); }, close: async () => undefined }),
+      close: async () => undefined,
+    }),
+    close: async () => undefined,
+  }) as never);
+  const result = await failing({
+    url: new URL('https://example.com'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(result.error?.message, 'The browser could not load the target page.');
+});
