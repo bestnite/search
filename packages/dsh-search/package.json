@@ -1,6 +1,6 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Explicit-mode multi-backend search with transparent costs and complete Web settings for DSH",
   "license": "MIT",
   "repository": {
@@ -49,7 +49,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@nite07/search-core": "0.1.6"
+    "@nite07/search-core": "0.1.7"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
