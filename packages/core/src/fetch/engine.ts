@@ -110,6 +110,28 @@ export class PageFetchEngine {
 
   /** Fetch one URL. `format` is required: there is no saved default and no implicit fallback. */
   async fetchPage(input: PageFetchInput, signal?: AbortSignal): Promise<PageFetchResult> {
+    // Timers this call owns. They are ref'd on purpose: `AbortSignal.timeout` schedules an unref'd timer,
+    // so a caller whose only pending work is this fetch could see the event loop empty and the deadline
+    // never fire, which is how the suite behaved differently on Node 22 and Node 26.
+    const timers: NodeJS.Timeout[] = [];
+    try {
+      return await this.runPageFetch(input, signal, timers);
+    } finally {
+      for (const timer of timers) clearTimeout(timer);
+    }
+  }
+
+  /** A deadline that stays ref'd until the call settles, so it fires on every Node line. */
+  private deadline(ms: number, timers: NodeJS.Timeout[]): AbortSignal {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+    }, ms);
+    timers.push(timer);
+    return controller.signal;
+  }
+
+  private async runPageFetch(input: PageFetchInput, signal: AbortSignal | undefined, timers: NodeJS.Timeout[]): Promise<PageFetchResult> {
     const format = input?.format;
     if (format !== 'html' && format !== 'markdown') {
       throw new PageFetchError('invalid-input', 'format is required: use "markdown" for reading or "html" to inspect the page structure.');
@@ -137,7 +159,7 @@ export class PageFetchEngine {
     const overallTimeoutMs = clamp(settings.overallTimeoutMs, MAX_FETCH_OVERALL_TIMEOUT_MS, 90_000);
 
     const caller = signal ?? new AbortController().signal;
-    const deadline = AbortSignal.timeout(overallTimeoutMs);
+    const deadline = this.deadline(overallTimeoutMs, timers);
     const combined = AbortSignal.any([caller, deadline]);
     const fatalReason = (): Extract<FetchStopReason, 'cancelled' | 'deadline'> | undefined =>
       caller.aborted ? 'cancelled' : deadline.aborted ? 'deadline' : undefined;
@@ -195,7 +217,7 @@ export class PageFetchEngine {
         continue;
       }
 
-      const routeSignal = AbortSignal.any([combined, AbortSignal.timeout(route.timeoutMs)]);
+      const routeSignal = AbortSignal.any([combined, this.deadline(route.timeoutMs, timers)]);
       const started = Date.now();
       let result: RouteResult;
       try {

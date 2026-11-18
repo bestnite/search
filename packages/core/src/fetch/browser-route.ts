@@ -85,11 +85,12 @@ const abortableWait = (ms: number, signal: AbortSignal): Promise<void> =>
       clearTimeout(timer);
       reject(new Error('The browser wait was cancelled.'));
     };
+    // Ref'd on purpose: while a challenge is being polled this wait is the only pending work, and an
+    // unref'd timer lets the process decide the loop is empty and drop the fetch instead of timing out.
     const timer = setTimeout(() => {
       signal.removeEventListener('abort', stop);
       resolve();
     }, ms);
-    timer.unref?.();
     signal.addEventListener('abort', stop, { once: true });
   });
 
@@ -604,7 +605,7 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
             if (ready && clicks < CHALLENGE_MAX_CLICKS && Date.now() >= nextClickAt) {
               // Record the document the press happens in, before the press: the reload it may trigger
               // replaces the document immediately.
-              const beforePress = await documentIdentity(activePage);
+            const beforePress = await documentIdentity(activePage);
               if (await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())))) {
                 clicks += 1;
                 pressedDocument = beforePress;

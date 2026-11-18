@@ -120,7 +120,6 @@ function bounded<T>(operation: Promise<T>, timeoutMs: number, onLate: (value: T)
     const timer = setTimeout(() => {
       if (settle()) reject(new VerificationTimeout());
     }, Math.max(1, timeoutMs));
-    timer.unref?.();
     const onAbort = (): void => {
       if (settle()) reject(new BrowserVerificationAborted());
     };

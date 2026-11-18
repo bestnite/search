@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -2112,11 +2113,20 @@ test('session mode with no configured path reads the standard session file, isol
     maxBodyBytes: 1_000_000,
     signal: new AbortController().signal,
   };
-  await make(value => seen.push(value))({ ...request, contextMode: 'session' as const });
-  await make(value => seen.push(value))({ ...request, contextMode: 'isolated' as const });
+  // The standard location is a constant, not something this test reads from the machine running it.
+  const { defaultBrowserStatePath } = await import('../src/browser.js');
+  assert.match(defaultBrowserStatePath(), /[\\/]\.config[\\/]dsh-search[\\/]browser[\\/]state\.json$/, 'the standard file is named once');
+
+  // A configured session file that exists is loaded; the same file is ignored when the context is isolated.
+  const directory = await mkdtemp(join(tmpdir(), 'fetch-session-'));
+  const statePath = join(directory, 'state.json');
+  await writeFile(statePath, '{"cookies":[],"origins":[]}', 'utf8');
+  await make(value => seen.push(value))({ ...request, contextMode: 'session' as const, statePath });
+  await make(value => seen.push(value))({ ...request, contextMode: 'isolated' as const, statePath });
   assert.equal(seen.length, 2);
-  assert.match(String(seen[0] ?? ''), /dsh-search\/browser\/state\.json$/, 'session mode defaults to the standard file');
+  assert.equal(seen[0], statePath, 'session mode reads the configured session file');
   assert.equal(seen[1], undefined, 'isolated mode reads no session file');
+  await rm(directory, { recursive: true, force: true });
 });
 
 test('a capture that holds no text becomes a named failure, not an empty success', async () => {
