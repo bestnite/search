@@ -16,10 +16,13 @@
    right-aligned summary row. */
 .ns-mode-evidence{margin:0 0 10px;justify-content:flex-start}
 .ns-mode-evidence .ns-chip{font-weight:500}
-/* The Page fetch card points at the one credential control instead of repeating its input. */
+/* The Page fetch card repeats the one credential control inline, so a keyed fetch mode is
+   configurable without leaving the tab. The repeated block owns the separator; the inner control
+   must not draw a second one. */
 .ns-credential-shared{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}
 .ns-credential-shared p{font-size:var(--ns-text-help);line-height:1.5;color:var(--dsw-alias-label-secondary)}
 .ns-credential-shared .ns-actions{margin-top:8px}
+.ns-credential-shared .ns-credential{margin:8px 0 0;padding-top:0;border-top:0}
 .ns-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .ns-dot.is-on{background:var(--dsw-alias-state-success-primary)}
 .ns-dot.is-off{background:var(--dsw-alias-state-idle-primary);opacity:.6}

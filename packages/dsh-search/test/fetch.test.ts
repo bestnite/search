@@ -219,7 +219,8 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'fetchRemoveCondition', 'fetchAddStatusPreset', 'fetchAddCloudflarePreset', 'fetchRestoreDefaultRules', 'fetchPresetsHelp',
     'fetchProviderTitle', 'fetchProviderHelp', 'fetchProviderSelect', 'fetchProviderNone', 'fetchProviderServes',
     'fetchProviderMarkdownOnly', 'fetchMode', 'fetchModeHelp', 'fetchEndpoint', 'fetchEndpointHelp', 'fetchProviderTimeoutHelp',
-    'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchEvidenceBadge', 'fetchModeDocumentedOnly', 'fetchCredentialShared', 'openCredential',
+    'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchEvidenceBadge', 'fetchModeDocumentedOnly', 'fetchCredentialShared',
+    'fetchCredentialTitle', 'fetchCredentialHelp', 'fetchCredentialValue',
     'fetchModeCosts', 'fetchModeCostsHelp', 'fetchReadinessProvider',
     'fetchLimitsTitle', 'fetchTestTitle', 'fetchTestHelp', 'fetchTestUrl', 'fetchTestFormat', 'fetchTestResult',
     'fetchFormat.markdown', 'fetchFormat.html', 'fetchConditionType', 'fetchConditionStatuses', 'fetchConditionField',
@@ -343,17 +344,38 @@ test('the fetch provider card is never opened by selection, and shows the select
 test('one credential control serves a keyed search mode or a keyed fetch mode, and is focused directly', async () => {
   const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
   // A keyed fetch with keyless search must be enterable: the search card renders the control for
-  // either operation that needs the key, and the fetch card links to the input itself.
-  assert.match(client, /const fetchNeedsKey = \(def: BackendDefinition\): boolean => \{[\s\S]{0,260}includes\(mode as AccessMode\)/, 'only a declared keyed fetch mode asks for the key');
+  // either operation that needs the key, and the fetch card repeats it inline.
+  assert.match(client, /fetchModeNeedsCredential\(\{ fetchMode: fetchModeOf\(def\), fetchModes: def\.fetch\?\.modes \?\? \[\] \}\)/, 'only a declared keyed fetch mode asks for the key');
   assert.match(client, /needsCredentialControl\(\{ searchMode: searchModeOf\(def\), fetchMode: fetchModeOf\(def\), fetchModes: def\.fetch\?\.modes \?\? \[\] \}\)/, 'the render decision is the tested presenter helper');
   assert.match(client, /\{needsCredential\(def\) && !locked && credentialControl\(def\)\}/, 'the control is not gated on the search mode alone');
-  assert.match(client, /focusPath\(credentialFieldId\(def\.id\)\)/, 'the fetch card focuses the credential input, not a mode field');
-  assert.match(client, /credentialFieldId\(def\.id\)/);
-  assert.equal((client.match(/id=\{`secret-\$\{def\.id\}`\}/g) || []).length, 1, 'there is exactly one key input per provider');
+  assert.match(client, /\{credentialControl\(def, 'fetch'\)\}/, 'the fetch card renders the same control inline');
+  assert.match(client, /credentialFieldId\(def\.id\)/, 'the search card keeps its own input id');
+  assert.match(client, /fetchCredentialFieldId\(def\.id\)/, 'the fetch card input has its own id');
   assert.match(client, /anonymousSearchKeyedFetch/, 'keyless search and keyed fetch are described per mode, not contradicted');
   assert.match(client, /credentialForFetch/, 'the control says when only the fetch mode uses the key');
   assert.match(client, /provider\.modes\.map\(mode => \{[\s\S]{0,400}fetchEvidenceBadge/, 'the collapsed summary names a documented-only mode');
   assert.match(client, /selectedFetchEvidence/, 'the selected provider summary names the evidence of the selected mode');
+});
+
+test('the fetch card repeats the credential control, and both inputs share one store and one write', async () => {
+  const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
+  // The inline control is gated on the saved fetch mode, never on "the search mode is not anonymous".
+  assert.match(client, /\{fetchNeedsKey\(def\) && <div className="ns-credential-shared">/, 'the inline control follows the saved fetch mode');
+  assert.match(client, /const inputId = onFetch \? fetchCredentialFieldId\(def\.id\) : credentialFieldId\(def\.id\);/, 'one component picks the id from where it is rendered');
+  assert.match(client, /<input id=\{inputId\} type="password" autoComplete="new-password" aria-describedby=\{`\$\{inputId\}-why`\} value=\{secrets\[def\.id\] \|\| ''\}/, 'both inputs share the masking semantics and the stored/unset state');
+  assert.match(client, /t\(onFetch \? 'fetchCredentialTitle' : 'credentialTitle'\)/, 'the fetch card has its own title');
+  assert.match(client, /t\(onFetch \? 'fetchCredentialValue' : 'credentialValue'\)/, 'the fetch card has its own label');
+  assert.match(client, /t\(onFetch \? 'fetchCredentialHelp' : 'credentialHelp'\)/, 'the fetch card has its own help');
+  // One write path: the same action and the same backend id, whichever input is used.
+  assert.equal((client.match(/credential\(def\.id, false\)/g) || []).length, 1, 'both inputs share the one save action');
+  assert.equal((client.match(/request\('credential', \{ backendId: id,/g) || []).length, 1, 'the page has one backend-credential write');
+  assert.match(client, /request\('credential', \{ backendId: id,/, 'the one write names the backend, not a second credential');
+  assert.doesNotMatch(client, /backendCredentialRef|credentialRef\b/, 'the page invents no second credential name');
+  // The shared buffer is cleared after a success and after a failure, so neither input keeps the value.
+  assert.equal((client.match(/\[id\]: ''/g) || []).length, 2, 'the shared buffer is cleared on success and on failure');
+  // A missing fetch key is entered in place: the readiness warning focuses the inline input.
+  assert.match(client, /problem\.key === 'fetchProviderCredential' && selectedFetchProvider && <button[\s\S]{0,160}focusPath\(fetchCredentialFieldId\(selectedFetchProvider\.id\)\)/, 'the readiness credential problem links to the inline fetch input');
+  assert.match(client, /disabled=\{!!pending \|\| disabled \|\| !secrets\[def\.id\]\}/, 'a save in progress disables both copies instead of double-submitting');
 });
 
 test('the fetch tab is wired to the shared draft and never to a second store', async () => {

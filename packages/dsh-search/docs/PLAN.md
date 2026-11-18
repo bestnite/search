@@ -10,11 +10,13 @@ The current settings page and save path, as built:
   body spacing. The fetch provider is a fixed select including **none**, never a free-text field. The
   cards themselves stay collapsed and only a click opens one: choosing a provider in the select never
   unfolds a card, and the selected state is shown by the card's badge and the summary line. The chosen
-  provider's fetch operation settings live inside its card. The credential is one stored secret with
-  one input, on the search card, rendered whenever search or fetch needs the key (so keyless search
-  plus keyed fetch is enterable); the fetch card shows configured/not-configured and links straight to
-  that input, so the same key is never entered twice. Search caps do not bound a fetch, and the card says
-  so.
+  provider's fetch operation settings live inside its card. The credential is one stored secret,
+  rendered on the search card whenever search or fetch needs the key (so keyless search plus keyed
+  fetch is enterable). The fetch provider card repeats that same control inline under its own element
+  id whenever its saved fetch mode needs a key (anonymous and browser fetch modes show none), so a
+  keyed fetch is entered without leaving the Page fetch tab; both inputs write the one stored secret
+  through the one credential action, and neither is a second store or a second credential name.
+  Search caps do not bound a fetch, and the card says so.
 - **Browser tab**: owns the shared endpoint, endpoint token, session file, read timeout, per-site read
   cap, and the list of every enabled search/fetch feature that depends on them. Fetch-only context,
   settle and selector options stay on the Page fetch tab. A manual **Check connection** runs the same

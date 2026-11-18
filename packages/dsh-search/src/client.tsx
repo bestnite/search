@@ -12,7 +12,7 @@ import type {
   FetchRouteConfig, SearchConfig,
 } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
-import { browserGateIssues, classifySaveOutcome, credentialFieldId, fieldId, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
+import { browserGateIssues, classifySaveOutcome, credentialFieldId, fetchCredentialFieldId, fieldId, fetchModeNeedsCredential, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
 import type { SaveReadback, SaveResponse } from './presenter';
 import { feedbackAutoDismissMs, feedbackForSave, feedbackTakesFocus } from './feedback';
 import type { SaveFeedback } from './feedback';
@@ -279,10 +279,8 @@ export function createClient(React: any, ReactDOM?: any) {
         /** Whether the provider's search mode reads the stored credential. */
         const searchUsesCredential = (def: BackendDefinition): boolean => searchModeOf(def) !== 'anonymous' && searchModeOf(def) !== 'browser';
         /** Whether its fetch operation is a declared keyed mode; a provider without one is never keyed. */
-        const fetchNeedsKey = (def: BackendDefinition): boolean => {
-          const mode = fetchModeOf(def);
-          return (def.fetch?.modes ?? []).includes(mode as AccessMode) && mode !== 'anonymous';
-        };
+        const fetchNeedsKey = (def: BackendDefinition): boolean =>
+          fetchModeNeedsCredential({ fetchMode: fetchModeOf(def), fetchModes: def.fetch?.modes ?? [] });
         /** Whether a key is needed by either operation; one control serves both. */
         const needsCredential = (def: BackendDefinition): boolean =>
           def.status === 'documented' && needsCredentialControl({ searchMode: searchModeOf(def), fetchMode: fetchModeOf(def), fetchModes: def.fetch?.modes ?? [] });
@@ -578,9 +576,11 @@ export function createClient(React: any, ReactDOM?: any) {
 
         /**
          * One credential control for both operation views. Search and fetch edit the same backend
-         * record and the same secret: switching views never asks for the value twice.
+         * record and the same secret: switching views never asks for the value twice. The fetch
+         * provider card repeats this exact control inline under its own element id and wording, so a
+         * keyed fetch mode can be configured without leaving the Page fetch tab.
          */
-        function credentialControl(def: BackendDefinition) {
+        function credentialControl(def: BackendDefinition, place: 'search' | 'fetch' = 'search') {
           const state = snapshot?.credentials[def.id];
           if (!snapshot) return null;
           const disabledReason = pending ? t('credentialPending') : state && !state.writable ? t('credentialReadOnly') : '';
@@ -590,19 +590,21 @@ export function createClient(React: any, ReactDOM?: any) {
           // or a keyed fetch mode while search stays keyless. The shape hint follows that mode.
           const keyMode = def.modes.find(item => item.mode === 'key');
           const shapeMode = mode && mode.mode !== 'anonymous' ? mode : keyMode;
+          const onFetch = place === 'fetch';
+          const inputId = onFetch ? fetchCredentialFieldId(def.id) : credentialFieldId(def.id);
           return <div className="ns-credential">
-            <h5>{t('credentialTitle')}</h5>
-            <p>{t(state?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p>
-            {!searchUsesCredential(def) && <p>{t('credentialForFetch')}</p>}
+            <h5>{t(onFetch ? 'fetchCredentialTitle' : 'credentialTitle')}</h5>
+            <p>{t(state?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t(onFetch ? 'fetchCredentialHelp' : 'credentialHelp')}</p>
+            {!onFetch && !searchUsesCredential(def) && <p>{t('credentialForFetch')}</p>}
             <p className="ns-credential-shape" aria-label={t('credentialShapeLabel')}><code>{shapeMode?.credentialShape?.[lang] ?? t('credentialPlainKey')}</code></p>
-            <label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label>
-            <input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={!!pending || disabled} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />
-            {disabledReason && <small id={`secret-${def.id}-why`} className="ns-warning">{disabledReason}</small>}
+            <label htmlFor={inputId}>{t(onFetch ? 'fetchCredentialValue' : 'credentialValue')}</label>
+            <input id={inputId} type="password" autoComplete="new-password" aria-describedby={`${inputId}-why`} value={secrets[def.id] || ''} disabled={!!pending || disabled} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />
+            {disabledReason && <small id={`${inputId}-why`} className="ns-warning">{disabledReason}</small>}
             <div className="ns-actions">
               <button disabled={!!pending || disabled || !secrets[def.id]} onClick={() => credential(def.id, false)}>{t('replaceCredential')}</button>
-              <button disabled={!!pending || disabled || !state?.configured} onClick={() => setConfirming({ kind: `delete-credential-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button>
+              <button disabled={!!pending || disabled || !state?.configured} onClick={() => setConfirming({ kind: `delete-credential-${place}-${def.id}`, backendId: def.id })}>{t('deleteCredential')}</button>
             </div>
-            {confirmRow(`delete-credential-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}
+            {confirmRow(`delete-credential-${place}-${def.id}`, 'deleteCredentialConfirm', () => { void credential(def.id, true); })}
           </div>;
         }
 
@@ -699,7 +701,11 @@ export function createClient(React: any, ReactDOM?: any) {
           {tab === 'fetch' && <div role="tabpanel" id="panel-fetch" aria-labelledby="tab-fetch">
             <section className="ns-card" aria-labelledby="sec-fetch-tool"><h3 id="sec-fetch-tool">{t('fetchToolTitle')}</h3><p className="ns-muted">{t('fetchToolHelp')}</p><div className="ns-grid">{fields(['tools.webExtract'], { 'tools.webExtract': { type: 'checkbox' } })}</div></section>
             <section className="ns-card" aria-labelledby="sec-fetch-ready"><h3 id="sec-fetch-ready">{t('fetchReadyTitle')}</h3>
-              {fetchReady ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{fetchProblems.map(problem => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}</li>)}</ul>}
+              {fetchReady ? <p className="ns-success">{t('fetchReady')}</p> : <ul className="ns-fetch-problems">{fetchProblems.map(problem => <li key={problem.key} className="ns-warning">{tr(`problem.${problem.key}`, problem.vars || {})}
+                {/* A missing key is entered in place: the readiness warning points at the fetch card's
+                    own credential input, not at the search card's copy of the same control. */}
+                {problem.key === 'fetchProviderCredential' && selectedFetchProvider && <button type="button" className="ns-link" onClick={() => focusPath(fetchCredentialFieldId(selectedFetchProvider.id))}>{t('fixIt')}</button>}
+              </li>)}</ul>}
               <p className="ns-muted">{t('fetchReadyHelp')}</p>
               {/* Readiness is read before a test is run, so the selected provider's own warning and
                   the cost of its mode belong here rather than only inside the collapsed card. */}
@@ -778,11 +784,11 @@ export function createClient(React: any, ReactDOM?: any) {
                     </div>
                     {def.fetch && def.fetch.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.fetch.options.map(option => field(`backends.${def.id}.fetch.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], min: option.min, max: option.max }))}</div></details>}
                     {/* One credential per provider: a keyed fetch uses the same stored secret as the
-                        provider's search mode, so the fetch tab links to that control instead of
-                        asking for a second copy of the same key. */}
-                    {modeLabel !== 'anonymous' && <div className="ns-credential-shared">
+                        provider's search mode, so the fetch card repeats that one control here under
+                        its own id instead of sending the user to the Search card. */}
+                    {fetchNeedsKey(def) && <div className="ns-credential-shared">
                       <p className="ns-muted">{t('fetchCredentialShared')}</p>
-                      <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(credentialFieldId(def.id))}>{t('openCredential')}</button></div>
+                      {credentialControl(def, 'fetch')}
                     </div>}
                     <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot?.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot?.counters[def.id]?.day ?? t('noData')}</span></p>
                   </div>

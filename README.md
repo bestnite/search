@@ -51,7 +51,8 @@ endpoint and per-mode cost; five of them also fetch keylessly (Exa and Parallel 
 its keyless header, Keenable and AnySearch over their anonymous paths). Only the modes this deployment
 actually exercised anonymously are labelled live; every keyed mode is implemented from the official
 API reference and labelled documented-only, because no paid keyed call was made. A keyed fetch uses the
-provider's one stored search key. Serpex, Linkup and You.com can return the page's own HTML; the rest
+provider's one stored key, which is entered on its provider card in the Page fetch tab (or the same
+control on the Search card). Serpex, Linkup and You.com can return the page's own HTML; the rest
 return Markdown or plain text, so asking them for HTML skips that route without a request. See the [design](docs/PAGE-FETCH-DESIGN.md), [provider evidence](docs/PAGE-FETCH-PROVIDERS.md)
 and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
 

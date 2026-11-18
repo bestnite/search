@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply as productionApply, createPlugin, defaultConfig } from '../src/index.js';
-import { backendIdForPath, browserGateIssues, classifySaveOutcome, credentialFieldId, fieldId, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
+import { backendIdForPath, browserGateIssues, classifySaveOutcome, credentialFieldId, fetchCredentialFieldId, fieldId, fetchModeNeedsCredential, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
 import { catalog, parseConfig, revision } from '@nite07/search-core';
 import type { SearchConfig, VerificationConnect } from '@nite07/search-core';
 
@@ -143,8 +143,37 @@ test('the one credential control appears whenever either operation needs the key
 
 test('the one credential input is addressed by element id, not by a mode field', () => {
   assert.equal(credentialFieldId('exa'), 'secret-exa');
-  assert.deepEqual(focusForPath(credentialFieldId('exa')), { tab: 'backends', target: 'secret-exa' }, 'a keyed fetch mode links to the search card credential input');
+  assert.deepEqual(focusForPath(credentialFieldId('exa')), { tab: 'backends', target: 'secret-exa' }, 'the search card input opens the backend card');
   assert.deepEqual(focusForPath('backends.exa.fetch.mode'), { tab: 'fetch', target: 'backends.exa.fetch.mode' }, 'the fetch mode field keeps its own target');
+});
+
+test('the inline fetch credential has its own id, tab and backend, and never collides with the search one', () => {
+  assert.equal(fetchCredentialFieldId('exa'), 'secret-fetch-exa');
+  assert.notEqual(fetchCredentialFieldId('exa'), credentialFieldId('exa'), 'the two visible inputs have distinct ids');
+  assert.deepEqual(focusForPath(fetchCredentialFieldId('exa')), { tab: 'fetch', target: 'secret-fetch-exa' }, 'an issue targeting the fetch credential lands on the inline input');
+  assert.deepEqual(focusForPath(credentialFieldId('exa')), { tab: 'backends', target: 'secret-exa' }, 'the search input still lands on the search card');
+  assert.equal(backendIdForPath(fetchCredentialFieldId('exa')), 'exa', 'the fetch input still belongs to its backend');
+  assert.equal(backendIdForPath(credentialFieldId('exa')), 'exa', 'the search input keeps its backend id');
+});
+
+test('only a declared keyed fetch mode asks for the inline fetch credential', () => {
+  const fetchModes = ['anonymous', 'key'] as const;
+  assert.equal(fetchModeNeedsCredential({ fetchMode: 'anonymous', fetchModes }), false, 'anonymous fetching reads no credential');
+  assert.equal(fetchModeNeedsCredential({ fetchMode: 'key', fetchModes }), true, 'a declared keyed fetch mode needs the key');
+  assert.equal(fetchModeNeedsCredential({ fetchMode: 'browser', fetchModes: ['anonymous', 'browser'] }), false, 'a browser fetch mode uses the shared browser token');
+  assert.equal(fetchModeNeedsCredential({ fetchMode: 'key', fetchModes: [] }), false, 'an inert fetch record never asks for a key');
+  assert.equal(fetchModeNeedsCredential({ fetchModes }), false, 'an unset fetch mode is the anonymous default');
+
+  // The decision follows the saved mode of a real provider: Exa can fetch keylessly or with a key,
+  // so only the keyed fetch mode renders the inline input.
+  const config = defaultConfig();
+  const exa = catalog.find(item => item.id === 'exa')!;
+  const exaFetchModes = exa.fetch?.modes ?? [];
+  assert.deepEqual([...exaFetchModes], ['anonymous', 'key']);
+  assert.equal(config.backends.exa!.fetch.mode, 'anonymous', 'the default saved fetch mode is keyless');
+  assert.equal(fetchModeNeedsCredential({ fetchMode: config.backends.exa!.fetch.mode, fetchModes: exaFetchModes }), false, 'the saved anonymous fetch mode shows no inline control');
+  config.backends.exa!.fetch.mode = 'key';
+  assert.equal(fetchModeNeedsCredential({ fetchMode: config.backends.exa!.fetch.mode, fetchModes: exaFetchModes }), true, 'the saved keyed fetch mode shows the inline control');
 });
 
 test('the focus resolver walks to the closest mounted control and unfolds its details', () => {
@@ -166,7 +195,10 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   // only thing that may open a card now that selection does not.
   const cardDetails = make('provider-card-details'); const mode = make(fieldId('backends.exa.fetch.mode')); mode.parentElement = cardDetails; mode.details = cardDetails;
   const searchCard = make('search-card-details'); const secret = make(credentialFieldId('exa')); secret.parentElement = searchCard; secret.details = searchCard;
-  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule], [mode.id, mode], [secret.id, secret]]);
+  // The fetch provider card repeats the input under its own id: both are addressable, and each one
+  // unfolds the card that actually contains it.
+  const fetchCard = make('fetch-provider-card'); const fetchSecret = make(fetchCredentialFieldId('exa')); fetchSecret.parentElement = fetchCard; fetchSecret.details = fetchCard;
+  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule], [mode.id, mode], [secret.id, secret], [fetchSecret.id, fetchSecret]]);
   const doc = { getElementById: (id: string) => nodes.get(id) || null };
   const provider = focusRenderedControl(doc, 'pageFetch.providerId');
   assert.equal(provider, providerGroup, 'the provider radio group is addressable');
@@ -179,9 +211,14 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   assert.equal(modeControl, mode, 'a field inside a collapsed provider card is addressable');
   assert.equal(cardDetails.open, true, 'focusing into a collapsed provider card unfolds it');
   const secretControl = focusRenderedControl(doc, credentialFieldId('exa'));
-  assert.equal(secretControl, secret, 'the key input itself is the focus target of the fetch card link');
+  assert.equal(secretControl, secret, 'the key input itself is the focus target of the search card');
   assert.equal(searchCard.open, true, 'the search card holding the input is unfolded');
   assert.equal(secret.focused, true);
+  const fetchSecretControl = focusRenderedControl(doc, fetchCredentialFieldId('exa'));
+  assert.equal(fetchSecretControl, fetchSecret, 'the inline fetch input is addressed by its own id');
+  assert.equal(fetchCard.open, true, 'focusing the inline fetch input unfolds its provider card');
+  assert.equal(fetchSecret.focused, true);
+  assert.equal(fetchSecretControl === secretControl, false, 'the two inputs are distinct elements, never the same one');
   assert.equal(focusRenderedControl(doc, 'pageFetch.routes.9.enabled'), undefined, 'an unmounted target is reported instead of throwing');
 });
 
@@ -526,11 +563,15 @@ test('the settings client keeps all provider cards and a separate select choice'
   assert.match(client, /id=\{fieldId\('pageFetch\.providerId'\)\}/, 'the fetch provider group is a focus target');
   assert.match(client, /ns-provider-summary/, 'the selected provider has a summary');
   assert.doesNotMatch(client, /id="ns-fetch-provider"/, 'the old dropdown editor is gone');
-  // One credential per provider: the input lives on the search card, and the fetch card links to it
-  // instead of asking for a second copy of the same key.
-  assert.equal((client.match(/credentialControl\(def\)/g) || []).length, 1, 'the credential input exists once per provider');
+  // One credential per provider, rendered through one component: the search card always has its
+  // input when either operation needs the key, and the fetch provider card repeats that same control
+  // inline under its own id instead of sending the user to the Search tab.
+  assert.equal((client.match(/function credentialControl\(def: BackendDefinition, place: 'search' \| 'fetch' = 'search'\)/g) || []).length, 1, 'one credential component serves both cards');
+  assert.match(client, /\{needsCredential\(def\) && !locked && credentialControl\(def\)\}/, 'the search card keeps its one input');
+  assert.match(client, /\{credentialControl\(def, 'fetch'\)\}/, 'the fetch card renders the same control inline');
+  assert.match(client, /\{fetchNeedsKey\(def\) && <div className="ns-credential-shared">/, 'the inline control follows the saved fetch mode');
   assert.match(client, /fetchCredentialShared/, 'the fetch card explains the shared credential');
-  assert.match(client, /t\('openCredential'\)/, 'the fetch card links to that one credential control');
+  assert.doesNotMatch(client, /t\('openCredential'\)/, 'the old jump to the Search card is gone');
   assert.match(client, /sec-browser-dependents/);
   assert.match(client, /pageFetch\.browser\.context/, 'fetch-only browser options stay on the fetch tab');
 });

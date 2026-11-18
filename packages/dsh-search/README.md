@@ -39,6 +39,10 @@ backend's row and save; the plugin stores it in the DSH credential store under a
 so a saved config can never redirect a lookup to a different secret. Nothing is stored in the
 configuration file itself.
 
+A keyed fetch mode uses the same stored key, so its provider card on the Page fetch tab repeats that
+credential field inline: enter the key there, or on the Search card — both write the one stored
+secret, and neither requires leaving the tab.
+
 ## Settings layout
 
 The page edits one draft. Switching tabs never saves, never discards an edit, and never moves a value
@@ -54,9 +58,11 @@ between operations.
 | **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
 
 Search and page fetch render the same provider card. A backend's credential is one stored secret bound
-to one record: one input, on the search card, rendered whenever either operation needs the key — so a
-keyed fetch works while search stays keyless — and the fetch card links directly to that input. The
-same key is never typed twice. Search caps never bound a page fetch: the fetch operation keeps its own access
+to one record: the control is rendered on the search card whenever either operation needs the key — so
+a keyed fetch works while search stays keyless — and the fetch provider card repeats the same control
+inline whenever its saved fetch mode needs a key, so a keyed fetch mode is entered right there without
+leaving the tab. Both inputs write that one stored secret under two distinct element ids; the key is
+never stored twice. Search caps never bound a page fetch: the fetch operation keeps its own access
 mode, transport, endpoint, timeout and options, and the card says so — including which access modes
 were observed live and which are implemented from documentation only.
 
