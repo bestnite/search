@@ -2,7 +2,7 @@ import { chmod, open, readFile, readdir, rename, stat, unlink } from 'node:fs/pr
 import { realpathSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   backendCredentialRef,
   browserCredentialRef,
@@ -161,8 +161,8 @@ function parseRaw(text: string): RawFile {
   let body: unknown;
   try {
     body = JSON.parse(text);
-  } catch (error) {
-    throw new SettingsError('The configuration file is not valid JSON.', [{ path: '', message: String(error) }]);
+  } catch {
+    throw new SettingsError('The configuration file is not valid JSON.');
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new SettingsError('The configuration file must hold a JSON object.');
   const record = body as Record<string, unknown>;
@@ -281,10 +281,22 @@ export async function snapshot(path: string, env: NodeJS.ProcessEnv = process.en
   };
 }
 
+// All UI and tool writers share the same read/check/write critical section per absolute path.
+const writes = new Map<string, Promise<unknown>>();
+function serialized<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const key = resolve(path);
+  const previous = writes.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  writes.set(key, next);
+  void next.finally(() => { if (writes.get(key) === next) writes.delete(key); }).catch(() => undefined);
+  return next;
+}
+
 export interface SaveInput {
   config: unknown;
   compactByDefault?: boolean;
   expectedRevision?: string;
+  signal?: AbortSignal;
 }
 
 /**
@@ -292,25 +304,30 @@ export interface SaveInput {
  * lets the page show the issues without having damaged a working configuration.
  */
 export async function saveConfig(path: string, input: SaveInput): Promise<SaveResult> {
-  const issues = validateConfig(input.config);
-  if (issues.length) throw new SettingsError('The configuration did not validate.', issues);
-  const search = parseConfig(input.config);
-  const existing = await readText(path);
-  if (input.expectedRevision !== undefined && input.expectedRevision !== (existing?.revision ?? 'missing')) {
-    throw new SettingsError('The file changed since the page loaded it; reload before saving.', [], 409);
-  }
-  const raw = existing ? parseRaw(existing.text) : { search: {}, credentials: {}, compactByDefault: false, rest: {} };
-  const body = {
-    ...raw.rest,
-    search,
-    credentials: raw.credentials,
-    compactByDefault: input.compactByDefault ?? raw.compactByDefault,
-  };
-  const text = `${JSON.stringify(body, null, 2)}\n`;
-  const saved = existing ? await backup(path, existing.text) : undefined;
-  await writeAtomic(path, text);
-  await writeCompanion(path, body);
-  return { revision: hash(text), ...(saved ? { backup: saved } : {}) };
+  return serialized(path, async () => {
+    input.signal?.throwIfAborted();
+    const issues = validateConfig(input.config);
+    if (issues.length) throw new SettingsError('The configuration did not validate.', issues);
+    const search = parseConfig(input.config);
+    const existing = await readText(path);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== (existing?.revision ?? 'missing')) {
+      throw new SettingsError('The file changed since the page loaded it; reload before saving.', [], 409);
+    }
+    const raw = existing ? parseRaw(existing.text) : { search: {}, credentials: {}, compactByDefault: false, rest: {} };
+    const body = {
+      ...raw.rest,
+      search,
+      credentials: raw.credentials,
+      compactByDefault: input.compactByDefault ?? raw.compactByDefault,
+    };
+    const text = `${JSON.stringify(body, null, 2)}\n`;
+    input.signal?.throwIfAborted();
+    const saved = existing ? await backup(path, existing.text) : undefined;
+    input.signal?.throwIfAborted();
+    await writeAtomic(path, text);
+    await writeCompanion(path, body);
+    return { revision: hash(text), ...(saved ? { backup: saved } : {}) };
+  });
 }
 
 export interface CredentialInput {
@@ -318,32 +335,43 @@ export interface CredentialInput {
   id?: string;
   value?: string;
   remove?: boolean;
+  expectedRevision?: string;
+  signal?: AbortSignal;
 }
 
-export async function saveCredential(path: string, input: CredentialInput): Promise<{ revision: string; state: CredentialState }> {
-  const existing = await readText(path);
-  const raw = existing ? parseRaw(existing.text) : { search: {}, credentials: {}, compactByDefault: false, rest: {} };
-  const credentials = { ...raw.credentials };
-  let key: string;
-  if (input.scope === 'browser') {
-    key = 'browser';
-  } else {
-    const id = String(input.id ?? '');
-    if (!catalog.some(item => item.id === id)) throw new SettingsError(`Unknown backend id: ${id || '(none)'}.`);
-    key = id;
-  }
-  if (input.remove === true) delete credentials[key];
-  else {
-    const value = typeof input.value === 'string' ? input.value.trim() : '';
-    if (!value) throw new SettingsError('A credential cannot be empty.');
-    if (value.length > MAX_CREDENTIAL_LENGTH) throw new SettingsError(`A credential is limited to ${MAX_CREDENTIAL_LENGTH} characters.`);
-    credentials[key] = value;
-  }
-  const body = { ...raw.rest, search: raw.search, credentials, compactByDefault: raw.compactByDefault };
-  const text = `${JSON.stringify(body, null, 2)}\n`;
-  await writeAtomic(path, text);
-  await writeCompanion(path, body);
-  const after = await snapshot(path, {});
-  const state = key === 'browser' ? after.browser : after.credentials.find(item => item.id === key)!;
-  return { revision: hash(text), state };
+export async function saveCredential(path: string, input: CredentialInput): Promise<{ revision: string; state: CredentialState; backup?: string }> {
+  return serialized(path, async () => {
+    input.signal?.throwIfAborted();
+    const existing = await readText(path);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== (existing?.revision ?? 'missing')) {
+      throw new SettingsError('The file changed since the page loaded it; reload before saving.', [], 409);
+    }
+    const raw = existing ? parseRaw(existing.text) : { search: {}, credentials: {}, compactByDefault: false, rest: {} };
+    const credentials = { ...raw.credentials };
+    let key: string;
+    if (input.scope === 'browser') {
+      key = 'browser';
+    } else {
+      const id = String(input.id ?? '');
+      if (!catalog.some(item => item.id === id)) throw new SettingsError(`Unknown backend id: ${id || '(none)'}.`);
+      key = id;
+    }
+    if (input.remove === true) delete credentials[key];
+    else {
+      const value = typeof input.value === 'string' ? input.value.trim() : '';
+      if (!value) throw new SettingsError('A credential cannot be empty.');
+      if (value.length > MAX_CREDENTIAL_LENGTH) throw new SettingsError(`A credential is limited to ${MAX_CREDENTIAL_LENGTH} characters.`);
+      credentials[key] = value;
+    }
+    const body = { ...raw.rest, search: raw.search, credentials, compactByDefault: raw.compactByDefault };
+    const text = `${JSON.stringify(body, null, 2)}\n`;
+    input.signal?.throwIfAborted();
+    const saved = existing ? await backup(path, existing.text) : undefined;
+    input.signal?.throwIfAborted();
+    await writeAtomic(path, text);
+    await writeCompanion(path, body);
+    const after = await snapshot(path);
+    const state = key === 'browser' ? after.browser : after.credentials.find(item => item.id === key)!;
+    return { revision: hash(text), state, ...(saved ? { backup: saved } : {}) };
+  });
 }

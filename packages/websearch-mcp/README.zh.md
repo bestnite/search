@@ -121,12 +121,25 @@ websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 | 工具 | 做什么 |
 | --- | --- |
 | `web_search` | 搜索指定后端。必填 `query`，可选 `backends`、`allBackends`、`exclude`、`compact`、`maxResults`。只指定一个后端就只搜这一家，不指定则搜索所有已启用后端。 |
-| `read_thread` | 读取 Reddit 帖子和评论，或 X 帖子和回复，包括配图。X 需要会话模式。 |
+| `reddit_thread` | 读取 Reddit 帖子、评论和配图。 |
+| `x_thread` | 读取 X 帖子、回复和配图，需要 X 后端处于会话模式。 |
 | `xiaohongshu_note` | 读取笔记正文、作者、互动数据、标签和配图，可选读取评论。需要启用小红书后端的 browser 模式并配置浏览器。 |
 | `list_backends` | 查看后端、接入模式、费用、启用状态和凭证是否就绪。 |
+| `search_manage` | 查看或修改设置与凭证，测试后端或页面抓取。 |
 | `web_extract` | 读取单个网页，返回 Markdown 或 HTML。默认关闭，在「页面抓取」中启用。 |
 
 `compact: true` 不返回摘要，保留链接、标题、日期和来源后端。
+
+原 `read_thread` 已由 `reddit_thread` 和 `x_thread` 替代，已有调用请改用对应平台的工具，不再传入 `source`。
+
+## 让 Agent 管理设置
+
+可以让 Agent 用 `search_manage` 查看设置、调整后端或页面抓取选项、设置或清除凭证，
+也可以测试已保存的后端与抓取配置。工具不会返回凭证值，修改后无需重启 MCP 服务。
+
+Agent 应先读取设置（`action: "settings"`），再提交修改后的完整配置和读取时的 `expectedRevision`
+（`action: "save"`）；修改凭证也需要带上该版本。`test` 和 `fetch-test` 会发出真实请求，可能产生费用。
+修改配置、凭证或运行测试前，都需要你的授权。
 
 ## 页面抓取
 

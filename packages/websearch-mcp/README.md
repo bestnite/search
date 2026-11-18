@@ -138,12 +138,28 @@ to `xiaohongshu_note`.
 | Tool | What it does |
 | --- | --- |
 | `web_search` | Search selected backends with `query`. Optional: `backends`, `allBackends`, `exclude`, `compact`, `maxResults`. One backend id searches only that backend; omitting the selection searches every enabled backend. |
-| `read_thread` | Read a Reddit post and comments or an X post and replies, including pictures. X requires session mode. |
+| `reddit_thread` | Read a Reddit post, comments and pictures. |
+| `x_thread` | Read an X post, replies and pictures. Requires the X backend in session mode. |
 | `xiaohongshu_note` | Read a note's text, author, engagement, tags and pictures, with optional comments. Requires the Xiaohongshu backend in browser mode and a configured browser. |
 | `list_backends` | List available backends, access modes, costs, enabled state and credential readiness. |
+| `search_manage` | Inspect or change settings and credentials, test a backend, or test page fetching. |
 | `web_extract` | Read one page as Markdown or HTML. Disabled by default; enable it in **Page fetch**. |
 
 `compact: true` omits snippets while keeping links, titles, dates and backend provenance.
+
+The former `read_thread` tool has been replaced by `reddit_thread` and `x_thread`; update existing
+calls to use the platform's tool without a `source` argument.
+
+## Agent settings management
+
+Ask the agent to use `search_manage` to view settings, change backends or page-fetch options, and
+set or remove credentials. It can also test a saved backend or page-fetch setup. Credential values
+are never returned. Changes take effect without restarting the MCP server.
+
+The agent should read settings first (`action: "settings"`), then submit the complete edited config
+with its `expectedRevision` (`action: "save"`). Credential changes also require that revision.
+Actions `test` and `fetch-test` run real requests and may incur charges. Configuration changes,
+credential changes and tests require your authorization.
 
 ## Page fetching
 

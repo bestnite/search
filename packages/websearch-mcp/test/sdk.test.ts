@@ -6,6 +6,9 @@ import { createServer } from '../src/sdk.js';
 import { createTools } from '../src/tools.js';
 import type { ServerConfig } from '../src/config.js';
 import { defaultConfig, SearchEngine } from '@nite07/search-core';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const identity = { name: 'websearch-mcp', version: '9.9.9', projectUrl: 'https://git.nite07.com/nite/search' };
 
@@ -49,8 +52,9 @@ async function harness(engine: SearchEngine, config = configWith(['exa'])) {
   const send = async (message: Record<string, unknown>): Promise<Record<string, any>> => {
     await clientSide.send(message as never);
     const deadline = Date.now() + 2000;
-    while (inbox.length === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-    const reply = inbox.shift();
+    while (!inbox.some(reply => reply.id === message.id) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    const index = inbox.findIndex(reply => reply.id === message.id);
+    const reply = index >= 0 ? inbox.splice(index, 1)[0] : undefined;
     assert.ok(reply, 'the server answered');
     return reply as Record<string, any>;
   };
@@ -91,9 +95,12 @@ test('tools/list and tools/call keep the text plus structuredContent framing', a
   try {
     const list = await send({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
     const names = (list.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>).map(tool => tool.name);
-    assert.deepEqual(names, ['web_search', 'read_thread', 'xiaohongshu_note', 'list_backends']);
+    assert.deepEqual(names, ['web_search', 'reddit_thread', 'x_thread', 'xiaohongshu_note', 'list_backends', 'search_manage']);
     const searchTool = (list.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>).find(tool => tool.name === 'web_search');
     assert.equal(searchTool?.annotations?.readOnlyHint, true, 'a read-only tool says so');
+    const management = (list.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }>).find(tool => tool.name === 'search_manage');
+    assert.equal(management?.annotations?.readOnlyHint, false);
+    assert.equal(management?.annotations?.destructiveHint, true);
 
     const called = await send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'web_search', arguments: { query: 'cordis' }, _meta: MODERN_META } });
     assert.notEqual(called.result.isError, true, 'a successful call is not flagged as an error');
@@ -192,6 +199,53 @@ test('a real engine runs only the selected backend and MCP cache hits report no 
   } finally {
     await close();
   }
+});
+
+test('platform tool schemas reject mixed arguments and remove the old combined reader', async () => {
+  const { send, close } = await harness(engineSaying('unused'));
+  try {
+    for (const [name, args] of [
+      ['read_thread', { postId: '1' }],
+      ['x_thread', { postId: '1', sort: 'top' }],
+      ['x_thread', { postId: '1', limit: 201 }],
+      ['reddit_thread', { postId: '1', depth: 0 }],
+      ['reddit_thread', { postId: '1', source: 'reddit' }],
+    ] as const) {
+      const reply = await send({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name, arguments: args, _meta: MODERN_META } });
+      assert.ok(reply.error || reply.result?.isError, `${name} rejects an invalid call`);
+    }
+  } finally { await close(); }
+});
+
+test('search_manage saves through MCP and immediately updates enabled backends and gated tools', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mcp-management-sdk-'));
+  const config = configWith(['exa']);
+  config.configPath = join(directory, 'config.json');
+  await writeFile(config.configPath, JSON.stringify({ search: config.search, credentials: { exa: 'private-test-key' } }));
+  const { send, close } = await harness(engineSaying('unused'), config);
+  try {
+    const call = (id: number, args: Record<string, unknown>) => send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'search_manage', arguments: args, _meta: MODERN_META } });
+    const settings = await call(30, { action: 'settings' });
+    assert.notEqual(settings.result?.isError, true);
+    const snapshot = settings.result.structuredContent;
+    assert.ok(!JSON.stringify(settings).includes('private-test-key'));
+    snapshot.config.backends.exa.enabled = false;
+    snapshot.config.backends.reddit.enabled = true;
+    snapshot.config.tools.webExtract = true;
+    const saved = await call(31, { action: 'save', config: snapshot.config, expectedRevision: snapshot.revision });
+    assert.notEqual(saved.result?.isError, true, JSON.stringify(saved));
+    const list = await send({ jsonrpc: '2.0', id: 32, method: 'tools/list', params: { _meta: MODERN_META } });
+    assert.ok(list.result.tools.some((tool: { name: string }) => tool.name === 'web_extract'));
+    const backends = await send({ jsonrpc: '2.0', id: 33, method: 'tools/call', params: { name: 'list_backends', arguments: {}, _meta: MODERN_META } });
+    assert.deepEqual(backends.result.structuredContent.enabled, ['reddit']);
+    const before = await readFile(config.configPath, 'utf8');
+    const stale = await call(34, { action: 'save', config: snapshot.config, expectedRevision: snapshot.revision });
+    assert.equal(stale.result.isError, true);
+    assert.equal(await readFile(config.configPath, 'utf8'), before);
+    const malformed = await call(35, { action: 'credential', scope: 'backend', backendId: 'exa', value: 'never-echo-this' });
+    assert.equal(malformed.result.isError, true);
+    assert.ok(!JSON.stringify(malformed).includes('never-echo-this'));
+  } finally { await close(); }
 });
 
 test('a tool that throws reports isError with its message', async () => {

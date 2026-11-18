@@ -141,22 +141,22 @@ test('list_backends reports defaults without enabling anything', async () => {
   assert.ok(value.backends.every(row => 'credentialPresent' in row && 'modes' in row));
 });
 
-test('read_thread validates its input before touching a backend', async () => {
+test('reddit_thread validates its input before touching a backend', async () => {
   const tools = createTools(configWith(['reddit']), identity);
-  await assert.rejects(tools.find(tool => tool.name === 'read_thread')!.call({}, new AbortController().signal), /post URL or a post id/);
-  await assert.rejects(tools.find(tool => tool.name === 'read_thread')!.call({ url: 'x', source: 'linkedin' }, new AbortController().signal), /Unknown source/);
+  await assert.rejects(tools.find(tool => tool.name === 'reddit_thread')!.call({}, new AbortController().signal), /post URL or a post id/);
+  await assert.rejects(tools.find(tool => tool.name === 'reddit_thread')!.call({ url: 'x', source: 'linkedin' }, new AbortController().signal), /Unknown thread argument/);
 });
 
 test('reading an X thread needs session mode and both cookies', async () => {
   const anonymous = configWith(['x']);
   anonymous.search.backends.x!.mode = 'anonymous';
   const tools = createTools(anonymous, identity);
-  await assert.rejects(tools.find(tool => tool.name === 'read_thread')!.call({ url: 'https://x.com/a/status/1', source: 'x' }, new AbortController().signal), /anonymous/);
+  await assert.rejects(tools.find(tool => tool.name === 'x_thread')!.call({ url: 'https://x.com/a/status/1' }, new AbortController().signal), /anonymous/);
 
   const session = configWith(['x']);
   session.search.backends.x!.mode = 'session';
   const noCredential = createTools(session, identity);
-  await assert.rejects(noCredential.find(tool => tool.name === 'read_thread')!.call({ url: 'https://x.com/a/status/1', source: 'x' }, new AbortController().signal), /authToken/);
+  await assert.rejects(noCredential.find(tool => tool.name === 'x_thread')!.call({ url: 'https://x.com/a/status/1' }, new AbortController().signal), /authToken/);
 });
 
 test('an X thread is rendered with its replies and depth', async () => {
@@ -179,7 +179,7 @@ test('an X thread is rendered with its replies and depth', async () => {
     }) as unknown as typeof import('@nite07/search-core').fetchXThread,
   };
   const tools = createTools(config, identity, undefined, readers);
-  const value = await tools.find(tool => tool.name === 'read_thread')!.call({ url: 'https://x.com/root/status/999', source: 'x', limit: 5, depth: 2 }, new AbortController().signal) as { text: string };
+  const value = await tools.find(tool => tool.name === 'x_thread')!.call({ url: 'https://x.com/root/status/999', limit: 5, depth: 2 }, new AbortController().signal) as { text: string };
   assert.equal(seen.length, 1);
   assert.equal(seen[0]!.limit, 5);
   assert.match(value.text, /the post body/);
@@ -195,9 +195,36 @@ test('tool schemas stay honest about their bounds', () => {
   assert.equal(search.properties.mode, undefined, 'the backends array is the strategy, so there is no mode argument');
   assert.equal(search.properties.backend, undefined, 'one backend is backends:["id"], not its own argument');
   assert.match(String(search.properties.backends!.description), /several run in parallel/);
-  const thread = tools.find(tool => tool.name === 'read_thread')!.inputSchema as { properties: Record<string, { maximum?: number }> };
+  const thread = tools.find(tool => tool.name === 'reddit_thread')!.inputSchema as { properties: Record<string, { maximum?: number }> };
   assert.equal(thread.properties.depth!.maximum, 8);
   assert.equal(thread.properties.limit!.maximum, 500);
+  const x = tools.find(tool => tool.name === 'x_thread')!.inputSchema as { properties: Record<string, { minimum?: number; maximum?: number }> };
+  assert.equal(x.properties.limit!.maximum, 200);
+  assert.equal(x.properties.depth!.minimum, 0);
+  assert.equal(x.properties.sort, undefined);
+  assert.equal(x.properties.source, undefined);
+  assert.equal(thread.properties.source, undefined);
+  assert.equal(tools.some(tool => tool.name === 'read_thread'), false);
+});
+
+test('platform readers reject wrong options, bounds, disabled backends and non-session X modes before requests', async () => {
+  const config = configWith(['reddit', 'x']);
+  let calls = 0;
+  const readers = { reddit: (async () => { calls++; }) as never, x: (async () => { calls++; }) as never };
+  const tools = createTools(config, identity, undefined, readers);
+  const reddit = tools.find(tool => tool.name === 'reddit_thread')!;
+  const x = tools.find(tool => tool.name === 'x_thread')!;
+  const signal = new AbortController().signal;
+  for (const args of [{ postId: '1', depth: 0 }, { postId: '1', limit: 501 }, { postId: '1', sort: 'bad' }, { postId: '1', source: 'x' }]) await assert.rejects(reddit.call(args, signal));
+  for (const args of [{ postId: '1', depth: -1 }, { postId: '1', limit: 201 }, { postId: '1', sort: 'top' }, { postId: '1', source: 'x' }]) await assert.rejects(x.call(args, signal));
+  config.search.backends.reddit!.enabled = false;
+  await assert.rejects(reddit.call({ postId: '1' }, signal), /disabled/);
+  config.search.backends.x!.enabled = false;
+  await assert.rejects(x.call({ postId: '1' }, signal), /disabled/);
+  config.search.backends.x!.enabled = true;
+  config.search.backends.x!.mode = 'key';
+  await assert.rejects(x.call({ postId: '1' }, signal), /session mode/);
+  assert.equal(calls, 0);
 });
 
 
@@ -213,9 +240,11 @@ test('Reddit and X readers use the same fixed-name environment-first credentials
   x:(async (_input:unknown,options:Record<string,unknown>)=>{seen.push(options);return {post:{text:'test',url:'https://x.com/a/status/1'},replies:[],truncated:false};}) as unknown as typeof import('@nite07/search-core').fetchXThread,
  };
  try{
-  const tool=createTools(config,identity,undefined,readers).find(tool=>tool.name==='read_thread')!;
-  await tool.call({source:'reddit',postId:'1'},new AbortController().signal);await tool.call({source:'x',postId:'1'},new AbortController().signal);
-  assert.deepEqual(seen[0]!.credentials,{clientId:'env-id',clientSecret:'env-secret'});assert.deepEqual(seen[1]!.credentials,{authToken:'env-auth',ct0:'env-csrf'});
+   config.search.backends.x!.mode='session';
+   const tools=createTools(config,identity,undefined,readers);
+   await tools.find(tool=>tool.name==='reddit_thread')!.call({postId:'1'},new AbortController().signal);
+   await tools.find(tool=>tool.name==='x_thread')!.call({postId:'1'},new AbortController().signal);
+   assert.deepEqual(seen[0]!.credentials,{clientId:'env-id',clientSecret:'env-secret'});assert.deepEqual(seen[1]!.credentials,{authToken:'env-auth',ct0:'env-csrf'});
  }finally{if(oldX===undefined)delete process.env.DSH_SEARCH_X_KEY;else process.env.DSH_SEARCH_X_KEY=oldX;if(oldReddit===undefined)delete process.env.DSH_SEARCH_REDDIT_KEY;else process.env.DSH_SEARCH_REDDIT_KEY=oldReddit;}
 });
 
@@ -296,7 +325,7 @@ test('xiaohongshu_note names the missing prerequisite instead of returning an em
 
 test('the tool list names every capability the server offers, with the gated one carried but off', () => {
   const tools = createTools(configWith(['exa']), identity, stubEngine().engine);
-  assert.deepEqual(tools.map(item => item.name), ['web_search', 'read_thread', 'xiaohongshu_note', 'web_extract', 'list_backends']);
+  assert.deepEqual(tools.map(item => item.name), ['web_search', 'reddit_thread', 'x_thread', 'xiaohongshu_note', 'web_extract', 'list_backends', 'search_manage']);
   const gated = tools.find(item => item.name === 'web_extract')!;
   assert.equal(gated.exposed?.(), false, 'the default configuration does not advertise it');
 });
