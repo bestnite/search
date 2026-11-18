@@ -3,7 +3,6 @@
 English | [中文](README.zh.md)
 
 [![npm](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
-[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
 
 An MCP server for multi-backend web search, plus discussion reading for Reddit and X and note reading
 for Xiaohongshu. Works with any

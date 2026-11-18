@@ -5,7 +5,7 @@
 [![dsh-search](https://img.shields.io/npm/v/@nite07/dsh-search?label=dsh-search&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
 [![websearch-mcp](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=websearch-mcp&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
 [![search-core](https://img.shields.io/npm/v/@nite07/search-core?label=search-core&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
-[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](packages/core/LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
 [![browser image](https://img.shields.io/docker/v/nite07/search-browser?label=browser%20image&style=flat-square&color=2496ed)](packages/core/image/README.md)
 

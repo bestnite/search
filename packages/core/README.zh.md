@@ -3,7 +3,6 @@
 [English](README.md) | 中文
 
 [![npm](https://img.shields.io/npm/v/@nite07/search-core?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
-[![license](https://img.shields.io/badge/license-MIT-3da639?style=flat-square)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
 
 一个不绑定宿主的 TypeScript 多后端网页搜索引擎。后端目录、各家的适配层、HTTP 传输和一个 `SearchEngine` 都在这里，不依赖任何宿主框架——[DeepSeek Harness 插件](../dsh-search/README.zh.md) 和 [MCP 服务](../websearch-mcp/README.zh.md) 都只是它的外壳。
