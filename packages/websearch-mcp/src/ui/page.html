@@ -176,6 +176,7 @@ const I18N = {
     docs: '文档', pricing: '定价', expand: '展开', collapse: '收起',
     issues: '配置未通过校验', noChange: '—',
     foot: (host, port) => `监听 ${host}:${port} · 保存后正在运行的 MCP 进程会在约 150ms 内重读配置`,
+    companionOn: '容器副本同步至',
     cleared: '凭证已清除', credSaved: '凭证已保存', missingCred: '缺凭证',
     credBrowserNote: '读取走共享浏览器：端点与令牌在「共享浏览器」一节填写。',
     credAnonymousNote: '当前模式不需要凭证；切换到 key / oauth / session 模式后这里会出现凭证输入框。',
@@ -213,6 +214,7 @@ const I18N = {
     docs: 'Docs', pricing: 'Pricing', expand: 'Expand', collapse: 'Collapse',
     issues: 'The configuration did not validate', noChange: '—',
     foot: (host, port) => `Listening on ${host}:${port} · a running MCP process re-reads the file within about 150ms`,
+    companionOn: 'container copy kept in sync at',
     cleared: 'Credential cleared', credSaved: 'Credential saved', missingCred: 'missing credential',
     credBrowserNote: 'Reads go through the shared browser: set its endpoint and token under Shared browser.',
     credAnonymousNote: 'This mode needs no credential; a key, oauth or session mode adds the field here.',
@@ -606,7 +608,10 @@ function render() {
   document.getElementById('lang').textContent = state.lang === 'zh' ? 'EN' : '中文';
   document.getElementById('reload').textContent = t('reload');
   document.getElementById('save').textContent = t('save');
-  document.getElementById('foot').textContent = t('foot', state.snap.bound?.host ?? '', state.snap.bound?.port ?? '');
+  const companion = state.snap.companion?.active
+    ? ` · ${t('companionOn')} ${state.snap.companion.path}`
+    : '';
+  document.getElementById('foot').textContent = `${t('foot', state.snap.bound?.host ?? '', state.snap.bound?.port ?? '')}${companion}`;
   document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
   renderBanner();
   const app = document.getElementById('app');

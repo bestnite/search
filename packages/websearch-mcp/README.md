@@ -61,6 +61,9 @@ websearch-mcp --rotate-token                          # invalidate every link is
 - A running stdio server re-reads the file when it changes, so a save reaches the next `web_search`
   without restarting the client. A file that stops parsing keeps the previous configuration and says
   so on stderr.
+- When a `config.container.json` sits beside the file, every save rewrites it too: loopback endpoints
+  become `host.containers.internal`, and the browser session file is mapped into `/host/home`. That is
+  the copy an MCP client running in a container reads. The companion is never created on its own.
 
 A resident page is a user service, not a container:
 

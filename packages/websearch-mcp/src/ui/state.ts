@@ -1,5 +1,7 @@
 import { chmod, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
+import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import {
   backendCredentialRef,
@@ -29,6 +31,8 @@ export interface SettingsSnapshot {
   credentials: CredentialState[];
   browser: CredentialState;
   compactByDefault: boolean;
+  /** The container copy a save also refreshes, when one exists beside the file. */
+  companion: { path: string; active: boolean };
   /** Set when the file on disk does not validate; the page then opens on defaults so it can be repaired. */
   loadError?: string;
 }
@@ -46,6 +50,8 @@ export class SettingsError extends Error {
 }
 
 export const MAX_CREDENTIAL_LENGTH = 16384;
+/** Inside a container, loopback is the container itself, so a companion file names the host instead. */
+export const CONTAINER_HOST = 'host.containers.internal';
 const BACKUP_LIMIT = 5;
 
 interface RawFile {
@@ -57,6 +63,65 @@ interface RawFile {
 }
 
 const hash = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+/** The same settings for a client that runs in a container: loopback there means the container. */
+export const companionPath = (path: string): string => `${path.replace(/\.json$/i, '')}.container.json`;
+
+function rewriteEndpoint(endpoint: string): string {
+  if (!endpoint) return endpoint;
+  try {
+    const url = new URL(endpoint);
+    const loopback = ['127.0.0.1', 'localhost', '[::1]', '::1'];
+    if (!loopback.includes(url.hostname)) return endpoint;
+    url.hostname = CONTAINER_HOST;
+    return url.toString();
+  } catch {
+    return endpoint;
+  }
+}
+
+/** The session file is read by path, and inside the container the home directory is a read-only mount. */
+const CONTAINER_HOME = '/host/home';
+const CORE_BROWSER_STATE = join('.config', 'dsh-search', 'browser', 'state.json');
+
+function containerStatePath(value: string, home: string): string {
+  const written = value || join(home, CORE_BROWSER_STATE);
+  let resolved = written;
+  try {
+    // The path is usually a symlink into the browser container's data volume; the container mount
+    // sees the real directory, not the symlink, so the resolved path is what has to be mapped.
+    resolved = realpathSync(written);
+  } catch {
+    // Not there yet: map what was written.
+  }
+  return resolved.startsWith(`${home}/`) ? `${CONTAINER_HOME}/${resolved.slice(home.length + 1)}` : resolved;
+}
+
+export function containerVariant(search: SearchConfig, home: string = homedir()): SearchConfig {
+  const copy = structuredClone(search);
+  copy.browser = {
+    ...copy.browser,
+    endpoint: rewriteEndpoint(copy.browser.endpoint),
+    statePath: containerStatePath(copy.browser.statePath, home),
+  };
+  for (const backend of Object.values(copy.backends)) {
+    backend.endpoint = rewriteEndpoint(backend.endpoint);
+  }
+  return copy;
+}
+
+/**
+ * A companion file is written only when it already exists: creating one for every install would put a
+ * second copy of the credentials somewhere the operator never asked for.
+ */
+async function writeCompanion(path: string, body: Record<string, unknown>): Promise<string | undefined> {
+  const target = companionPath(path);
+  const present = await readText(target);
+  if (!present) return undefined;
+  const variant = { ...body, search: containerVariant(body.search as SearchConfig) };
+  await writeAtomic(target, `${JSON.stringify(variant, null, 2)}\n`);
+  return target;
+}
 
 async function readText(path: string): Promise<{ text: string; revision: string } | undefined> {
   try {
@@ -162,6 +227,7 @@ export async function snapshot(path: string, env: NodeJS.ProcessEnv = process.en
     credentials: catalog.map(item => credentialState(item.id, backendCredentialRef(item.id), config.backends[item.id]?.mode ?? null, stored, env)),
     browser: credentialState('browser', browserCredentialRef(), null, stored, env),
     compactByDefault: raw?.compactByDefault ?? false,
+    companion: { path: companionPath(path), active: Boolean(await readText(companionPath(path))) },
     ...(loadError ? { loadError } : {}),
   };
 }
@@ -194,6 +260,7 @@ export async function saveConfig(path: string, input: SaveInput): Promise<SaveRe
   const text = `${JSON.stringify(body, null, 2)}\n`;
   const saved = existing ? await backup(path, existing.text) : undefined;
   await writeAtomic(path, text);
+  await writeCompanion(path, body);
   return { revision: hash(text), ...(saved ? { backup: saved } : {}) };
 }
 
@@ -226,6 +293,7 @@ export async function saveCredential(path: string, input: CredentialInput): Prom
   const body = { ...raw.rest, search: raw.search, credentials, compactByDefault: raw.compactByDefault };
   const text = `${JSON.stringify(body, null, 2)}\n`;
   await writeAtomic(path, text);
+  await writeCompanion(path, body);
   const after = await snapshot(path, {});
   const state = key === 'browser' ? after.browser : after.credentials.find(item => item.id === key)!;
   return { revision: hash(text), state };

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '@nite07/search-core';
-import { SettingsError, saveConfig, saveCredential, snapshot } from '../src/ui/state.js';
+import { SettingsError, companionPath, containerVariant, saveConfig, saveCredential, snapshot } from '../src/ui/state.js';
 
 async function workspace(body?: unknown): Promise<{ path: string; text: string }> {
   const directory = await mkdtemp(join(tmpdir(), 'wsm-ui-'));
@@ -102,4 +102,53 @@ test('an unparseable file still opens the page on defaults', async () => {
   const current = await snapshot(path);
   assert.ok(current.loadError);
   assert.equal(current.config.mode, defaultConfig().mode);
+});
+
+test('a container copy rewrites loopback endpoints and keeps everything else', () => {
+  const search = defaultConfig();
+  search.browser.endpoint = 'ws://127.0.0.1:3030/ws';
+  search.backends.searxng!.enabled = true;
+  search.backends.searxng!.endpoint = 'http://127.0.0.1:8385/search';
+  search.backends.exa!.endpoint = 'https://mcp.exa.ai/mcp';
+  const copy = containerVariant(search);
+  assert.equal(copy.browser.endpoint, 'ws://host.containers.internal:3030/ws');
+  assert.equal(copy.backends.searxng!.endpoint, 'http://host.containers.internal:8385/search');
+  assert.equal(copy.backends.exa!.endpoint, 'https://mcp.exa.ai/mcp', 'a public endpoint is untouched');
+  assert.equal(search.browser.endpoint, 'ws://127.0.0.1:3030/ws', 'the source object is not mutated');
+});
+
+test('the browser session file is mapped into the container home mount', () => {
+  const home = '/home/tester';
+  const empty = defaultConfig();
+  assert.equal(containerVariant(empty, home).browser.statePath, '/host/home/.config/dsh-search/browser/state.json');
+
+  const explicit = defaultConfig();
+  explicit.browser.statePath = `${home}/pod/search-browser/data/state.json`;
+  assert.equal(containerVariant(explicit, home).browser.statePath, '/host/home/pod/search-browser/data/state.json');
+
+  const outside = defaultConfig();
+  outside.browser.statePath = '/var/lib/search/state.json';
+  assert.equal(containerVariant(outside, home).browser.statePath, '/var/lib/search/state.json', 'a path outside home is left alone');
+});
+
+test('an existing companion is refreshed on save, and no companion is invented', async () => {
+  const { path } = await workspace({ search: defaultConfig(), credentials: { exa: 'k' } });
+  const companion = companionPath(path);
+  const next = defaultConfig();
+  next.browser.endpoint = 'ws://127.0.0.1:3030/ws';
+  await saveConfig(path, { config: next });
+  await assert.rejects(readFile(companion, 'utf8'), /ENOENT/, 'without a companion nothing is created');
+
+  await writeFile(companion, '{"search":{},"credentials":{},"compactByDefault":false}\n');
+  await saveConfig(path, { config: next, compactByDefault: true });
+  const written = JSON.parse(await readFile(companion, 'utf8')) as { search: { browser: { endpoint: string } }; credentials: Record<string, string> };
+  assert.equal(written.search.browser.endpoint, 'ws://host.containers.internal:3030/ws');
+  assert.deepEqual(written.credentials, { exa: 'k' }, 'the companion carries the same credentials');
+  assert.equal((await stat(companion)).mode & 0o777, 0o600);
+
+  const current = await snapshot(path);
+  assert.equal(current.companion.active, true);
+  await saveCredential(path, { scope: 'backend', id: 'x', value: 'token' });
+  const afterCredential = JSON.parse(await readFile(companion, 'utf8')) as { credentials: Record<string, string> };
+  assert.equal(afterCredential.credentials.x, 'token', 'a credential change reaches the companion too');
 });

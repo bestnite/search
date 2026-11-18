@@ -49,6 +49,9 @@ websearch-mcp --rotate-token                          # 作废之前发出的所
   `config.json.bak-<本地时间>`（保留 5 份），再原子替换文件并设为 0600。
 - 正在跑的 stdio 服务监听到文件变化就重读，所以保存后下一次 `web_search` 就用新配置，不用重启
   客户端。文件如果解析不了，保留上一份可用配置，并在 stderr 说明原因。
+- 配置旁边如果有 `config.container.json`，每次保存会连它一起重写：loopback 端点换成
+  `host.containers.internal`，浏览器登录态文件映射到 `/host/home`。跑在容器里的 MCP 客户端读的就是这份。
+  没有这个文件就不会凭空创建。
 
 常驻页面用用户级服务即可，不必上容器：
 
