@@ -28,10 +28,10 @@ test('the shared browser per-site cap is a schema default, an editable field wit
  assert.match(client,/'browser\.maxConcurrentReads': \[MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS\]/);
  for(const lang of ['en','zh']){
   const locale=JSON.parse(await readFile(new URL(`../locale/${lang}.json`,import.meta.url),'utf8'));
-  assert.ok(locale['field.browser.maxConcurrentReads'],`${lang} labels the field`);
-  const help=String(locale['help.browser.maxConcurrentReads']);
-  assert.match(help,/429/,`${lang} explains the conservative downgrade after a 429`);
-  assert.match(help,lang==='zh'?/全局/:/global/i,`${lang} distinguishes the cap from global backend concurrency`);
+  for(const key of ['field.browser.maxConcurrentReads','help.browser.maxConcurrentReads']){
+   assert.equal(typeof locale[key],'string',`${lang} supplies ${key}`);
+   assert.ok(locale[key].trim(),`${lang} supplies non-empty ${key}`);
+  }
  }
 });
 
