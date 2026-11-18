@@ -13,7 +13,7 @@ import {
   isChallengeFrameUrl,
   type ChallengeDetection,
 } from './challenge.js';
-import { CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS } from './limits.js';
+import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS } from './limits.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { parseHtmlDocument } from './html.js';
 import { utf8ByteLength } from './bytes.js';
@@ -172,7 +172,7 @@ interface Judged {
 }
 
 /** How one automatic challenge attempt ended. Only `cleared` earns a retried navigation. */
-type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout' };
+type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout'; clicks: number };
 
 /**
  * The widget shapes a challenge frame renders, tried in order.
@@ -420,15 +420,24 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * Identify a challenge from the live document without serializing it: the needle scan runs
        * inside the page, so polling costs one small round trip instead of the whole DOM.
        */
-      const liveChallenge = async (): Promise<ChallengeDetection> => {
-        const answer = await untilAborted(activePage.evaluate((options: { needles: readonly string[]; scan: number }) => {
-          const root = document.documentElement;
-          const html = (root ? root.outerHTML : '').slice(0, options.scan).toLowerCase();
-          return { title: document.title, htmlMatches: options.needles.filter(needle => html.includes(needle)) };
-        }, { needles: CHALLENGE_HTML_MARKERS, scan: CHALLENGE_SCAN_CHARS }));
+      const liveChallenge = async (): Promise<ChallengeDetection | 'unknown'> => {
+        // A challenge page reloads itself; the probe can land exactly in that gap and lose its context.
+        // That is "still challenging", never a fetch failure, so it is read as one here.
+        let answer: { title: string; htmlMatches: string[] } | undefined;
+        try {
+          answer = await untilAborted(activePage.evaluate((options: { needles: readonly string[]; scan: number }) => {
+            const root = document.documentElement;
+            const html = (root ? root.outerHTML : '').slice(0, options.scan).toLowerCase();
+            return { title: document.title, htmlMatches: options.needles.filter(needle => html.includes(needle)) };
+          }, { needles: CHALLENGE_HTML_MARKERS, scan: CHALLENGE_SCAN_CHARS }));
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          // Unknown is not cleared: a page that replaced its document mid-probe must keep the loop
+          // going, or a reload would be mistaken for a solved challenge.
+          return 'unknown';
+        }
         return detectCloudflareChallenge({
-          title: answer.title,
-          htmlMatches: answer.htmlMatches,
+          ...(answer ? { title: answer.title, htmlMatches: answer.htmlMatches } : {}),
           frameUrls: frameUrlsOf(activePage),
           ...(statusCode === undefined ? {} : { statusCode }),
         });
@@ -458,6 +467,21 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * from the main document — a click that "worked" but left the interstitial in place is a
        * failure, never a success.
        */
+      /** Whether the challenge widget has a size the pointer can land on, in page coordinates. */
+      const widgetIsLaidOut = async (page: Page, frame: Frame, timeoutMs: number): Promise<boolean> => {
+        const deadlineAt = Date.now() + timeoutMs;
+        for (;;) {
+          try {
+            const box = await untilAborted(frame.locator('body').first().boundingBox());
+            if (box && box.width >= 60 && box.height >= 20) return true;
+          } catch (error) {
+            if (request.signal.aborted) throw error;
+          }
+          if (Date.now() >= deadlineAt) return false;
+          await abortableWait(Math.min(250, Math.max(0, deadlineAt - Date.now())), request.signal);
+        }
+      };
+
       const solveChallenge = async (): Promise<SolveOutcome> => {
         // The window is clipped by the route timeout, and the route signal already carries the
         // caller, the route timeout and the overall deadline, so every wait here is both bounded and
@@ -465,19 +489,33 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         const windowMs = Math.max(CHALLENGE_POLL_INTERVAL_MS, Math.min(CHALLENGE_SOLVE_WINDOW_MS, request.routeTimeoutMs));
         const deadline = Date.now() + windowMs;
         let frameSeen = false;
-        let clicked = false;
+        let clicks = 0;
+        let nextClickAt = 0;
         while (Date.now() < deadline) {
           const frame = challengeFrame(activePage);
           if (frame) {
             frameSeen = true;
-            // A failed click is retried on the next pass: the widget may still have been attaching.
-            if (!clicked) clicked = await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())));
+            // The widget is in the document before it is laid out: at load it measures 0x0 and a click
+            // there lands on the page behind it, which looks like nothing happened. Only click a
+            // widget the browser has actually sized, and keep clicking while the challenge stands —
+            // a single early click used to be the whole attempt.
+            const ready = await widgetIsLaidOut(activePage, frame, Math.min(2_000, Math.max(500, deadline - Date.now())));
+            if (ready && clicks < CHALLENGE_MAX_CLICKS && Date.now() >= nextClickAt) {
+              if (await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())))) {
+                clicks += 1;
+                nextClickAt = Date.now() + CHALLENGE_CLICK_INTERVAL_MS;
+              }
+            }
           }
-          if (clicked && !(await liveChallenge()).challenge) return { status: 'cleared' };
+          if (clicks > 0) {
+            const live = await liveChallenge();
+            if (live !== 'unknown' && !live.challenge) return { status: 'cleared', clicks };
+          }
           await abortableWait(Math.max(0, Math.min(CHALLENGE_POLL_INTERVAL_MS, deadline - Date.now())), request.signal);
         }
-        if (!frameSeen) return { status: 'frame-missing' };
-        return clicked ? { status: 'timeout' } : { status: 'click-failed' };
+        if (!frameSeen) return { status: 'frame-missing', clicks };
+        if (clicks === 0) return { status: 'click-failed', clicks };
+        return { status: 'timeout', clicks };
       };
 
       // An anti-bot answer often returns a bare shell and then hydrates the real document from the
@@ -527,9 +565,9 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
           if (solved.status === 'frame-missing') {
             notes.push('No frame pointed at challenges.cloudflare.com, so the automatic challenge attempt sent no click; the challenge was not cleared.');
           } else if (solved.status === 'click-failed') {
-            notes.push('The challenge widget could not be clicked, so the automatic attempt did not clear the challenge.');
+            notes.push('The challenge widget never became clickable, so the automatic attempt sent no click; the challenge was not cleared.');
           } else if (solved.status === 'timeout') {
-            notes.push('The automatic Cloudflare challenge attempt clicked the widget, but the challenge was still present when the solve window ended; it was not cleared.');
+            notes.push(`The automatic Cloudflare challenge attempt pressed the widget ${solved.clicks} time${solved.clicks === 1 ? '' : 's'}, but the challenge was still present when the solve window ended; it was not cleared.`);
           } else if (await navigateAgain()) {
             judged = await judge();
             if (typeof judged.capture.tooLarge === 'number') return limitResult();

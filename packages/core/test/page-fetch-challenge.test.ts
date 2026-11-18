@@ -42,6 +42,8 @@ interface Scenario {
   afterClick?: FakeDocument;
   /** Refuse the click, so no candidate widget can be pressed. */
   refuseClick?: boolean;
+  /** Keep the widget at 0x0 for this many geometry reads, the way an un-laid-out widget looks. */
+  layoutAfterReads?: number;
 }
 
 interface PageState {
@@ -112,11 +114,19 @@ function browserFixture(scenario: Scenario): Fixture {
   };
 
   // The frame is only ever reached through the driver; the widget records which selector was tried.
+  // A widget is in the document before it is laid out: the fixture can hold it at 0x0 for a while, the
+  // way a real challenge page does before its stylesheet sizes the frame.
+  let layoutReads = 0;
   const frameFor = (selector: string) => ({
     count: widget.count,
     click: async (): Promise<void> => {
       page.clickedSelectors.push(selector);
       await widget.click();
+    },
+    boundingBox: async (): Promise<{ x: number; y: number; width: number; height: number }> => {
+      layoutReads += 1;
+      const unlaid = scenario.layoutAfterReads !== undefined && layoutReads <= scenario.layoutAfterReads;
+      return unlaid ? { x: 192, y: 304, width: 0, height: 0 } : { x: 192, y: 304, width: 300, height: 65 };
     },
   });
   const frames = () => (challengeShowing()
@@ -368,4 +378,17 @@ test('a configuration with only the HTTP route never touches the browser route',
   assert.equal(result.contentRoute, 'http');
   assert.equal(result.statusCode, 200);
   assert.ok(result.notes.every(note => !/Cloudflare challenge/.test(note)), 'no challenge note on an HTTP-only run');
+});
+
+test('a widget that is in the document but not laid out yet is clicked once it has a size', async () => {
+  // The first two geometry reads see the real 0x0 frame a challenge page starts with. Clicking there
+  // lands on the page behind the widget, which is what a real attempt did before this was fixed.
+  const fixture = browserFixture({
+    steps: [{ status: 403, document: challengeDocument() }],
+    layoutAfterReads: 2,
+  });
+  const result = await fixture.fetcher(request());
+  assert.ok(fixture.page.clicks >= 1, 'the widget was pressed after it gained a size');
+  assert.match(fixture.page.clickedSelectors[0] ?? '', /checkbox|challenge-stage|body/);
+  assert.equal(result.statusCode, 403, 'a challenge that never clears keeps its status');
 });

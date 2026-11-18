@@ -41,6 +41,10 @@ export const MAX_FETCH_NAVIGATIONS = 3;
 
 /** How long one automatic challenge attempt may poll for the challenge to disappear. */
 export const CHALLENGE_SOLVE_WINDOW_MS = 10_000;
+/** How many times one attempt may press the widget; a widget that is not laid out yet is clicked again. */
+export const CHALLENGE_MAX_CLICKS = 3;
+/** The wait between two presses, so a slow render is not clicked three times in one frame. */
+export const CHALLENGE_CLICK_INTERVAL_MS = 2_000;
 export const CHALLENGE_POLL_INTERVAL_MS = 500;
 
 /** Suggested, editable starting points rather than hidden retry policy. */
