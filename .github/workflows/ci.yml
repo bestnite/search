@@ -18,6 +18,8 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The suite takes about a minute; a hang should fail the run instead of holding a runner.
+    timeout-minutes: 15
     steps:
       - name: Check out the commit
         uses: actions/checkout@v4
