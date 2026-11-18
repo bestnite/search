@@ -122,7 +122,7 @@ function bindTarget(): { host: string; port: number } {
 const identity: ServerIdentity = {
   name: 'websearch-mcp',
   version: await readVersion(),
-  projectUrl: 'https://git.nite07.com/nite/websearch-mcp',
+  projectUrl: 'https://git.nite07.com/nite/search/src/branch/main/packages/websearch-mcp',
 };
 
 function resolveToken(): { token?: string; source: string } {

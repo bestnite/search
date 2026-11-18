@@ -3,4 +3,4 @@ declare const __PACKAGE_VERSION__: string;
 
 export const VERSION = typeof __PACKAGE_VERSION__ === 'string' ? __PACKAGE_VERSION__ : 'dev';
 
-export const PROJECT_URL = 'https://git.nite07.com/nite/dsh-search';
+export const PROJECT_URL = 'https://git.nite07.com/nite/search/src/branch/main/packages/dsh-search';

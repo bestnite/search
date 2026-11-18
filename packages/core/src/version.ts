@@ -12,4 +12,4 @@ export const VERSION: string = (() => {
   }
 })();
 
-export const PROJECT_URL = 'https://git.nite07.com/nite/search-core';
+export const PROJECT_URL = 'https://git.nite07.com/nite/search';
