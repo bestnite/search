@@ -38,17 +38,15 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 websearch-mcp --ui                                    # 只听 127.0.0.1:7799
 websearch-mcp --ui --host 0.0.0.0 --port 7799         # 局域网可达，令牌照旧
 websearch-mcp --print-url --host 0.0.0.0 --port 7799  # 打印要打开的链接
-websearch-mcp --set-token 'my-own-token'              # 自己指定令牌，存下来供以后用
-websearch-mcp --rotate-token                          # 随机生成一个，作废旧链接
-websearch-mcp --no-token                              # 完全不鉴权
+WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp --ui        # 要求这个令牌
+websearch-mcp --ui --no-token                        # 完全不鉴权
 ```
 
 - 绑定地址和端口是启动参数：`--host` / `--port`，或环境变量 `WEBSEARCH_MCP_UI_HOST` /
   `WEBSEARCH_MCP_UI_PORT`。默认只绑 loopback。
-- **配置了令牌才鉴权。** `--set-token <值>` 存下自己指定的令牌，`--token <值>` 只对本次运行生效，
-  `WEBSEARCH_MCP_UI_TOKEN` 提供令牌，`--rotate-token` 随机生成，`--no-token` 无视已存的令牌。
-  优先级：`--no-token` → `--set-token` → `--rotate-token` → `--token` → 环境变量 → 配置旁边的
-  `ui-token`（0600）。不会在你没要求时偷偷生成。
+- **只有给了令牌才鉴权，而令牌只从环境变量或命令行来——这个服务绝不往磁盘写令牌。**
+  `--no-token` 最高，其次 `--token <值>`，再是 `WEBSEARCH_MCP_UI_TOKEN`。所以 systemd 单元或容器定义
+  就是全部事实：写一行 `Environment=WEBSEARCH_MCP_UI_TOKEN=…`，没有文件要挂载、备份或清理。
 - 有令牌时，第一个请求带 `?token=`，换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不留在浏览器
   历史里。**没有令牌时页面是敞开的**：能连上端口的人就能改配置，包括凭证。只绑 loopback 又不设令牌，
   单人自用没问题；一旦绑到更宽的地址，就该配一个令牌。

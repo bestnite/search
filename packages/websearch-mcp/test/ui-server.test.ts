@@ -25,7 +25,6 @@ async function harness(): Promise<Harness> {
     configPath,
     host: '127.0.0.1',
     port: 0,
-    tokenFile: join(directory, 'ui-token'),
     token: TEST_TOKEN,
     version: '0.0.0-test',
     log: () => undefined,
@@ -186,7 +185,6 @@ test('without a token the page and the API are open, but still same-origin', asy
     configPath,
     host: '127.0.0.1',
     port: 0,
-    tokenFile: join(directory, 'ui-token'),
     version: '0.0.0-test',
     log: () => undefined,
   });

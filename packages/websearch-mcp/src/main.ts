@@ -7,7 +7,7 @@ import { createProtocol } from './protocol.js';
 import { createTools, type ServerIdentity } from './tools.js';
 import { watchSource } from './live.js';
 import { startUi, tokenUrls } from './ui/server.js';
-import { decideToken, tokenIsShort, writeTokenFile } from './ui/token.js';
+import { decideToken, tokenIsShort } from './ui/token.js';
 
 const DEFAULT_UI_HOST = '127.0.0.1';
 const DEFAULT_UI_PORT = 7799;
@@ -53,26 +53,24 @@ Usage
   websearch-mcp --ui                   run the settings page instead of stdio
   websearch-mcp --print-config         print a starter configuration to stdout
   websearch-mcp --print-url            print the page URLs
-  websearch-mcp --rotate-token         mint a random token, invalidating old links
 
 Options
   --config <path>        configuration file (default ~/.config/websearch-mcp/config.json)
   --host <addr>          settings page bind address (default ${DEFAULT_UI_HOST}; 0.0.0.0 exposes it on every interface)
   --port <n>             settings page port (default ${DEFAULT_UI_PORT}, 0 picks a free one)
-  --token <value>        use this token for this run, without saving it
-  --set-token <value>    save this token and use it
-  --no-token             serve the page without authentication, ignoring a saved token
+  --token <value>        require this token for this run
+  --no-token             serve the page without authentication
 
 Authentication
-  The page needs a token only when one is configured. Precedence: --no-token, --set-token,
-  --rotate-token, --token, WEBSEARCH_MCP_UI_TOKEN, then the token file beside the configuration.
-  With no token anywhere the page is open: anyone who can reach the port can rewrite it.
+  The token comes from --token or WEBSEARCH_MCP_UI_TOKEN, and from nowhere else: this process never
+  writes one to disk. With neither set the page is open, and the log says so: anyone who can reach
+  the port can rewrite the configuration.
 
 Environment
   WEBSEARCH_MCP_CONFIG      path to config.json (default ~/.config/websearch-mcp/config.json)
   WEBSEARCH_MCP_UI_HOST     bind address for --ui
   WEBSEARCH_MCP_UI_PORT     port for --ui
-  WEBSEARCH_MCP_UI_TOKEN    a token, used when no --token/--set-token/--rotate-token is given
+  WEBSEARCH_MCP_UI_TOKEN    the token to require, unless --token or --no-token is given
   DSH_SEARCH_<BACKEND>_KEY  a credential; wins over the value stored in the file
   DSH_SEARCH_BROWSER_TOKEN  the browser endpoint token
 `;
@@ -82,7 +80,6 @@ const flags = parseArgs(argv);
 const configPath = typeof flags.get('config') === 'string'
   ? String(flags.get('config'))
   : process.env.WEBSEARCH_MCP_CONFIG ?? DEFAULT_CONFIG_PATH;
-const tokenFile = join(dirname(configPath), 'ui-token');
 
 if (flags.has('help') || flags.has('h')) {
   process.stdout.write(help());
@@ -124,29 +121,23 @@ const identity: ServerIdentity = {
   projectUrl: 'https://git.nite07.com/nite/websearch-mcp',
 };
 
-async function resolveToken(): Promise<{ token?: string; source: string }> {
-  const decision = await decideToken({
-    tokenFile,
+function resolveToken(): { token?: string; source: string } {
+  const decision = decideToken({
     ...(typeof flags.get('token') === 'string' ? { flag: String(flags.get('token')) } : {}),
-    ...(typeof flags.get('set-token') === 'string' ? { set: String(flags.get('set-token')) } : {}),
-    ...(flags.has('rotate-token') ? { rotate: true } : {}),
     ...(flags.has('no-token') ? { open: true } : {}),
   });
-  if (decision.persist) await writeTokenFile(tokenFile, decision.persist);
-  if (decision.token && tokenIsShort(decision.token)) log(`warning: a ${decision.token.length}-character token is guessable; use --rotate-token for a random one`);
+  if (decision.token && tokenIsShort(decision.token)) {
+    log(`warning: a ${decision.token.length}-character token is guessable; use a random 32-byte value`);
+  }
   log(`authentication: ${decision.token ? `token (${decision.source})` : 'disabled'}; ${decision.note}`);
   return { ...(decision.token === undefined ? {} : { token: decision.token }), source: decision.source };
 }
 
 const openWarning = (): void => log('no token is configured, so the page is open: anyone who can reach it can rewrite the configuration');
 
-/**
- * --set-token and --rotate-token do one thing to the token file and print the result; with --ui they
- * are setup steps in front of a server that keeps running, so they must not exit.
- */
 const wantsUi = flags.has('ui');
-if (!wantsUi && (flags.has('print-url') || flags.has('rotate-token') || flags.has('set-token'))) {
-  const { token } = await resolveToken();
+if (!wantsUi && flags.has('print-url')) {
+  const { token } = resolveToken();
   const { host, port } = bindTarget();
   for (const url of tokenUrls(host, port, token)) process.stdout.write(`${url}\n`);
   if (!token) openWarning();
@@ -155,14 +146,13 @@ if (!wantsUi && (flags.has('print-url') || flags.has('rotate-token') || flags.ha
 }
 
 if (wantsUi) {
-  const { token } = await resolveToken();
+  const { token } = resolveToken();
   const { host, port } = bindTarget();
   try {
     const ui = await startUi({
       configPath,
       host,
       port,
-      tokenFile,
       ...(token === undefined ? {} : { token }),
       version: identity.version,
       log,
@@ -171,7 +161,7 @@ if (wantsUi) {
     log(`settings page for ${configPath}`);
     log(`listening on ${host}:${ui.port}`);
     for (const url of ui.urls) log(`open ${url}`);
-    log(`token file ${tokenFile} (rotating it with --rotate-token invalidates every open link)`);
+    if (token) log('the token lives in this process only; set it with --token or WEBSEARCH_MCP_UI_TOKEN');
     if (ui.urls.length > 1) log('the bind is not loopback, so every address above serves the same page');
     const stop = async (): Promise<void> => { await ui.close(); process.exit(0); };
     for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void stop());

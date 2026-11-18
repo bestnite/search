@@ -47,18 +47,16 @@ instance can hold the page while MCP clients keep spawning the stdio server.
 websearch-mcp --ui                                    # http://127.0.0.1:7799
 websearch-mcp --ui --host 0.0.0.0 --port 7799         # reachable from the LAN; the token still applies
 websearch-mcp --print-url --host 0.0.0.0 --port 7799  # the link to open
-websearch-mcp --set-token 'my-own-token'              # set your own, saved for later runs
-websearch-mcp --rotate-token                          # mint a random one, invalidating old links
-websearch-mcp --no-token                              # no authentication at all
+WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp --ui        # require that token
+websearch-mcp --ui --no-token                        # no authentication at all
 ```
 
 - The bind address and port are launch arguments: `--host` / `--port`, or `WEBSEARCH_MCP_UI_HOST` /
   `WEBSEARCH_MCP_UI_PORT`. The default binds loopback only.
-- **Authentication is on only when a token is configured.** `--set-token <value>` saves your own,
-  `--token <value>` uses one for a single run, `WEBSEARCH_MCP_UI_TOKEN` supplies one, `--rotate-token`
-  mints a random one, and `--no-token` ignores whatever is saved. Precedence: `--no-token`,
-  `--set-token`, `--rotate-token`, `--token`, environment, then `ui-token` beside the configuration
-  (mode 0600). Nothing is minted behind your back.
+- **Authentication is on only when a token is supplied, and the token comes from the environment or
+  the command line — this server never writes one to disk.** `--no-token` wins, then `--token <value>`,
+  then `WEBSEARCH_MCP_UI_TOKEN`. A systemd unit or a container spec is therefore the whole story:
+  `Environment=WEBSEARCH_MCP_UI_TOKEN=…`, and nothing to mount, back up or leak.
 - With a token the first request carries `?token=`, exchanged for an `HttpOnly`, `SameSite=Strict`
   cookie, so the link does not stay in browser history. **With no token the page is open**: whoever
   can reach the port can rewrite the configuration, credentials included. Loopback plus no token is a

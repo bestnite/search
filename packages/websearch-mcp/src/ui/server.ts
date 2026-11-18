@@ -10,7 +10,6 @@ export interface UiOptions {
   configPath: string;
   host: string;
   port: number;
-  tokenFile: string;
   /** Absent means no authentication: whoever can reach the port can rewrite the configuration. */
   token?: string;
   version: string;
@@ -58,9 +57,8 @@ export function tokenUrls(host: string, port: number, token?: string): string[] 
 export async function startUi(options: UiOptions): Promise<UiHandle> {
   let actualPort = options.port;
   const token = options.token;
-  const sessions = token === undefined ? undefined : new SessionStore({ tokenFile: options.tokenFile, token });
+  const sessions = token === undefined ? undefined : new SessionStore(token);
   const limiter = new FailureLimiter();
-  if (sessions) await sessions.load();
 
   const server: Server = createServer((request, response) => {
     handle(request, response).catch(error => {

@@ -1,55 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { FailureLimiter, SESSION_COOKIE, SessionStore, cookieValue, sessionCookie } from '../src/ui/session.js';
 
-const tokenPath = async (): Promise<string> => join(await mkdtemp(join(tmpdir(), 'wsm-token-')), 'ui-token');
+const TOKEN = 'token-0123456789abcdef';
 
-test('the token is minted once, kept private, and survives a restart', async () => {
-  const file = await tokenPath();
-  const first = new SessionStore({ tokenFile: file });
-  const token = await first.load();
-  assert.ok(token.length >= 32);
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
-  assert.equal((await readFile(file, 'utf8')).trim(), token);
-
-  const second = new SessionStore({ tokenFile: file });
-  assert.equal(await second.load(), token, 'a restart must not invalidate an open link');
-});
-
-test('verification is exact and a wrong length never throws', async () => {
-  const store = new SessionStore({ tokenFile: await tokenPath() });
-  const token = await store.load();
-  assert.equal(store.verify(token), true);
-  assert.equal(store.verify(`${token}x`), false);
-  assert.equal(store.verify(token.slice(0, 10)), false);
+test('verification is exact and a wrong length never throws', () => {
+  const store = new SessionStore(TOKEN);
+  assert.equal(store.verify(TOKEN), true);
+  assert.equal(store.verify(`${TOKEN}x`), false);
+  assert.equal(store.verify(TOKEN.slice(0, 10)), false);
   assert.equal(store.verify(undefined), false);
+  assert.equal(store.verify(''), false);
 });
 
-test('a session expires on idle and on its absolute cap', async () => {
+test('a session expires on idle and on its absolute cap', () => {
   let clock = 1_000_000;
-  const store = new SessionStore({ tokenFile: await tokenPath(), now: () => clock });
-  await store.load();
+  const store = new SessionStore(TOKEN, { now: () => clock });
   const id = store.issue('127.0.0.1');
   assert.equal(store.check(id), true);
   clock += 10 * 60_000;
   assert.equal(store.check(id), true, 'ten minutes idle is still inside the window');
   clock += 16 * 60_000;
   assert.equal(store.check(id), false, 'idle beyond fifteen minutes drops the session');
+  assert.equal(store.size, 0);
 });
 
-test('rotating the token kills every existing session', async () => {
-  const store = new SessionStore({ tokenFile: await tokenPath() });
-  const token = await store.load();
+test('sessions are per process and can be revoked', () => {
+  const store = new SessionStore(TOKEN);
   const id = store.issue('127.0.0.1');
   assert.equal(store.check(id), true);
-  const next = await store.rotate();
-  assert.notEqual(next, token);
-  assert.equal(store.verify(token), false);
+  store.revoke(id);
   assert.equal(store.check(id), false);
   assert.equal(store.size, 0);
+  assert.equal(store.check('not-a-session'), false);
+});
+
+test('pruning drops only the expired sessions', () => {
+  let clock = 0;
+  const store = new SessionStore(TOKEN, { now: () => clock });
+  const old = store.issue('10.0.0.1');
+  clock += 20 * 60_000;
+  const fresh = store.issue('10.0.0.2');
+  store.prune();
+  assert.equal(store.check(old), false);
+  assert.equal(store.check(fresh), true);
 });
 
 test('repeated failures ban the address for a while', () => {

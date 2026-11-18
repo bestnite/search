@@ -1,61 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { decideToken, tokenIsShort, writeTokenFile } from '../src/ui/token.js';
+import { decideToken, tokenIsShort } from '../src/ui/token.js';
 
-const tmp = async (): Promise<string> => join(await mkdtemp(join(tmpdir(), 'wsm-token-')), 'ui-token');
-
-test('an unset token means no authentication, and nothing is minted', async () => {
-  const tokenFile = await tmp();
-  const decision = await decideToken({ tokenFile });
+test('no flag and no environment means an open page', () => {
+  const decision = decideToken({ env: {} });
   assert.equal(decision.token, undefined);
   assert.equal(decision.source, 'none');
-  await assert.rejects(readFile(tokenFile, 'utf8'), /ENOENT/, 'the file is not created behind the caller');
+  assert.match(decision.note, /open/);
 });
 
-test('--no-token wins over a saved token', async () => {
-  const tokenFile = await tmp();
-  await writeTokenFile(tokenFile, 'saved-token-0123456789');
-  const decision = await decideToken({ tokenFile, open: true });
+test('--no-token wins over everything', () => {
+  const decision = decideToken({ open: true, flag: 'from-flag', env: { WEBSEARCH_MCP_UI_TOKEN: 'from-env' } });
   assert.equal(decision.token, undefined);
   assert.match(decision.note, /--no-token/);
-  assert.equal((await readFile(tokenFile, 'utf8')).trim(), 'saved-token-0123456789', 'the file is left alone');
 });
 
-test('precedence is set, rotate, flag, environment, file', async () => {
-  const tokenFile = await tmp();
-  await writeTokenFile(tokenFile, 'from-file-0123456789');
-  const env = { WEBSEARCH_MCP_UI_TOKEN: 'from-env-0123456789' };
-
-  assert.equal((await decideToken({ tokenFile, env, set: 'from-set' })).source, 'set');
-  assert.equal((await decideToken({ tokenFile, env, rotate: true, mint: () => 'from-rotate' })).token, 'from-rotate');
-  assert.equal((await decideToken({ tokenFile, env, flag: 'from-flag' })).token, 'from-flag');
-  assert.equal((await decideToken({ tokenFile, env })).token, 'from-env-0123456789');
-  assert.equal((await decideToken({ tokenFile, env: {} })).token, 'from-file-0123456789');
+test('--token beats the environment', () => {
+  assert.deepEqual(
+    decideToken({ flag: 'from-flag', env: { WEBSEARCH_MCP_UI_TOKEN: 'from-env' } }).source,
+    'flag',
+  );
+  assert.equal(decideToken({ flag: 'from-flag', env: { WEBSEARCH_MCP_UI_TOKEN: 'from-env' } }).token, 'from-flag');
+  assert.equal(decideToken({ env: { WEBSEARCH_MCP_UI_TOKEN: 'from-env' } }).token, 'from-env');
 });
 
-test('only --set-token and --rotate-token ask for the value to be saved', async () => {
-  const tokenFile = await tmp();
-  assert.equal((await decideToken({ tokenFile, set: 'mine' })).persist, 'mine');
-  assert.equal((await decideToken({ tokenFile, rotate: true, mint: () => 'minted' })).persist, 'minted');
-  assert.equal((await decideToken({ tokenFile, flag: 'one-off' })).persist, undefined);
-  assert.equal((await decideToken({ tokenFile, env: { WEBSEARCH_MCP_UI_TOKEN: 'e' } })).persist, undefined);
+test('a blank value counts as unset', () => {
+  assert.equal(decideToken({ flag: '   ', env: { WEBSEARCH_MCP_UI_TOKEN: '  ' } }).source, 'none');
 });
 
-test('a blank token counts as unset', async () => {
-  const tokenFile = await tmp();
-  assert.equal((await decideToken({ tokenFile, flag: '   ', set: '' })).source, 'none');
-  await writeFile(tokenFile, '\n', 'utf8');
-  assert.equal((await decideToken({ tokenFile })).source, 'none');
-});
-
-test('the saved token is private and short ones are flagged', async () => {
-  const tokenFile = await tmp();
-  await writeTokenFile(tokenFile, 'abc');
-  const stat = await import('node:fs/promises').then(fs => fs.stat(tokenFile));
-  assert.equal(stat.mode & 0o777, 0o600);
+test('short tokens are flagged, nothing is ever written', () => {
   assert.equal(tokenIsShort('abc'), true);
   assert.equal(tokenIsShort('a'.repeat(16)), false);
+  assert.equal('persist' in decideToken({ flag: 'x' }), false, 'the decision has nothing to save');
 });
