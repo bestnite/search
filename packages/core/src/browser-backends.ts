@@ -22,6 +22,7 @@ export function registerBrowserBackends(registry: Record<string, BrowserRead>): 
           ...(input.key ? { token: input.key } : {}),
           ...(ctx.statePath ? { statePath: ctx.statePath } : {}),
           timeoutMs: ctx.timeoutMs,
+          maxConcurrentReads: ctx.maxConcurrentReads,
           signal: ctx.signal,
         },
       );

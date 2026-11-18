@@ -5,6 +5,7 @@
  */
 export { catalog } from './catalog.js';
 export { defaultConfig, parseConfig, validateConfig } from './config.js';
+export { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
 export { LANGUAGES, REGIONS } from './locale-map.js';
 export type {
   AccessMode,

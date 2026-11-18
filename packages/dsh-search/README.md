@@ -47,9 +47,9 @@ One browser serves every backend in browser mode:
 
 1. Start the browser container from the `image/` directory of [`@nite07/search-core`](https://git.nite07.com/nite/search/src/branch/main/packages/core/image). It prints the endpoint and a bearer token at startup.
 2. Open its noVNC page (`http://<host>:6080/vnc.html`) and sign in to Xiaohongshu in the window that is already open. That window is the session; the container writes it to disk every minute.
-3. In **Settings → Web search → Backends**, fill the **Shared browser** block — endpoint (`ws://<host>:3000/ws`), session file (optional), read timeout — and paste the printed token as the **endpoint token**.
+3. In **Settings → Web search → Backends**, fill the **Shared browser** block — endpoint (`ws://<host>:3000/ws`), session file (optional), read timeout, per-site concurrent reads (1–8, default 2) — and paste the printed token as the **endpoint token**.
 
-The token guards the browser endpoint, not a site account, so it is stored once for the browser rather than per backend. The shared endpoint wins over a backend's own; a backend's endpoint is a fallback used only while the shared one is empty. The session file must be the one the container writes — otherwise every read starts signed out. Nothing in this plugin can sign in: login stays with whoever owns that browser.
+The token guards the browser endpoint, not a site account, so it is stored once for the browser rather than per backend. The shared endpoint wins over a backend's own; a backend's endpoint is a fallback used only while the shared one is empty. The session file must be the one the container writes — otherwise every read starts signed out. Nothing in this plugin can sign in: login stays with whoever owns that browser. The per-site concurrent-read setting bounds how many reads run on one site at once; it is not the global parallel-backend count on the behaviour tab, and a 429 answer lowers it to 1 for the rest of that browser session.
 
 ## Tools
 

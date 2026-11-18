@@ -18,6 +18,33 @@ test('every config scalar and array has an editable client field or generated ba
  for(const key of Object.keys(defaults.backends.keenable!)){if(key==='options')continue;assert.ok(covered(`backends.keenable.${key}`),`Missing backend field ${key}`);}
  assert.ok(client.includes('def.options.map(option => field('));});
 
+test('the shared browser per-site cap is a schema default, an editable field with its own help',async()=>{
+ const {readFile}=await import('node:fs/promises');const defaults=defaultConfig();
+ assert.equal(defaults.browser.maxConcurrentReads,2);
+ assert.equal(Config({}).browser.maxConcurrentReads,2,'the host schema carries the new default');
+ const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');
+ assert.match(client,/fields\(\['browser\.endpoint', 'browser\.statePath', 'browser\.timeoutMs', 'browser\.maxConcurrentReads'\]/,'the shared browser section renders the new field');
+ assert.match(client,/'browser\.maxConcurrentReads': \{ type: 'number' \}/);
+ assert.match(client,/'browser\.maxConcurrentReads': \[MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS\]/);
+ for(const lang of ['en','zh']){
+  const locale=JSON.parse(await readFile(new URL(`../locale/${lang}.json`,import.meta.url),'utf8'));
+  assert.ok(locale['field.browser.maxConcurrentReads'],`${lang} labels the field`);
+  const help=String(locale['help.browser.maxConcurrentReads']);
+  assert.match(help,/429/,`${lang} explains the conservative downgrade after a 429`);
+  assert.match(help,lang==='zh'?/全局/:/global/i,`${lang} distinguishes the cap from global backend concurrency`);
+ }
+});
+
+test('a non-default per-site browser cap survives save and reload',async()=>{
+ const h=harness();await apply(h.ctx,defaultConfig());const signal=new AbortController().signal;
+ const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal});
+ const next=structuredClone(snapshot.config);next.browser.maxConcurrentReads=5;
+ await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal});
+ assert.equal((h.stored as any).browser.maxConcurrentReads,5,'the saved configuration keeps the chosen cap');
+ const {parseConfig}=await import('@nite07/search-core');
+ assert.equal(parseConfig(h.stored).browser.maxConcurrentReads,5,'a reload keeps it instead of restoring the default');
+});
+
 test('Reddit is an opt-in backend with two explicit modes and its own comment tool',async()=>{const {catalog}=await import('@nite07/search-core');const reddit=catalog.find(item=>item.id==='reddit')!;assert.deepEqual(reddit.modes.map(m=>m.mode).sort(),['anonymous','oauth']);assert.ok(reddit.modes.every(m=>m.tier!=='unverified'));const h=harness();await apply(h.ctx,defaultConfig());const tool=h.tool('reddit_thread');assert.ok(tool,'reddit_thread should be registered');const props=Object.keys((tool as any).parameters.properties);for(const key of['url','postId','sort','limit','depth'])assert.ok(props.includes(key),`missing ${key}`);assert.match(String((tool as any).description),/untrusted/i);});
 
 test('X conversations have their own tool with a bounded schema',async()=>{const h=harness();await apply(h.ctx,defaultConfig());const tool=h.tool('x_thread');assert.ok(tool,'x_thread should be registered');const props=(tool as any).parameters.properties;for(const key of['url','postId','limit','depth'])assert.ok(key in props,`missing ${key}`);assert.equal(props.limit.maximum,200);assert.equal(props.depth.maximum,8);assert.match(String((tool as any).description),/untrusted/i);assert.match(String((tool as any).description),/session mode/);});

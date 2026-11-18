@@ -84,4 +84,31 @@ test('legacy names are discarded and browser tokens use one fixed destination', 
 test('the shipped example loads against the current core',async()=>{
  const config=await loadConfig({configPath:new URL('../config.example.json',import.meta.url).pathname,env:{}});
  assert.deepEqual(enabledBackendIds(config),['keenable','reddit']);
+ assert.equal(config.search.browser.maxConcurrentReads,2,'the example carries the per-site read cap');
+});
+
+test('a config file from before the per-site cap loads with the default',async()=>{
+ const search:any=defaultConfig();delete search.browser.maxConcurrentReads;
+ const config=await loadConfig({configPath:await writeTemp({search}),env:{}});
+ assert.equal(config.search.browser.maxConcurrentReads,2,'parseConfig fills the missing field without a second option set');
+});
+
+test('a configured per-site browser cap reaches the browser reader through load and search',async()=>{
+ const {createTools}=await import('../src/tools.js');
+ const {browserBackends}=await import('@nite07/search-core');
+ const search=defaultConfig();
+ search.browser.endpoint='ws://127.0.0.1:3000/ws';
+ search.browser.maxConcurrentReads=3;
+ search.backends.xiaohongshu!.enabled=true;
+ search.backends.xiaohongshu!.endpoint='';
+ const config=await loadConfig({configPath:await writeTemp({search,credentials:{browser:'ENDPOINT_TOKEN'}}),env:{}});
+ assert.equal(config.search.browser.maxConcurrentReads,3,'a non-default value survives loading');
+ const original=browserBackends.xiaohongshu!;
+ const seen:number[]=[];
+ browserBackends.xiaohongshu={search:async(_input,ctx)=>{seen.push(ctx.maxConcurrentReads);return [];}};
+ try{
+  const tools=createTools(config,{name:'websearch-mcp',version:'0.0.0',projectUrl:'https://example.test'});
+  await tools.find(tool=>tool.name==='web_search')!.call({query:'x',backends:['xiaohongshu']},new AbortController().signal);
+  assert.deepEqual(seen,[3],'the real engine hands the loaded cap to the browser reader');
+ }finally{browserBackends.xiaohongshu=original;}
 });

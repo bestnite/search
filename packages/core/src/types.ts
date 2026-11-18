@@ -42,7 +42,16 @@ export interface SearchConfig {
  * One browser, shared by every backend that reads through one. A backend that set its own endpoint
  * keeps working: the shared endpoint wins only when it is filled in.
  */
-export interface BrowserConfig { endpoint: string; statePath: string; timeoutMs: number }
+export interface BrowserConfig {
+  endpoint: string;
+  statePath: string;
+  timeoutMs: number;
+  /**
+   * How many reads may be in flight on one site at once. A local safety bound, not a site quota;
+   * integer from 1 through 8. Hosts expose it as a per-site setting.
+   */
+  maxConcurrentReads: number;
+}
 
 export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
 export interface SearchInput { query: string; maxResults?: number }

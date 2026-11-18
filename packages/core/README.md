@@ -69,6 +69,7 @@ is configured on the browser or backend. Signing in happens inside the browser, 
 
 ```ts
 config.browser.endpoint = 'ws://127.0.0.1:3000/ws';
+config.browser.maxConcurrentReads = 3; // optional local cap for this site; default 2
 config.backends.xiaohongshu!.enabled = true;
 config.backends.xiaohongshu!.mode = 'browser';
 ```
@@ -99,10 +100,15 @@ Xiaohongshu reader sets `statePolicy: 'read-only'`.
 Search, note and comment reads share one per-site admission limiter. Up to `maxConcurrentReads`
 transactions may be in flight at once. The default is 2: a deliberately conservative local starting
 point, not a Xiaohongshu quota and not verified against the live site. The option accepts integers
-from 1 through 8; anything else is a configuration error rather than a silent clamp. Advanced
-callers can pass it through `XhsContext.maxConcurrentReads`; host settings and UI do not expose it
-yet. A transaction is a health probe plus its page script plus mapping, so the stages of different
-transactions can interleave on the shared page while each result stays with its own call.
+from 1 through 8; anything else is a configuration error rather than a silent clamp. It is the
+shared `browser.maxConcurrentReads` configuration field, and `DEFAULT_MAX_CONCURRENT_READS`,
+`MIN_MAX_CONCURRENT_READS` and `MAX_CONCURRENT_READS` are exported from the browser-safe entry so a
+settings UI can render the control without importing the browser driver. Direct callers can pass the
+value through `XhsContext.maxConcurrentReads`; it is part of the session identity, so a note or
+comment read must pass the same value to join the session a search opened. A configuration saved
+before the field existed is filled with the default on load; an explicit invalid value is rejected,
+not replaced. A transaction is a health probe plus its page script plus mapping, so the stages of
+different transactions can interleave on the shared page while each result stays with its own call.
 
 The page belongs to a generation with an in-flight reference count. An identity probe that reports
 a guest fails as an authentication problem before any business script runs. If a read proves the

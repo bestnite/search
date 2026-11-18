@@ -2,7 +2,12 @@
 // Both sides of the connection must share a major.minor, so the browser image pins the same version.
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
 import { existsSync } from 'node:fs';
+import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS } from './browser-limits.js';
 import { SearchError } from './transport.js';
+
+// The bound itself lives in a browser-safe module: the settings UI bundles the configuration schema
+// and must not pull patchright in. Re-exported here because this is where callers expect it.
+export { DEFAULT_MAX_CONCURRENT_READS } from './browser-limits.js';
 
 /**
  * One connection to the browser the user runs. The browser belongs to them: this class never
@@ -101,8 +106,6 @@ interface ReadJob {
 
 const DEFAULT_IDLE_MS = 300_000;
 const DEFAULT_CLOSE_MS = 5_000;
-export const DEFAULT_MAX_CONCURRENT_READS = 2;
-const MAX_CONCURRENT_READS = 8;
 const PERSIST_INTERVAL_MS = 60_000;
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));

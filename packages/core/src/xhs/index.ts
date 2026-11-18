@@ -18,8 +18,10 @@ export interface XhsContext {
   timeoutMs: number;
   signal: AbortSignal;
   /**
-   * Optional local admission bound for this site (1 through 8). Defaults to the browser session's
-   * conservative initial value; it is not a Xiaohongshu quota. Hosts have no setting for it yet.
+   * Local admission bound for this site (1 through 8). Defaults to the browser session's
+   * conservative initial value; it is not a Xiaohongshu quota. Hosts expose
+   * `browser.maxConcurrentReads`; it is part of the session identity, so a direct note or comment
+   * read has to pass the same value to join the same session as search.
    */
   maxConcurrentReads?: number;
   /**

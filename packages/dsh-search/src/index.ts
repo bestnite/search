@@ -6,6 +6,7 @@ import '@deepseek-ai/dsh-config-editor';
 import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
 import type { RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
 import { openUsage } from './usage.js';
+import { xhsBrowserRead } from './browser-read.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
 import { attachImages } from './media.js';
 import { PROJECT_URL, VERSION } from './version.js';
@@ -152,12 +153,10 @@ export async function apply(ctx:Context,raw:SearchConfig){
     if(backend.mode!=='browser')throw new Error(`The Xiaohongshu backend uses the access mode "${backend.mode}", which cannot read a note.`);
     if(!args.url&&!args.id)throw new Error('Pass url (the share link) or id (a note id from an earlier search).');
     // The endpoint token and session file may live on the shared browser resource, which is how
-    // several browser-backed readers share one container.
+    // several browser-backed readers share one container. The same read context carries the
+    // per-site cap, so this note read joins the browser session a search would open.
     const token=(await ctx.credentials.resolve(credentialRef(browserCredentialRef())))?.value;
-    const settings=backend.options as {statePath?:string};
-    const wsEndpoint=config.browser.endpoint||backend.endpoint;
-    if(!wsEndpoint)throw new Error('No browser endpoint is configured. Set the shared browser endpoint, or the Xiaohongshu backend endpoint.');
-    const read={wsEndpoint,...(token?{token}:{}),...(settings.statePath||config.browser.statePath?{statePath:settings.statePath||config.browser.statePath}:{}),timeoutMs:config.browser.timeoutMs||backend.timeoutMs,signal:AbortSignal.any([lifetime.signal,exec.signal])};
+    const read=xhsBrowserRead(config,token,AbortSignal.any([lifetime.signal,exec.signal]));
     const target={...(args.url?{url:args.url}:{}),...(args.id?{id:args.id}:{})};
     const note=await fetchXhsNote(target,read);
     const limit=Math.min(Math.max(Math.trunc(Number(args.commentLimit??20))||20,1),50);

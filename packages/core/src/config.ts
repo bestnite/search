@@ -1,5 +1,6 @@
 import { catalog } from './catalog.js';
 import { LANGUAGES, REGIONS } from './locale-map.js';
+import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
 import type { ConfigIssue, SearchConfig } from './types.js';
 /**
  * The credential name this library files a backend's key under. It is fixed here and not part of the
@@ -17,7 +18,7 @@ export function defaultConfig(): SearchConfig {
   return {
     mode:'parallel', singleBackend:'keenable', maxResults:8, concurrency:4, overallTimeoutMs:30000,
     language:'', region:'', recency:'any', safeSearch:true, includeDomains:[], excludeDomains:[],dedup:'url',fusion:'rrf',
-    browser:{endpoint:'',statePath:'',timeoutMs:60000},
+    browser:{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:DEFAULT_MAX_CONCURRENT_READS},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false},
     backends:Object.fromEntries(catalog.map(d=>[d.id,{enabled:false,mode:d.modes[0]!.mode,endpoint:d.modes[0]!.endpoint,timeoutMs:15000,rateLimitPerMinute:0,dailyAttemptLimit:0,options:Object.fromEntries(d.options.map(o=>[o.key,o.default]))}]))
@@ -67,6 +68,7 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   const sharedBrowser=c.browser.endpoint;
   if(sharedBrowser)checkEndpoint(sharedBrowser,'browser.endpoint');
   if(!(c.browser.timeoutMs>=1000&&c.browser.timeoutMs<=120000))fail('browser.timeoutMs','Expected 1000 to 120000 milliseconds.');
+  num(c.browser.maxConcurrentReads,MIN_MAX_CONCURRENT_READS,MAX_CONCURRENT_READS,'browser.maxConcurrentReads');
   for(const d of catalog){const b=c.backends[d.id]!;const p=`backends.${d.id}`;
     choice(b.mode,d.modes.map(m=>m.mode),`${p}.mode`);
     if(b.enabled&&d.status==='unverified')fail(`${p}.enabled`,'Backend protocol is not verified.');
@@ -80,15 +82,22 @@ export function validateConfig(value: unknown): ConfigIssue[] {
 }
 export function parseConfig(value:unknown):SearchConfig{
   const defaults=defaultConfig();
-  // Migrate the backend map before validation: drop entries this release no longer ships, add ones it now ships.
-  if(value&&typeof value==='object'&&!Array.isArray(value)&&(value as any).backends&&typeof (value as any).backends==='object'){
+  // Migrations run on a copy: the caller's object is never mutated.
+  if(value&&typeof value==='object'&&!Array.isArray(value)){
     const raw=structuredClone(value) as any;
-    for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
-    for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
-    // A credential reference used to be a configuration field. The name is fixed in code now, so a
-    // saved reference is dropped instead of being honoured: nothing in a file may redirect a lookup.
-    if(raw.browser&&typeof raw.browser==='object')delete raw.browser.credentialRef;
-    for(const id of Object.keys(raw.backends)){const row=raw.backends[id];if(row&&typeof row==='object')delete row.credentialRef;}
+    // Migrate the backend map before validation: drop entries this release no longer ships, add ones it now ships.
+    if(raw.backends&&typeof raw.backends==='object'){
+      for(const id of Object.keys(raw.backends))if(!(id in defaults.backends))delete raw.backends[id];
+      for(const [id,fallback] of Object.entries(defaults.backends))if(!raw.backends[id])raw.backends[id]=fallback;
+      // A credential reference used to be a configuration field. The name is fixed in code now, so a
+      // saved reference is dropped instead of being honoured: nothing in a file may redirect a lookup.
+      if(raw.browser&&typeof raw.browser==='object')delete raw.browser.credentialRef;
+      for(const id of Object.keys(raw.backends)){const row=raw.backends[id];if(row&&typeof row==='object')delete row.credentialRef;}
+    }
+    // A browser block saved before the per-site read cap existed gets the default. Only a missing key
+    // is filled: an explicit null, wrong type or out-of-range value is left for validation to reject,
+    // and unknown sibling keys stay unknown.
+    if(raw.browser&&typeof raw.browser==='object'&&!Array.isArray(raw.browser)&&!Object.hasOwn(raw.browser,'maxConcurrentReads'))raw.browser.maxConcurrentReads=defaults.browser.maxConcurrentReads;
     value=raw;
   }
   const issues=validateConfig(value);

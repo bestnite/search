@@ -32,6 +32,9 @@ Old `credentialRef` fields in saved search settings are discarded when loading t
 Browser-backed searches use `search.browser.endpoint` and the single `DSH_SEARCH_BROWSER_TOKEN`
 environment variable, or the literal `credentials.browser` value when that variable is absent.
 The token authenticates the browser connection; site sign-in happens in the browser through VNC.
+`search.browser.maxConcurrentReads` (integer 1–8, default 2) bounds how many reads may run on one
+site at once; it is a local safety bound, not a site quota, and a 429 answer lowers it to 1 for the
+rest of that browser session. A config file saved before the field existed loads with the default.
 A token stored under `credentials.xiaohongshu` is not used. This server currently exposes
 Xiaohongshu search, but not a Xiaohongshu note-reading tool.
 

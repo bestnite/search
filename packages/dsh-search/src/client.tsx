@@ -2,7 +2,7 @@ import styles from './client.css';
 import overrides from './client.overrides.css';
 import en from '../locale/en.json';
 import zh from '../locale/zh.json';
-import { catalog, defaultConfig, LANGUAGES, REGIONS, validateConfig } from '@nite07/search-core/static';
+import { catalog, defaultConfig, LANGUAGES, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS, REGIONS, validateConfig } from '@nite07/search-core/static';
 import type { BackendDefinition, ConfigIssue, SearchConfig } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
 import { blockersOf, visible } from './visibility';
@@ -11,7 +11,7 @@ import type { SettingsSnapshot } from './types';
 const API = '/api/nite-search';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000] };
+const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS] };
 const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 const fieldId = (path: string) => `nite-search-${path.replace(/[^a-z0-9-]/gi, '-')}`;
 function get(value: any, path: string): any { return path.split('.').reduce((v, k) => v?.[k], value); }
@@ -242,7 +242,7 @@ export function createClient(React: any) {
             <section className="ns-card" aria-labelledby="sec-transfer"><h3 id="sec-transfer">{t('transferTitle')}</h3><p>{t('transferHelp')}</p><div className="ns-actions"><button disabled={!!pending} onClick={exportConfig}>{t('export')}</button><button disabled={!!pending} aria-expanded={showTransfer} onClick={() => setShowTransfer(!showTransfer)}>{t('import')}</button><button disabled={!!pending} onClick={() => setConfirming({ kind: 'restore-defaults' })}>{t('restoreDefaults')}</button></div>{confirmRow('restore-defaults', 'defaultsConfirm', () => { setDraft(clone(snapshot.defaults)); setIssues([]); setNotice('defaultsRestored'); })}{showTransfer && <div className="ns-field"><label htmlFor="ns-import">{t('importLabel')}</label><textarea id="ns-import" value={importText} disabled={!!pending} onChange={(event: any) => setImportText(event.target.value)} rows={8} /><button disabled={!!pending || !importText.trim()} onClick={importConfig}>{t('applyImport')}</button></div>}</section>
           </div>}
           {tab === 'backends' && <div role="tabpanel" id="panel-backends" aria-labelledby="tab-backends">
-            <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p><div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs'], { 'browser.timeoutMs': { type: 'number' } })}</div>
+            <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p><div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' } })}</div>
               {!!snapshot && <div className="ns-credential"><h5>{t('browserTokenTitle')}</h5><p>{t(snapshot.browser.credentialConfigured ? 'credentialConfigured' : 'credentialMissing')} · {t('browserTokenHelp')}</p><label htmlFor="secret-browser">{t('browserTokenValue')}</label><input id="secret-browser" type="password" autoComplete="new-password" value={secrets.browser || ''} disabled={!!pending || !snapshot.browser.writable} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, browser: event.target.value }))} /><div className="ns-actions"><button disabled={!!pending || !snapshot.browser.writable || !secrets.browser} onClick={() => browserCredential(false)}>{t('saveToken')}</button><button disabled={!!pending || !snapshot.browser.writable || !snapshot.browser.credentialConfigured} onClick={() => setConfirming({ kind: 'delete-browser-credential' })}>{t('deleteCredential')}</button></div>{confirmRow('delete-browser-credential', 'deleteCredentialConfirm', () => { void browserCredential(true); })}</div>}
             </section>
             <section className="ns-backends" id="sec-backends" tabIndex={-1} aria-labelledby="sec-backends-title">
