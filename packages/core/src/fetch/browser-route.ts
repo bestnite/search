@@ -175,17 +175,14 @@ interface Judged {
 type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout'; clicks: number };
 
 /**
- * The widget shapes a challenge frame renders, tried in order.
- *
- * A real checkbox is clicked at its own centre. The wrapper and the frame body are containers, so
- * the click goes to a fixed offset inside the widget box: a widget is roughly 300x65 CSS pixels and
- * its top-left corner is the frame border, which a click can miss.
+ * The one element worth pressing. The Turnstile widget renders a loading state first and only then
+ * adds its checkbox; pressing a wrapper or the frame body during that window hits empty space and still
+ * looks like a successful click, which is worse than no click at all. Nothing else is clicked.
  */
-const CHALLENGE_WIDGET_CANDIDATES: readonly { selector: string; position?: { x: number; y: number } }[] = [
-  { selector: 'input[type=checkbox]' },
-  { selector: '#challenge-stage', position: { x: 30, y: 26 } },
-  { selector: 'body', position: { x: 30, y: 26 } },
-];
+const CHALLENGE_CHECKBOX_SELECTOR = 'input[type=checkbox]';
+
+/** How long a single pass waits for that checkbox to appear before giving the widget another chance. */
+const CLICK_WAIT_MS = 6_000;
 
 /** Frames the driver knows about. A page's own script cannot list a cross-origin frame. */
 const knownFrames = (page: Page): Frame[] => {
@@ -466,19 +463,23 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       };
 
       /** Click the widget through one frame handle, trying the shapes in order. */
+      /**
+       * Press the checkbox itself, and only that. The widget shows a loading state first, and pressing a
+       * fallback shape while it loads put the click on empty space and then counted the attempt as done —
+       * which is how a real widget was observed to be pressed "three times" without ever being pressed.
+       */
       const clickChallengeWidget = async (frame: Frame, timeoutMs: number): Promise<boolean> => {
-        for (const candidate of CHALLENGE_WIDGET_CANDIDATES) {
-          try {
-            const widget = frame.locator(candidate.selector).first();
-            if (await untilAborted(widget.count()) === 0) continue;
-            await untilAborted(widget.click({ timeout: timeoutMs, ...(candidate.position ? { position: candidate.position } : {}) }));
-            return true;
-          } catch (error) {
-            if (request.signal.aborted) throw error;
-            // The widget's internal markup differs between releases: try the next shape.
-          }
+        const box = frame.locator(CHALLENGE_CHECKBOX_SELECTOR).first();
+        try {
+          if (await untilAborted(box.count()) === 0) return false;
+          const bounds = await untilAborted(box.boundingBox());
+          if (!bounds || bounds.width < 10 || bounds.height < 8) return false;
+          await untilAborted(box.click({ timeout: timeoutMs }));
+          return true;
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          return false;
         }
-        return false;
       };
 
       /**
@@ -489,13 +490,19 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * from the main document — a click that "worked" but left the interstitial in place is a
        * failure, never a success.
        */
-      /** Whether the challenge widget has a size the pointer can land on, in page coordinates. */
-      const widgetIsLaidOut = async (page: Page, frame: Frame, timeoutMs: number): Promise<boolean> => {
-        const deadlineAt = Date.now() + timeoutMs;
+      /**
+       * Wait until the checkbox exists and has a size to hit. The widget renders a loading state before
+       * the checkbox appears, and clicking anything during that window is a click on nothing.
+       */
+      const waitForChallengeCheckbox = async (frame: Frame, budgetMs: number): Promise<boolean> => {
+        const deadlineAt = Date.now() + Math.max(0, budgetMs);
         for (;;) {
           try {
-            const box = await untilAborted(frame.locator('body').first().boundingBox());
-            if (box && box.width >= 60 && box.height >= 20) return true;
+            const box = frame.locator(CHALLENGE_CHECKBOX_SELECTOR).first();
+            if (await untilAborted(box.count()) > 0) {
+              const bounds = await untilAborted(box.boundingBox());
+              if (bounds && bounds.width >= 10 && bounds.height >= 8) return true;
+            }
           } catch (error) {
             if (request.signal.aborted) throw error;
           }
@@ -566,7 +573,7 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
             // there lands on the page behind it, which looks like nothing happened. Only click a
             // widget the browser has actually sized, and keep clicking while the challenge stands —
             // a single early click used to be the whole attempt.
-            const ready = await widgetIsLaidOut(activePage, frame, Math.min(2_000, Math.max(500, deadline - Date.now())));
+            const ready = await waitForChallengeCheckbox(frame, Math.min(CLICK_WAIT_MS, Math.max(500, deadline - Date.now())));
             if (ready && clicks < CHALLENGE_MAX_CLICKS && Date.now() >= nextClickAt) {
               if (await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())))) {
                 clicks += 1;

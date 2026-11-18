@@ -45,7 +45,7 @@ export const CHALLENGE_SOLVE_WINDOW_MS = 10_000;
  * One press per attempt. Pressing again while the widget is verifying is what restarts a challenge
  * that was already passing, and a second press has never turned a refusal into a page.
  */
-export const CHALLENGE_MAX_CLICKS = 1;
+export const CHALLENGE_MAX_CLICKS = 2;
 /** Text a reader would see, below which a captured document still looks like an unrendered shell. */
 export const READABLE_TEXT_MIN_CHARS = 200;
 /** How long a client-rendered page gets to produce that text before the capture is taken as it is. */
@@ -57,7 +57,7 @@ export const RENDER_WINDOW_MS = 5_000;
  */
 export const CHALLENGE_RENDER_WINDOW_MS = 15_000;
 /** The wait between two presses, so a slow render is not clicked three times in one frame. */
-export const CHALLENGE_CLICK_INTERVAL_MS = 2_000;
+export const CHALLENGE_CLICK_INTERVAL_MS = 4_000;
 export const CHALLENGE_POLL_INTERVAL_MS = 500;
 
 /** Suggested, editable starting points rather than hidden retry policy. */

@@ -48,6 +48,8 @@ interface Scenario {
   renderDelayMs?: number;
   /** The status the resolved document answers once the delay elapses; 200 by default. */
   afterClickStatus?: number;
+  /** Keep the checkbox absent for this many presence reads, the way the loading state does. */
+  checkboxAfterReads?: number;
 }
 
 interface PageState {
@@ -92,13 +94,22 @@ function browserFixture(scenario: Scenario): Fixture {
     htmlMatches: challengeHtmlMatches(current.html),
   }).challenge;
 
+  // A pressed widget stops showing its checkbox while it verifies, so a second press is not offered.
+  let pressed = false;
+  let presenceReads = 0;
   const widget = {
-    count: async (): Promise<number> => (scenario.refuseClick ? 0 : 1),
+    count: async (): Promise<number> => {
+      presenceReads += 1;
+      const loading = scenario.checkboxAfterReads !== undefined && presenceReads <= scenario.checkboxAfterReads;
+      return scenario.refuseClick || pressed || loading ? 0 : 1;
+    },
     click: async (): Promise<void> => {
       page.clicks += 1;
+      pressed = true;
       if (!scenario.afterClick) return;
       if (!scenario.renderDelayMs) {
         current = scenario.afterClick;
+        status = scenario.afterClickStatus ?? 200;
         return;
       }
       // The click landed; the document stays a shell until the application boots.
@@ -487,4 +498,18 @@ test('a pressed widget keeps its wait past the plain solve window', async () => 
   assert.equal(fixture.page.clicks, 1);
   assert.equal(result.outcome, 'ok', 'the late render is still accepted');
   assert.equal(fixture.page.loads, 1, 'and nothing was reloaded');
+});
+
+test('the click waits for the checkbox instead of pressing empty space during the loading state', async () => {
+  // The widget renders a loading state for a while. Pressing a wrapper at that moment lands on nothing
+  // and used to count as the attempt, so the checkbox was never pressed at all.
+  const fixture = browserFixture({
+    steps: [{ status: 403, document: challengeDocument() }],
+    afterClick: { title: 'LINUX DO', html: '<html><head><title>LINUX DO</title></head><body>' + '论坛帖子 '.repeat(120) + '</body></html>' },
+    checkboxAfterReads: 6,
+  });
+  const result = await fixture.fetcher(request({ routeTimeoutMs: 20_000 }));
+  assert.equal(fixture.page.clicks, 1, 'exactly one press, and it landed on the checkbox');
+  assert.deepEqual(fixture.page.clickedSelectors, ['input[type=checkbox]'], 'nothing else was ever clicked');
+  assert.equal(result.outcome, 'ok');
 });
