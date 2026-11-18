@@ -34,88 +34,38 @@ request and shows the outcome verbatim, including the failure reason.
 
 ## Adding a key
 
-Backends in `key` or `session` mode need a credential. Paste it into the credential field on that
-backend's row and save; the plugin stores it in the DSH credential store under a name fixed in code,
-so a saved config can never redirect a lookup to a different secret. Nothing is stored in the
-configuration file itself.
+Backends in `key` or `session` mode need a credential. Enter it on the provider's card and save.
+Credentials are kept in the DSH credential store, not in the configuration file.
 
-A keyed fetch mode uses the same stored key, so its provider card on the Page fetch tab repeats that
-credential field inline: enter the key there, or on the Search card — both write the one stored
-secret, and neither requires leaving the tab.
+Search and page fetching share a provider's saved key. You can enter it on either the **Search** or
+**Page fetch** tab; the search and fetch access modes and limits are configured separately.
 
 ## Settings layout
 
-The page edits one draft. Switching tabs never saves, never discards an edit, and never moves a value
-between operations.
+Switching tabs keeps your draft. Click **Save settings** to apply changes.
 
-| Tab | What it owns |
+| Tab | What you can configure |
 | --- | --- |
 | **Search behavior** | Query shape, safe search, language and region, agent tool switches |
 | **Reliability** | Retries, circuit breaker, cache and diagnostics retention |
-| **Test & diagnostics** | One explicit backend test against saved settings, recent outcomes, import/export |
-| **Search** | The backend catalog: access mode, cost chips, search endpoint and credential |
-| **Browser** | The shared Playwright endpoint, endpoint token, session file, per-site read cap, and every enabled search or fetch feature that depends on it |
-| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/challenge-solver/settle/selector options |
+| **Test & diagnostics** | Test a backend against saved settings, view recent outcomes, import/export |
+| **Search** | Search backends, access modes, costs, endpoints and credentials |
+| **Browser** | Shared browser endpoint, endpoint token, session file, read limits and browser-dependent features |
+| **Page fetch** | Fetch methods, fallback rules, provider, timeouts, output limits and browser options |
 
-Search and page fetch render the same provider card. A backend's credential is one stored secret bound
-to one record: the control is rendered on the search card whenever either operation needs the key — so
-a keyed fetch works while search stays keyless — and the fetch provider card repeats the same control
-inline whenever its saved fetch mode needs a key, so a keyed fetch mode is entered right there without
-leaving the tab. Both inputs write that one stored secret under two distinct element ids; the key is
-never stored twice. Search caps never bound a page fetch: the fetch operation keeps its own access
-mode, transport, endpoint, timeout and options, and the card says so — including which access modes
-were observed live and which are implemented from documentation only.
+## Saving and checking the browser
 
-## Saving and the browser gate
+Click **Save settings** and check the result. If a setting is invalid, follow the issue's link to
+correct it; your draft is kept. If another window saved first, reload the latest settings and reapply
+your changes. If the result is unconfirmed, check the saved settings before trying again.
 
-**Save settings** validates first, then writes. The result appears in a floating card above the
-settings panel instead of a line at the top of a long page: a success dismisses itself after a few
-seconds without touching the keyboard focus, while a refusal stays until it is dismissed and links
-each cause straight to its field. A save in progress has its own neutral card, so it is never
-mistaken for a refusal. The outcomes are distinct:
+When Xiaohongshu search or browser-based page fetching is enabled, saving checks the browser endpoint
+and token. You can also use **Check connection** on the **Browser** tab before saving. A successful
+check confirms the connection, **not** that you are signed in to a website.
 
-- **Rejected validation**: nothing is written. The draft keeps every edit, and the page lists the
-  localized cause with a link that switches to the owning tab, unfolds the provider card or fallback
-  rule, and focuses the actual control. Route problems name the route kind (HTTP, browser, provider),
-  not an array index, so they stay readable after reordering.
-- **Revision conflict**: another editor saved first. The revision is checked again inside the
-  editor's file lock against the effective current entry config, migrated and filled with schema
-  defaults. The inherited layer is not merged again, because a profile patch value replaces the whole
-  value; merging it back would resurrect a value the current patch already replaced. A save that
-  landed during verification therefore cannot be overwritten. The page reloads the latest revision and
-  keeps your draft; it is not reported as an invalid value.
-- **Cancelled**: the request or the plugin lifetime was cancelled during verification. The save stops
-  before the write and the draft is unchanged.
-- **Definite write failure**: the server reported a write failure; the page reads the saved state back
-  before saying anything. If that read-back succeeds and differs, the server reason is shown beside
-  the preserved draft; if it fails, the page reports an unknown result instead of claiming nothing
-  was written.
-- **Unconfirmed response**: only a transport failure that left the saved state different is reported
-  this way, after reading it back. A request this page sends is never replayed automatically.
-
-A read-back counts as the written configuration when the revision the server reported for the write is
-the revision the running instance serves. Configurations are compared by value, not by JSON text, so a
-key order (a saved row from an older release carries its newer blocks at the end) is never reported as
-a difference.
-
-When an enabled search backend reads through a browser (Xiaohongshu) or the fetch browser route is on,
-the server proves the effective endpoint before writing. It reads the stored token, attaches once per
-distinct endpoint/token pair, creates and closes one isolated context, and disconnects. The whole
-check — token read, connection, context and cleanup — is bounded to about five seconds. It never
-navigates, never sends a site or business request, and never closes the remote browser other clients
-use. A successful connection only proves the endpoint and token work; it is **not** a site login.
-
-The search path uses the shared endpoint first and the backend's own endpoint only while the shared
-one is empty. The page-fetch browser route uses the shared endpoint only. Grouped checks follow those
-same rules, so a search fallback cannot make the fetch route look verified.
-
-With every browser-dependent feature disabled, browser settings save offline without a probe. Turn the
-dependents off first, save, fix the endpoint or token, then save the enabled configuration again.
-
-The **Browser** tab can run the same bounded check manually against the endpoint in the draft, before
-saving. The check accepts no credential argument: it always uses the stored token, and an agent-facing
-check may only re-test the saved endpoint. Changing the endpoint or token marks the displayed result
-stale, and every save rechecks the effective endpoint on the server.
+Search uses the shared browser endpoint when set, otherwise the backend's own endpoint. Browser-based
+page fetching requires the shared endpoint. If the browser is unavailable, disable all
+browser-dependent features to save settings offline, then fix the connection before re-enabling them.
 
 ## Backends and cost
 
@@ -126,7 +76,7 @@ highlighted.
 | Group | Backends | Notes |
 | --- | --- | --- |
 | **Free path available** | Keenable, AnySearch, Exa, Parallel, You.com, DuckDuckGo, Reddit | No signup, no key, works immediately |
-| **Own account** | X | Your own X browser cookies: no fee, but it breaks when X changes the operations its page embeds |
+| **Own account** | X | Your own X browser cookies; a valid session is required |
 | **Self-hosted** | SearXNG, open-websearch, Xiaohongshu | You run the service and set your own limits; Xiaohongshu reads through a browser container you host |
 | **Free allowance** | Linkup, Tavily, Brave, Zhihu (web and site), Baidu, Doubao | Sign up for a key, free within the quota |
 | **Trial credits** | Serpex | One-off trial credits, then paid |
@@ -137,8 +87,8 @@ highlighted.
 
 ## Xiaohongshu
 
-Xiaohongshu answers only its own page runtime, so it has no callable HTTP endpoint. It reads through a
-browser you host: nothing is billed per call, and the cost is the machine running the browser.
+Search Xiaohongshu and read notes through a browser you host and sign in to yourself. There is no
+per-call charge from this plugin; you cover the cost of running the browser.
 
 1. Start the browser container from [packages/core/image](../core/image/README.md). Its log prints an
    endpoint and a bearer token.
@@ -151,22 +101,19 @@ browser you host: nothing is billed per call, and the cost is the machine runnin
    endpoint and token before writing; if it refuses, use **Check connection** on the Browser tab to see
    the specific cause.
 
-The token guards the browser endpoint, not a site account, so it is stored once for the browser rather
-than per backend. The shared endpoint wins over a backend's own; the backend endpoint is only a
-fallback while the shared one is empty. The session file must be the one the container writes,
-otherwise every read starts signed out. Nothing in this plugin can sign in — login stays with whoever
-owns that browser.
+The endpoint token protects access to the browser; it does not sign you in to Xiaohongshu. If you set
+a session file, use the one written by the container. Sign in through noVNC; the plugin cannot sign in
+for you.
 
-The per-site concurrent-reads setting bounds how many reads run on one site at once. It is not the
-global parallel-backend count on the behaviour tab: that one limits how many providers a single search
-queries. A 429 answer lowers the per-site cap to 1 for the rest of that browser session.
+The per-site concurrent-reads setting limits browser reads on one site. The parallel-backend setting
+on **Search behavior** instead limits how many providers a search queries.
 
 ## Tools
 
 - `web_search` — the backend fan-out described above: every enabled backend.
 - `web_search_plus` — search with a strategy for this call only: `backends` (a subset of the enabled
   ones; one id runs that backend alone, several run in parallel), `allBackends` + `exclude` (everything
-  except a few), `compact` (links and titles only, the biggest lever on result size) and `maxResults`.
+  except a few), `compact` (shorter results with backend provenance) and `maxResults`.
   Saved configuration is untouched, a backend that is not enabled is reported rather than silently
   dropped, and the result names the backends that actually ran. Can be switched off in settings.
 - `x_thread` — read one X post with its replies. Needs the X backend in session mode; depth, reply
@@ -183,44 +130,27 @@ queries. A 429 answer lowers the per-site cap to 1 for the rest of that browser 
 - `search_manage` — inspect or change this plugin's settings from the agent side, including the shared
   browser token (`scope: browser`) instead of a backend credential. Also runs the user-triggered page
   fetch test (`action: "fetch-test"` with `url` and `format`).
-- `web_extract` — fetch **one** page: `url` plus a required `format` (`markdown` to read, `html` to
-  inspect structure). Route order, provider selection, credentials and fallback rules are saved
-  configuration, never call parameters. Returned page content is untrusted. **Off by default**: the
-  Fetch tab's "Allow web_extract" switch registers or hides the tool entirely, so an agent with a
-  stronger native fetch tool does not receive a duplicate.
+- `web_extract` — fetch one page as Markdown or HTML. **Off by default**; enable **Allow web_extract**
+  on the **Page fetch** tab to make it available to the agent. Requires `url` and `format`
+  (`markdown` or `html`) and uses your saved fetch settings. Treat returned page content as untrusted.
 
 ## Page fetching
 
-The same settings page has a **Page fetch** tab beside **Search**, editing the same draft:
+Fetch a single URL as **Markdown** for reading or **HTML** for inspecting page structure. Available
+methods are direct HTTP, your shared browser, and a fetch provider. Configure which methods to use,
+their order and fallback rules on **Settings → Web search → Page fetch**.
 
-- **Routes** — HTTP, the shared browser and one provider, each with its own switch, timeout, order
-  (↑/↓ buttons, keyboard reachable) and fallback rules. Rules are OR, conditions inside one rule are
-  AND, and a condition is true/false/unavailable; a missing field is never an empty string. Presets
-  add an ordinary editable status rule or a heuristic challenge-page rule.
-- **Provider** — the fetch-capable providers only (eleven in this release: Exa, Parallel, DeepSeek,
-  Serpex, Linkup, Tavily, You.com, Keenable, AnySearch, Doubao and the self-hosted open-websearch),
-  each with the formats it can return, its own fetch access mode, transport, endpoint, timeout,
-  options and the cost and quota of every mode it offers. Every provider card stays collapsed and
-  only a click opens it; selecting a provider in the select never unfolds a card, the badge says
-  which one is selected. Five providers also fetch keylessly — Exa and Parallel over MCP, Tavily over
-  its keyless header, Keenable and AnySearch over their anonymous paths — and only those modes were
-  observed live; every keyed mode is documented-only (no paid call was made) and the card labels it
-  that way. A keyed fetch uses the provider's one stored search key; with no stored key it sends
-  nothing and reports an authentication attempt, which a fallback rule can match so the next enabled
-  route still serves the page. Serpex, Linkup and You.com can return the page's own HTML; the rest
-  return Markdown or plain text, so asking them for HTML skips that route without a request.
-- **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
-  width, the public-only/private-network policy, and the browser route's Cloudflare challenge solver
-  (`auto` by default: one bounded attempt at an identified Turnstile page — the driver clicks the
-  widget, polls for up to 10 seconds, then navigates once more if it cleared, and it never waits for a
-  person; `off` leaves the page exactly as it answered). A browser or provider route resolves the
-  target itself, so switching that route on is the delegated-fetching decision; there is no separate
-  switch, and every result from such a route carries the trust-boundary note.
-- **Test** — a URL, a required format and one user-triggered run against the *saved* configuration.
-  It can reach the network (and a provider may meter it); nothing runs on render or save.
+1. Enable at least one fetch method. For browser fetching, set up the shared endpoint and token on the
+   **Browser** tab. For a provider, select it and choose its fetch access mode; add a key if required.
+2. Review costs, timeouts, output limits and network access settings, then **Save settings**.
+3. Enter a URL and choose **Markdown** or **HTML** in the page-fetch test, then run it against the saved
+   settings. Enable **Allow web_extract** if you also want the agent to fetch pages.
 
-Readiness problems are shown before a test: no enabled route, a browser route without an endpoint, a
-provider route without a provider, or a missing provider credential.
+Choose a provider in the settings page and check its supported formats and costs. Some modes work
+without an API key; others require a saved key. Search and fetching share a provider's key.
+For pages that need JavaScript, use the shared browser. Access to protected pages is not guaranteed.
+
+**Tests make real network requests and may incur provider charges.**
 
 ## Troubleshooting
 
@@ -232,7 +162,7 @@ provider route without a provider, or a missing provider credential.
 | Rate limit from one backend | That backend refused the request. Wait, or lower its per-minute budget on its row. |
 | "Configuration revision conflict" | Another window saved first. Reload the page and apply your change again; the draft is kept. |
 | Save refused: browser endpoint unreachable or token rejected | The save gate could not verify an enabled browser dependency. Open the Browser tab, run **Check connection**, fix the endpoint or token, or disable every browser-dependent feature to save offline. |
-| A validation issue names a route kind I cannot find | Click the issue's fix link: it opens the owning tab, unfolds the route's fallback rules and focuses the control. |
+| A setting is invalid | Follow the issue's fix link to the setting, correct it and save again. |
 
 ## Development
 

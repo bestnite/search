@@ -32,71 +32,36 @@ and Reddit, which need no account.
 1. Open `~/.config/websearch-mcp/config.json`.
 2. Under `search.backends`, set `"enabled": true` on the providers you want. Anonymous tiers —
    Keenable, Exa, You.com, AnySearch, Parallel, Reddit — need nothing else.
-3. Register the server with your MCP client (next section).
+3. Register the server with your MCP client (see **Client configuration**).
 4. Ask the client to search. To see what is available without spending anything, call
    `list_backends` first: it reports each backend's modes, cost tier, enabled state and whether a
    credential is present. It never enables anything.
 
-## Search response and provenance
+## Search results
 
-`web_search` distinguishes configuration from what a call actually did:
-
-- `enabledBackends`: every backend enabled in the current configuration, not evidence of execution.
-- `requestedBackends`: the explicit backend array, or `"all"` when no selection was supplied.
-- `selectedBackends`: requested, enabled backends after exclusions, taken from the engine outcomes.
-- `executedBackends`: selected backends that attempted an upstream request **in this call**. A cache
-  hit or a failure before a request has no executed backend.
-- `backends`: compatibility alias for `selectedBackends`; older releases misleadingly returned the
-  entire enabled set here.
-- `cached`: whether the response came from the search cache.
-- `backendStats`: each selected backend's `backend`, `ok`, `attempts`, `sourceCount` and optional
-  `error`. `sourceCount` counts raw backend results before filtering, deduplication and the merged
-  result limit. On a cache hit it describes the cached result, but `attempts` is zero.
-
-Every merged source includes `backends: string[]`, for example `["exa", "parallel"]`. URL and title
-deduplication union these ids without duplicates; compact output and cache hits preserve them.
-The text response also names enabled, requested, selected and executed sets, cache status, and the
-backend ids beside each result, so clients that only read text receive the same provenance.
+Each result names the backends that found it, including multiple sources for the same page.
+The response also shows which backends were used and whether it came from the cache.
 
 ## Settings page
 
-The configuration has a page: every backend, its access mode, its cost tier, its options and its
-credential in one form, plus a probe button per backend. **The MCP server serves it itself** — one
-process, no extra unit, container or port-forwarder to install:
+Use the settings page to choose backends, check costs, enter credentials and test your setup:
 
 ```sh
-WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp   # stdio client + page
+WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=replace-with-a-long-random-token websearch-mcp
 ```
 
-- `WEBSEARCH_MCP_UI_PORT` turns the page on for that process; `WEBSEARCH_MCP_UI_HOST` picks the bind
-  address (default `127.0.0.1`, so a client on the same machine needs nothing else).
-- The page lives exactly as long as the server does. When the client closes stdin the process exits
-  and the port is released, which also means a client that respawns the server gets a fresh page.
-- A port that cannot be bound is reported on stderr and the MCP tools carry on: a page is never a
-  reason to lose the tools.
-- **Authentication is on only when a token is supplied, and the token comes from the environment or
-  the command line — this server never writes one to disk.** `--no-token` (page-only mode) or
-  `WEBSEARCH_MCP_UI_TOKEN` (any mode) decides it; with neither, the page is open and the log says so.
-- With a token the first request carries `?token=`, exchanged for an `HttpOnly`, `SameSite=Strict`
-  cookie, so the link does not stay in browser history.
-- Saving validates against the same schema the server enforces. A rejected save leaves the file
-  untouched and lists every problem by path; an accepted one writes `config.json.bak-<local time>`
-  (five kept) and replaces the file atomically at mode 0600. The server watching that file reloads
-  immediately, so the next `web_search` already uses what the page saved.
-- The page has **Search** and **Page fetch** tabs over one shared draft: the fetch tab edits route
-  order and enablement, per-route fallback rules, the one selected fetch provider (with its own access
-  mode, endpoint, timeout and options), the safety limits, and a user-triggered fetch test that takes a
-  URL and a required format. Fetch settings live in the same file, so a running server picks them up
-  through the same watcher.
-- A file that stops parsing keeps the previous configuration and says why on stderr.
-- When a `config.container.json` sits beside the file, every save rewrites it too: loopback endpoints
-  become `host.containers.internal`, and the browser session file is mapped into `/host/home`. The
-  companion is never created on its own.
+Open `http://127.0.0.1:7799/?token=replace-with-a-long-random-token`. The page is available while the MCP server is running.
+Set `WEBSEARCH_MCP_UI_HOST` if you need a different bind address. Without a token, the page is open;
+set one before exposing it beyond your machine.
 
-Page without an MCP client, for a quick look:
+The page has sections for search, reliability, diagnostics, backends, browser setup and page fetching.
+Saved changes take effect on the next call, without restarting the server. Invalid changes are
+rejected; recent configuration backups are kept automatically.
+
+To run only the settings page:
 
 ```sh
-websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url prints the links and exits
+websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 ```
 
 ## Client configuration
@@ -138,12 +103,11 @@ Put them where your client can see them:
 ```
 
 If an environment value is absent, `credentials.<backend-id>` may hold the value itself inside the
-config file. Values are literal strings: `${...}` is not expanded. Saved `credentialRef` fields are
-discarded on load so a file can never redirect a lookup.
+config file. Values are literal strings: `${...}` is not expanded.
 
 ## Browser-backed search
 
-Xiaohongshu answers only its own page runtime, so it reads through a browser container you host. Start
+Xiaohongshu search and note reading need a browser container. Start
 it from [packages/core/image](../core/image/README.md), sign in over VNC, then point the server at it:
 
 ```json
@@ -163,54 +127,36 @@ it from [packages/core/image](../core/image/README.md), sign in over VNC, then p
 ```
 
 The endpoint token goes in `DSH_SEARCH_BROWSER_TOKEN`, or in `credentials.browser` inside the file.
-`maxConcurrentReads` (1–8) caps how many reads run on the site at once; the default is a conservative
-local value, not a site quota. `statePath` must be the file the container writes, otherwise every read
-starts signed out.
+Set `statePath` to the container's saved session file. `maxConcurrentReads` (1–8) controls concurrent
+reads on the same site.
 
-Searching needs only the endpoint. Reading a note goes through the same browser, so the backend
-must be enabled in browser mode; `xiaohongshu_note` then takes the share link from the app (it
-carries the token the read needs) or a note id an earlier search returned.
+To read a note, pass its full share link from the app, or a note id returned by an earlier search,
+to `xiaohongshu_note`.
 
 ## Tools
 
 | Tool | What it does |
 | --- | --- |
-| `web_search` | Search across the enabled backends. Takes `query`, plus optional `backends`, `allBackends`, `exclude`, `compact` and `maxResults`. `backends` decides how many run: one id runs that backend alone, several run in parallel, and omitting it runs every enabled backend. Anything that cannot be honoured is named in the report rather than silently dropped. |
-| `read_thread` | Read one discussion, with the pictures a post carries returned as MCP image content (bounded by count, per-file size and a per-call budget, with every link listed): `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
-| `xiaohongshu_note` | Read one note: text, author, engagement counts, tags, pictures as image
-content, and optionally its top-level comments (depth is one level, `commentLimit` 1–50). Needs the
-Xiaohongshu backend in browser mode plus a browser endpoint; a disabled backend, a missing endpoint
-or a missing note token is reported instead of an empty note. |
-| `list_backends` | Every backend with its modes, cost tier, enabled state and whether a credential is present. It never enables anything. |
-| `web_extract` | Fetch **one** page: `url` plus a required `format` (`markdown` to read, `html` to inspect structure). Only one URL per call, never a crawl. Route order, provider selection, credentials and fallback rules are saved configuration. Returned page content is untrusted. **Hidden until `search.tools.webExtract` is `true`**: while it is off the tool is absent from `tools/list` instead of being advertised and refusing to run, and turning it on or off reloads through the SDK's `notifications/tools/list_changed`. |
+| `web_search` | Search selected backends with `query`. Optional: `backends`, `allBackends`, `exclude`, `compact`, `maxResults`. One backend id searches only that backend; omitting the selection searches every enabled backend. |
+| `read_thread` | Read a Reddit post and comments or an X post and replies, including pictures. X requires session mode. |
+| `xiaohongshu_note` | Read a note's text, author, engagement, tags and pictures, with optional comments. Requires the Xiaohongshu backend in browser mode and a configured browser. |
+| `list_backends` | List available backends, access modes, costs, enabled state and credential readiness. |
+| `web_extract` | Read one page as Markdown or HTML. Disabled by default; enable it in **Page fetch**. |
 
-`compact: true` returns URL, title and date only, which is usually the difference between a usable
-context and a flooded one.
+`compact: true` omits snippets while keeping links, titles, dates and backend provenance.
 
 ## Page fetching
 
-Page fetching is the same core engine the DSH plugin uses: ordered routes (HTTP, shared browser, one
-selected provider), per-route fallback rules with three-valued conditions, and HTML or Markdown output.
-`search.tools.webExtract` defaults to `false`; with it off the tool is hidden while the configuration,
-credentials, settings page and library API stay available.
+Use `web_extract` to read a known URL as Markdown or HTML. Enable it in the settings page, or set
+`search.tools.webExtract` to `true` in the configuration file.
 
-```sh
-websearch-mcp --print-config > ~/.config/websearch-mcp/config.json   # includes pageFetch and tools.webExtract
+```json
+{ "url": "https://example.com/article", "format": "markdown" }
 ```
 
-Only public targets are fetched by default, and the HTTP transport pins the connection to the address
-the policy validated. Redirects are followed one hop at a time. A browser or provider route resolves
-the target elsewhere, so `pageFetch.allowDelegatedFetching` has to be switched on deliberately; the
-result then names that trust boundary. Both shipped fetch providers return native Markdown, so
-`format: "html"` is served by the HTTP or browser route, and a Markdown-only provider is skipped
-without a request.
-
-## Protocol versions
-
-The wire protocol is the [official TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/v2/)
-(`@modelcontextprotocol/server`), not a hand-written loop: the server answers the stateless
-`2026-07-28` revision and falls back to the 2025 handshake for clients that still open with
-`initialize`. A protocol revision therefore reaches this package as a dependency bump.
+Use `"html"` when you need the page structure. Browser support is available for JavaScript pages.
+You can choose a fetch provider in **Page fetch**; check its supported formats and costs, and supply
+an API key if required. Page fetching allows public URLs by default.
 
 ## Behaviour worth relying on
 
@@ -220,11 +166,8 @@ The wire protocol is the [official TypeScript SDK](https://ts.sdk.modelcontextpr
   not; total failures say the search failed. Failed calls are never cached.
 - **Per-call strategy, saved config untouched.** `backends`, `exclude` and `compact` apply to that one
   call, so a narrow lookup and a broad sweep can coexist without editing the file.
-- **Reddit is anonymous by default.** No account needed; the adapter uses the same anonymous token the
-  Android client obtains, because Reddit's public REST search answers 403 to anonymous callers.
-- **X thread reading follows the site, not a scraper.** The adapter reads the operation the web app
-  embeds in the post page and calls it directly, so it survives front-end releases without a
-  transaction-id signer.
+- **Reddit is anonymous by default.** No account is needed.
+- **X discussions include replies.** Use session mode with valid account cookies.
 
 ## Troubleshooting
 

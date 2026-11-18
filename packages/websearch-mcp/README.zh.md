@@ -24,38 +24,34 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 
 1. 打开 `~/.config/websearch-mcp/config.json`
 2. 在 `search.backends` 里把想用的那几家改成 `"enabled": true`。匿名档的 Keenable、Exa、You.com、AnySearch、Parallel、Reddit 不需要额外配置
-3. 按下一节把服务注册到你的 MCP 客户端
+3. 按「客户端配置」把服务注册到你的 MCP 客户端
 4. 让客户端搜点东西
 
 想先看看有什么可用又不花钱，调 `list_backends`：它列出每个后端的模式、费用档、启用状态以及有没有凭证，但不会启用任何东西。
 
+## 搜索结果
+
+每条结果都会标注找到它的后端，同一页面可以保留多个来源。响应还会说明本次使用了哪些后端，
+以及是否命中缓存。
+
 ## 配置页面
 
-配置有页面了：每个后端的接入模式、成本档位、选项与凭证都在同一张表里，每张卡片带一个实测按钮。
-**这个页面由 MCP 服务器自己提供**——一个进程，不需要额外的单元、容器或端口转发：
+在配置页面选择后端、查看费用、填写凭证，也可以直接测试是否可用：
 
 ```sh
-WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=... websearch-mcp   # stdio 服务 + 页面
+WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=replace-with-a-long-random-token websearch-mcp
 ```
 
-- `WEBSEARCH_MCP_UI_PORT` 打开页面，`WEBSEARCH_MCP_UI_HOST` 选绑定地址（默认 `127.0.0.1`，
-  同机客户端什么都不用加）。
-- 页面活多久取决于服务活多久。客户端关掉 stdin，进程退出、端口释放；客户端重新拉起服务，页面也就跟着回来。
-- 端口绑不上时只在 stderr 报一句，MCP 工具照常工作——页面永远不该成为丢工具的理由。
-- **只有给了令牌才鉴权，令牌只从环境变量或命令行来——服务绝不往磁盘写令牌。** 页面模式也可以用
-  `--no-token`；两者都没有时页面是开放的，日志会说明。
-- 有令牌时第一个请求带 `?token=`，换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不留在浏览器历史里。
-- 保存用服务端同一套 schema 校验。被拒的保存不动文件，按字段路径列出问题；通过的保存先写
-  `config.json.bak-<本地时间>`（保留 5 份），再原子替换并设为 0600。服务一直在 watch 这个文件，
-  所以保存完下一次 `web_search` 就用新配置。
-- 文件解析不了时保留上一份可用配置，并在 stderr 说明原因。
-- 配置旁边如果有 `config.container.json`，每次保存会连它一起重写：loopback 端点换成
-  `host.containers.internal`，浏览器登录态文件映射到 `/host/home`。没有这个文件就不会凭空创建。
+打开 `http://127.0.0.1:7799/?token=replace-with-a-long-random-token`，页面会随 MCP 服务一起运行。
+需要更改监听地址时设置 `WEBSEARCH_MCP_UI_HOST`。不设令牌时页面无需登录，向本机以外开放前请设置令牌。
 
-不想起 MCP 客户端、只想看一眼页面：
+页面分为搜索、可靠性、诊断、后端、浏览器和页面抓取几个部分。保存后下一次调用即使用新配置，
+无需重启服务；无效配置不会保存，近期配置会自动备份。
+
+只运行配置页面：
 
 ```sh
-websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打印链接
+websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 ```
 
 ## 客户端配置
@@ -93,11 +89,11 @@ websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打
 }
 ```
 
-环境变量没有时，可以用配置文件里的 `credentials.<后端-id>` 直接写值。值是字面字符串，`${...}` 不会被展开。加载时保存的 `credentialRef` 字段会被丢弃，配置文件没办法把查询指到别的密钥上。
+环境变量没有时，可以用配置文件里的 `credentials.<后端-id>` 直接写值。值是字面字符串，`${...}` 不会被展开。
 
 ## 需要浏览器的搜索
 
-小红书只认自己的页面运行时，所以它走你自己托管的浏览器容器。按 [packages/core/image](../core/image/README.zh.md) 起容器、在 VNC 里登录，然后把它配进来：
+小红书搜索和笔记读取需要浏览器容器。按 [packages/core/image](../core/image/README.zh.md) 起容器、在 VNC 里登录，然后把它配进来：
 
 ```json
 {
@@ -115,47 +111,42 @@ websearch-mcp --ui --host 0.0.0.0 --port 7799 --print-url   # --print-url 只打
 }
 ```
 
-端点令牌写在 `DSH_SEARCH_BROWSER_TOKEN`，或者文件里的 `credentials.browser`。`maxConcurrentReads`（1–8）限制同一个站点上同时跑几个读取，默认值是保守的本地取值，不代表站点额度。`statePath` 必须是容器写的那个文件，否则每次读回来都是未登录。只要端点配好就能搜索；读笔记走的是同一个浏览器，所以后端必须启用为 browser 模式，`xiaohongshu_note` 吃 App 里复制的分享链接（里面带着读取要用的 token），或者之前搜索返回的笔记 id。
+端点令牌写在 `DSH_SEARCH_BROWSER_TOKEN` 或文件里的 `credentials.browser`。
+`statePath` 填容器保存登录态的文件路径，`maxConcurrentReads`（1–8）控制同一站点的并发读取数。
+
+读取笔记时，向 `xiaohongshu_note` 传入 App 中复制的完整分享链接，或之前搜索返回的笔记 id。
 
 ## 工具
 
 | 工具 | 做什么 |
 | --- | --- |
-| `web_search` | 在已启用的后端里搜索。参数 `query`，可选 `mode`、`backends`、`allBackends`、`exclude`、`backend`、`compact`、`maxResults`。没法满足的选项会在报告里点名，不会被悄悄忽略。 |
-| `read_thread` | 读一个讨论帖，图片以 MCP 图片内容返回（按张数、单文件大小和单次预算限制，所有链接都会列出）：`source: "reddit"` 读帖子及评论树（可设 `sort`、`limit`、`depth`），`source: "x"` 读推文及回复（需要 X 后端处于会话模式）。评论内容是用户生成的，不可信。 |
-| `xiaohongshu_note` | 读一篇笔记：正文、作者、赞藏评转、标签、配图（以图片内容返回），需要的话再读一层评论（只有一层，`commentLimit` 1–50）。需要小红书后端处于 browser 模式且浏览器端点已配置；后端没开、端点没配、缺笔记 token 都会直说，不会回一篇空笔记。 |
-| `list_backends` | 列出每个后端的模式、费用档、启用状态和凭证是否就位。不会启用任何东西。 |
+| `web_search` | 搜索指定后端。必填 `query`，可选 `backends`、`allBackends`、`exclude`、`compact`、`maxResults`。只指定一个后端就只搜这一家，不指定则搜索所有已启用后端。 |
+| `read_thread` | 读取 Reddit 帖子和评论，或 X 帖子和回复，包括配图。X 需要会话模式。 |
+| `xiaohongshu_note` | 读取笔记正文、作者、互动数据、标签和配图，可选读取评论。需要启用小红书后端的 browser 模式并配置浏览器。 |
+| `list_backends` | 查看后端、接入模式、费用、启用状态和凭证是否就绪。 |
+| `web_extract` | 读取单个网页，返回 Markdown 或 HTML。默认关闭，在「页面抓取」中启用。 |
 
-`compact: true` 只回 URL、标题和日期，通常就是一个还能用的上下文和一个被灌满的上下文的区别。
+`compact: true` 不返回摘要，保留链接、标题、日期和来源后端。
 
 ## 页面抓取
 
-页面抓取与 DSH 插件共用同一个 core 引擎：有序路由（HTTP、共享浏览器、一个选定服务商）、按路由配置的
-回退规则（三值条件），输出 HTML 或 Markdown。`search.tools.webExtract` 默认 `false`；关闭时工具不会
-出现在 `tools/list` 里，而配置、凭证、设置页与库 API 仍然可用。
+用 `web_extract` 读取已知 URL，返回 Markdown 或 HTML。在设置页启用，或将配置文件中的
+`search.tools.webExtract` 设为 `true`。
 
-```sh
-websearch-mcp --print-config > ~/.config/websearch-mcp/config.json   # 含 pageFetch 与 tools.webExtract
+```json
+{ "url": "https://example.com/article", "format": "markdown" }
 ```
 
-默认只抓公网目标，HTTP 传输会把连接绑定到策略校验过的地址；重定向逐跳跟随。浏览器或服务商在别处解析
-目标地址，所以必须显式打开 `pageFetch.allowDelegatedFetching`，结果里会写明这个信任边界。两个内置抓取
-服务商都只返回原生 Markdown，因此 `format: "html"` 由 HTTP 或浏览器路由提供，只支持 Markdown 的服务商
-会在不发请求的情况下被跳过。
-
-## 协议版本
-
-线上协议交给[官方 TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/v2/)
-（`@modelcontextprotocol/server`），不是手写循环：服务端会说无状态的 `2026-07-28`，对仍在用
-`initialize` 开场的客户端回退到 2025 握手。协议改版因此是升依赖，不是重写连接层。
+需要查看页面结构时使用 `"html"`。支持读取需要 JavaScript 的页面，也可以在「页面抓取」中选择服务商。
+使用前请查看支持的格式和费用，需要 API Key 的模式应先填写凭证。默认只允许公网地址。
 
 ## 可以依赖的行为
 
 - **不切换。** 后端只按你选定的模式、你给的凭证、配置里的端点工作。重试不会换服务商、不会换模式。
 - **失败看得见。** 部分失败返回成功的那部分并点名失败的；全部失败就说搜索失败。失败的调用不会进缓存。
-- **单次策略不动配置。** `mode`、`backends`、`compact` 只作用这一次，所以窄查询和广撒网可以并存，不用来回改文件。
-- **Reddit 默认匿名。** 不需要账号，用的就是安卓客户端拿的那种匿名 token——Reddit 的公开 REST 搜索对匿名调用一律 403。
-- **X 的帖子按站点自己的方式读。** 适配层读页面里内嵌的那个接口再直接调用，前端发版不会失效，也不需要自己签 transaction id。
+- **单次策略不动配置。** `backends`、`exclude`、`compact` 只作用这一次，所以窄查询和广撒网可以并存，不用来回改文件。
+- **Reddit 默认匿名。** 不需要账号。
+- **X 讨论支持读取回复。** 需要使用会话模式，并提供有效的账号 Cookie。
 
 ## 常见问题
 

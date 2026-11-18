@@ -22,31 +22,19 @@
 | 给任意 MCP 客户端加一个搜索工具 | `@nite07/websearch-mcp` | [packages/websearch-mcp](packages/websearch-mcp/README.zh.md) |
 | 自己写客户端 | `@nite07/search-core` | [packages/core](packages/core/README.zh.md) |
 
-DSH 插件和 MCP 服务都只是同一个 core 的外壳，所以在一处启用的后端，在另一处行为一致。
+DSH 插件和 MCP 服务都只是同一个 core 的外壳，所以在一处启用的后端，在另一处行为一致。搜索结果会标注来源后端，同一页面可以保留多个来源。
 
 ## 页面抓取（可选）
 
-同一个 core 也支持按顺序、可配置的路由抓取**单个页面**：HTTP 直连、共享浏览器，或选定的一个服务商，
-每条路由有自己的回退规则，输出 HTML 或 Markdown。DSH 中的 agent 工具叫 `web_extract`，默认
-**隐藏**：先在设置页打开 `tools.webExtract`，agent 才能调用。MCP 外壳接入暂缓，待 DSH 实测后再推进。
-路由顺序、服务商选择、凭证与安全上限都
-属于保存的配置，不是调用参数。
+读取网页内容，返回便于阅读的 Markdown 或便于查看结构的 HTML。DSH 插件和 MCP 服务都提供
+`web_extract`，在设置页启用后即可使用。
 
 ```text
-web_extract(url, format)   format 必填：markdown 用来读，html 用来看结构
+web_extract(url, format)   format：markdown 或 html
 ```
 
-一次只抓一个页面，不做爬取；路由串行执行、不并行；结果会列出每次尝试的目标状态码、服务商 API 状态码、
-命中的规则与脱敏后的错误。默认只允许公网目标，并把连接绑定到已校验的地址；浏览器或服务商在别处解析
-目标地址，所以这类路由必须显式打开「委托抓取」。能抓取的服务商有 11 家：Exa、Parallel、DeepSeek、
-Serpex、Linkup、Tavily、You.com、Keenable、AnySearch、豆包，以及自建的 open-websearch。每家的接入模式、
-传输方式、端点与每种模式的费用都各自声明；其中五家还能无 Key 抓取（Exa 与 Parallel 走 MCP，Tavily 用其
-无 Key 请求头，Keenable 与 AnySearch 走各自的匿名路径）。只有本机实测过的匿名模式标注为实测，所有有 Key
-模式都依据官方 API 文档实现并标注「仅文档核实」，因为没有做过付费的有 Key 调用。有 Key 抓取复用该服务商
-唯一的那份已保存密钥，可以在「页面抓取」页签的服务商卡片里就地填入（「搜索」页卡片上是同一个控件）。
-Serpex、Linkup、You.com 能返回页面自身的 HTML，其余只返回 Markdown 或纯文本，请求
-HTML 时该路由会被直接跳过、不发请求。详见[设计文档](docs/PAGE-FETCH-DESIGN.md)、
-[服务商证据](docs/PAGE-FETCH-PROVIDERS.md)与[依赖证据](docs/PAGE-FETCH-DEPENDENCIES.md)。
+支持读取需要 JavaScript 的页面，也可以选择抓取服务商。部分模式需要 API Key，可能产生费用，
+可在「页面抓取」中配置。
 
 ## 从这里开始
 
@@ -56,9 +44,7 @@ HTML 时该路由会被直接跳过、不发请求。详见[设计文档](docs/P
 dsh plugin add @nite07/dsh-search
 ```
 
-然后打开 **设置 → 网页搜索**，挑后端，保存。设置页用「搜索」「浏览器」「页面抓取」三个页签编辑同一份草稿；
-保存启用浏览器搜索后端或抓取浏览器路由的配置前，会先用有界、不导航的连接验证端点和已保存令牌。
-完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh.md)。
+然后打开 **设置 → 网页搜索**，选择后端并保存。完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh.md)。
 
 **MCP 客户端**
 

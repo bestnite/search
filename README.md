@@ -26,35 +26,20 @@ were checked are in [BACKENDS.md](packages/dsh-search/docs/BACKENDS.md).
 | Build your own client on top | `@nite07/search-core` | [packages/core](packages/core/README.md) |
 
 Both DSH and the MCP server are thin shells over the same core, so a backend enabled in one behaves
-the same in the other.
+the same in the other. Search results identify their source backends, including multiple sources
+for the same page.
 
 ## Page fetching (optional)
 
-The same core also fetches one page at a time through ordered, configurable routes — HTTP, the shared
-browser, or one selected provider — with per-route fallback rules and HTML or Markdown output. The
-DSH agent tool is called `web_extract`, and it starts **hidden**: turn on `tools.webExtract` in
-the settings page before an agent can call it. MCP host integration is deferred until DSH user testing
-is complete. Route order, provider selection, credentials and the
-safety limits are saved configuration, not call parameters.
+Read a web page as Markdown for reading or HTML for inspecting its structure. Both the DSH plugin
+and MCP server offer `web_extract`; enable it in the settings page before use.
 
 ```text
-web_extract(url, format)   format is required: markdown to read, html to inspect structure
+web_extract(url, format)   format: markdown or html
 ```
 
-Only one page per call, never a crawl; routes run one at a time, never in parallel; each result lists
-every attempt with target status, provider API status, matched rules and a sanitized error. Public
-targets only by default, with the connection pinned to the address that was validated. A provider or
-remote browser resolves the target elsewhere, so those routes need an explicit delegated-fetching
-opt-in. Eleven providers can fetch: Exa, Parallel, DeepSeek, Serpex, Linkup, Tavily, You.com, Keenable,
-AnySearch, Doubao and the self-hosted open-websearch. Each declares its own access modes, transport,
-endpoint and per-mode cost; five of them also fetch keylessly (Exa and Parallel over MCP, Tavily over
-its keyless header, Keenable and AnySearch over their anonymous paths). Only the modes this deployment
-actually exercised anonymously are labelled live; every keyed mode is implemented from the official
-API reference and labelled documented-only, because no paid keyed call was made. A keyed fetch uses the
-provider's one stored key, which is entered on its provider card in the Page fetch tab (or the same
-control on the Search card). Serpex, Linkup and You.com can return the page's own HTML; the rest
-return Markdown or plain text, so asking them for HTML skips that route without a request. See the [design](docs/PAGE-FETCH-DESIGN.md), [provider evidence](docs/PAGE-FETCH-PROVIDERS.md)
-and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
+Browser support is available for pages that need JavaScript. You can also choose a fetch provider;
+some modes need an API key and may incur charges. Configure these options in **Page fetch**.
 
 ## Start here
 
@@ -64,11 +49,8 @@ and [dependency evidence](docs/PAGE-FETCH-DEPENDENCIES.md).
 dsh plugin add @nite07/dsh-search
 ```
 
-Then open **Settings → Web search**, pick your backends, and save. The page has Search, Browser and
-Page fetch tabs over one draft; saving a configuration that enables a browser-backed search or the
-fetch browser route first proves the endpoint and stored token with a bounded, navigation-free attach.
-Full walkthrough:
-[dsh-search README](packages/dsh-search/README.md).
+Then open **Settings → Web search**, pick your backends, and save.
+Full walkthrough: [dsh-search README](packages/dsh-search/README.md).
 
 **MCP client**
 
