@@ -40,7 +40,12 @@ export const DEFAULT_CHALLENGE_SOLVER = 'auto';
 export const MAX_FETCH_NAVIGATIONS = 3;
 
 /** How long one automatic challenge attempt may poll for the challenge to disappear. */
-export const CHALLENGE_SOLVE_WINDOW_MS = 10_000;
+/**
+ * How long one attempt may spend on a challenge. Two presses fit: a managed challenge can refresh once
+ * before showing its widget, and the second press is the one that can land. Longer than this only buys
+ * latency before the next route runs.
+ */
+export const CHALLENGE_SOLVE_WINDOW_MS = 15_000;
 /**
  * One press per attempt. Pressing again while the widget is verifying is what restarts a challenge
  * that was already passing, and a second press has never turned a refusal into a page.
@@ -57,7 +62,7 @@ export const RENDER_WINDOW_MS = 5_000;
  */
 export const CHALLENGE_RENDER_WINDOW_MS = 15_000;
 /** The wait between two presses, so a slow render is not clicked three times in one frame. */
-export const CHALLENGE_CLICK_INTERVAL_MS = 4_000;
+export const CHALLENGE_CLICK_INTERVAL_MS = 3_000;
 export const CHALLENGE_POLL_INTERVAL_MS = 500;
 
 /** Suggested, editable starting points rather than hidden retry policy. */
