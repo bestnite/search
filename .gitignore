@@ -2,6 +2,7 @@ node_modules
 dist/
 *.log
 .worktrees/
+.agents/
 .artifacts/
 .env
 .env.*
