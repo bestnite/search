@@ -504,6 +504,46 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         }
       };
 
+      /**
+       * After the widget clears, the page finishes on its own. No reload is forced here: a passed
+       * Turnstile reloads into the real document by itself, and one that did not pass is not going to
+       * pass because we asked again. This waits, within the render window, until the document holds
+       * readable text, and reports whether that happened.
+       */
+      const finishClearedChallenge = async (): Promise<boolean> => {
+        const budget = Math.min(RENDER_WINDOW_MS, request.routeTimeoutMs);
+        const deadlineAt = Date.now() + budget;
+        for (;;) {
+          const live = await liveChallenge();
+          if (live !== 'unknown' && !live.challenge) {
+            const text = await activePage.evaluate(() => (document.body?.innerText ?? '').trim().length).catch(error => {
+              if (request.signal.aborted) throw error;
+              return 0;
+            });
+            if (text >= READABLE_TEXT_MIN_CHARS) {
+              // The document that replaced the challenge was loaded by the page itself. Its status is
+              // readable from the navigation timing entry, so the real answer is reported without a
+              // reload of our own.
+              const fresh = await activePage.evaluate(() => {
+                const entry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+                return entry?.responseStatus ?? 0;
+              }).catch(error => {
+                if (request.signal.aborted) throw error;
+                return 0;
+              });
+              if (typeof fresh === 'number' && fresh >= 100) {
+                statusCode = fresh;
+                observedStatus = fresh;
+              }
+              notes.push('The challenge page finished on its own after the widget cleared; no reload was made.');
+              return true;
+            }
+          }
+          if (Date.now() >= deadlineAt) return false;
+          await abortableWait(Math.min(250, Math.max(0, deadlineAt - Date.now())), request.signal);
+        }
+      };
+
       const solveChallenge = async (): Promise<SolveOutcome> => {
         // The window is clipped by the route timeout, and the route signal already carries the
         // caller, the route timeout and the overall deadline, so every wait here is both bounded and
@@ -567,7 +607,9 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       // cookie that unlocks the next one; Zhihu does exactly this, and the first document it returns
       // still renders the real page. Asking once more with that cookie turns a refused load into a
       // 200. The retry only happens when the first document is a real page, never for a bare 4xx.
-      if (statusCode !== undefined && statusCode >= 400 && looksLikeRealPage(judged.capture.html ?? '')) {
+      // A challenge page is not the "rendered a real page" case: reloading it here resets the challenge
+      // the solver is about to attempt, which is exactly what made a passed Turnstile appear again.
+      if (statusCode !== undefined && statusCode >= 400 && !judged.detection?.challenge && looksLikeRealPage(judged.capture.html ?? '')) {
         notes.push(`The first document answered HTTP ${statusCode}; it rendered a page, so the navigation was retried once with the cookies that answer set.`);
         if (await navigateAgain()) {
           judged = await judge();
@@ -597,14 +639,14 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
             notes.push('The challenge widget never became clickable, so the automatic attempt sent no click; the challenge was not cleared.');
           } else if (solved.status === 'timeout') {
             notes.push(`The automatic Cloudflare challenge attempt pressed the widget ${solved.clicks} time${solved.clicks === 1 ? '' : 's'}, but the challenge was still present when the solve window ended; it was not cleared.`);
-          } else if (await navigateAgain()) {
+          } else if (await finishClearedChallenge()) {
             judged = await judge();
             if (typeof judged.capture.tooLarge === 'number') return limitResult();
             notes.push(judged.detection?.challenge
-              ? 'The automatic Cloudflare challenge attempt cleared the widget, but the retried navigation still answered a challenge page.'
-              : 'The automatic Cloudflare challenge attempt cleared the widget; the retried navigation decided the outcome.');
+              ? 'The automatic Cloudflare challenge attempt cleared the widget, but the document still looked like a challenge afterwards.'
+              : 'The automatic Cloudflare challenge attempt cleared the widget; the page resolved into the real document.');
           } else {
-            notes.push('The automatic Cloudflare challenge attempt cleared the widget, but the retry navigation did not happen (no budget left or the driver refused the load); the captured document is still the challenge page.');
+            notes.push('The automatic Cloudflare challenge attempt cleared the widget, but the document never produced readable content within the render window.');
           }
         }
       }

@@ -65,7 +65,8 @@ interface Fixture {
 function runInPage(fn: (argument: unknown) => unknown, argument: unknown, document: FakeDocument): unknown {
   const holder = globalThis as { document?: unknown };
   const previous = holder.document;
-  holder.document = { documentElement: { outerHTML: document.html }, title: document.title };
+  const visible = document.html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  holder.document = { documentElement: { outerHTML: document.html }, title: document.title, body: { innerText: visible } };
   try {
     return fn(argument);
   } finally {
@@ -107,7 +108,10 @@ function browserFixture(scenario: Scenario): Fixture {
     url: (): string => TARGET,
     waitForLoadState: async (): Promise<void> => undefined,
     waitForFunction: async (): Promise<void> => undefined,
-    evaluate: async (fn: (argument: unknown) => unknown, argument: unknown): Promise<unknown> => runInPage(fn, argument, current),
+    evaluate: async (fn: (argument: unknown) => unknown, argument: unknown): Promise<unknown> => {
+      if (typeof fn === 'function' && String(fn).includes('getEntriesByType')) return status;
+      return runInPage(fn, argument, current);
+    },
     close: async (): Promise<void> => {
       page.closed = true;
     },
@@ -242,13 +246,13 @@ test('solver off leaves an identified challenge exactly as it answered: no click
   const refused = browserFixture({ steps: [{ status: 403, document: challengeDocument() }, { status: 403, document: challengeDocument() }] });
   const refusedResult = await refused.fetcher(request({ challengeSolver: 'off' }));
   assert.equal(refused.page.clicks, 0);
-  assert.equal(refused.page.loads, 2, 'only the anti-bot retry the route already performed');
+  assert.equal(refused.page.loads, 1, 'a challenge page is never reloaded: that would reset the challenge');
   assert.equal(refusedResult.outcome, 'http-error');
   assert.equal(refusedResult.statusCode, 403);
   assert.ok(refusedResult.notes.some(note => /solver is off, so the challenge page was left/.test(note)));
 });
 
-test('auto clears the widget: one click, one more navigation, and the second answer decides', async () => {
+test('auto clears the widget: one click, no forced reload, and the resolved page decides', async () => {
   const fixture = browserFixture({
     steps: [
       { status: 200, document: challengeDocument() },
@@ -260,14 +264,13 @@ test('auto clears the widget: one click, one more navigation, and the second ans
 
   assert.equal(fixture.page.clicks, 1, 'the widget was clicked exactly once');
   assert.deepEqual(fixture.page.clickedSelectors, ['input[type=checkbox]'], 'the click went through the challenge frame');
-  assert.equal(fixture.page.loads, 2, 'one retried navigation after the markers disappeared');
-  assert.ok(fixture.page.loads <= MAX_FETCH_NAVIGATIONS, 'the navigation cap holds');
+  assert.equal(fixture.page.loads, 1, 'the page resolved by itself, so nothing was reloaded');
   assert.equal(result.outcome, 'ok');
-  assert.equal(result.statusCode, 200);
-  assert.match(result.html ?? '', /Example Domain/, 'the second navigation is the result');
+  assert.equal(result.statusCode, 200, 'the status of the resolved document is read, not invented');
+  assert.match(result.html ?? '', /Example Domain/, 'the resolved document is the result');
   assert.doesNotMatch(result.html ?? '', /challenge-platform|cf-turnstile/, 'the challenge document is not returned');
   assert.ok(result.notes.some(note => /looked like a Cloudflare challenge/.test(note)));
-  assert.ok(result.notes.some(note => /cleared the widget; the retried navigation decided the outcome/.test(note)));
+  assert.ok(result.notes.some(note => /finished on its own after the widget cleared; no reload was made/.test(note)));
 });
 
 test('auto that never clears stays a 403 challenge page, with bounded polling and capped navigations', async () => {
@@ -283,13 +286,14 @@ test('auto that never clears stays a 403 challenge page, with bounded polling an
 
   assert.equal(result.outcome, 'http-error', 'the refusal is kept, never fabricated as success');
   assert.equal(result.statusCode, 403);
-  assert.equal(fixture.page.clicks, 1, 'exactly one click, then polling');
-  assert.equal(fixture.page.loads, 2, 'the anti-bot retry ran; the cap has no room for a third');
+  assert.ok(fixture.page.clicks >= 1, 'the widget was pressed at least once, then polling was bounded');
+  assert.ok(fixture.page.clicks <= 3, 'the click cap holds');
+  assert.equal(fixture.page.loads, 1, 'nothing was reloaded: a reload cannot pass a challenge');
   assert.ok(fixture.page.loads <= MAX_FETCH_NAVIGATIONS);
   assert.ok(elapsed < 5_000, `the solve window is clipped by the route timeout (${elapsed}ms)`);
   assert.ok(result.notes.some(note => /looked like a Cloudflare challenge/.test(note)));
   assert.ok(result.notes.some(note => /still present when the solve window ended; it was not cleared/.test(note)));
-  assert.ok(result.notes.some(note => /it rendered a page, so the navigation was retried once/.test(note)), 'the pre-existing anti-bot retry still runs');
+  assert.ok(!result.notes.some(note => /it rendered a page, so the navigation was retried once/.test(note)), 'a challenge page is never treated as the rendered-real-page case');
 });
 
 test('a challenge page with no challenge frame is reported and left alone', async () => {
