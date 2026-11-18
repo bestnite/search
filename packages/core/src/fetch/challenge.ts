@@ -27,7 +27,6 @@ export const CHALLENGE_TITLE_PATTERNS: readonly { readonly needle: string; reado
  */
 export const CHALLENGE_HTML_MARKERS: readonly string[] = [
   'cf-chl-',
-  'challenge-platform',
   'challenges.cloudflare.com',
   '__cf_chl_',
   'cf_chl_opt',
@@ -45,7 +44,40 @@ export const CHALLENGE_HTML_MARKERS: readonly string[] = [
 export const CHALLENGE_DECISIVE_MARKERS: readonly string[] = ['cf_chl_opt', '__cf_chl_', 'cf-chl-'];
 
 /** Markers that only support a challenge claim when the title or the status already says so. */
-export const CHALLENGE_SUPPORTING_MARKERS: readonly string[] = ['challenge-platform', 'challenges.cloudflare.com', 'cf-turnstile'];
+export const CHALLENGE_SUPPORTING_MARKERS: readonly string[] = ['challenges.cloudflare.com', 'cf-turnstile'];
+
+/**
+ * Hosts of other anti-bot interstitials. They are not Cloudflare, our solver knows nothing about them,
+ * and calling them a Cloudflare challenge would be a wrong label on a real page — G2 answers with a
+ * DataDome interstitial, which is a different product with a different flow.
+ */
+const OTHER_INTERSTITIAL_HOSTS: readonly { readonly host: string; readonly name: string }[] = [
+  { host: 'captcha-delivery.com', name: 'DataDome' },
+  { host: 'captcha.px-cdn.net', name: 'PerimeterX' },
+  { host: 'hcaptcha.com', name: 'hCaptcha' },
+  { host: 'recaptcha.net', name: 'reCAPTCHA' },
+  { host: 'google.com', name: 'reCAPTCHA' },
+  { host: 'arkoselabs.com', name: 'Arkose' },
+  { host: 'funcaptcha.com', name: 'Arkose' },
+];
+
+/**
+ * Name the interstitial in front of the page when it belongs to someone else. Only used for the note:
+ * nothing is clicked and no outcome changes, because guessing at a stranger's challenge helps nobody.
+ */
+export function otherInterstitialName(frameUrls: readonly string[]): string | undefined {
+  for (const url of frameUrls) {
+    let host: string;
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      continue;
+    }
+    const match = OTHER_INTERSTITIAL_HOSTS.find(entry => host === entry.host || host.endsWith(`.${entry.host}`));
+    if (match) return match.name;
+  }
+  return undefined;
+}
 
 /** A refusal is part of the claim: no status, no support from the supporting markers. */
 function isRefusal(statusCode: number | undefined): boolean {
@@ -61,7 +93,6 @@ export const CHALLENGE_SCAN_CHARS = 262_144;
 /** How each marker is named in the note. One phrase per needle, so a note can never invent a marker. */
 const HTML_MARKER_PHRASES: Record<string, string> = {
   'cf-chl-': 'the document carried a cf-chl marker',
-  'challenge-platform': 'the document carried a challenge-platform marker',
   'challenges.cloudflare.com': 'the document referenced challenges.cloudflare.com',
   '__cf_chl_': 'the document carried a __cf_chl_ marker',
   'cf_chl_opt': 'the document carried a cf_chl_opt marker',
@@ -125,7 +156,7 @@ export function detectCloudflareChallenge(signals: ChallengeSignals): ChallengeD
     const phrase = HTML_MARKER_PHRASES[needle];
     if (!phrase) continue;
     if (CHALLENGE_DECISIVE_MARKERS.includes(needle)) markers.push(phrase);
-    else supporting.push(phrase);
+    else if (CHALLENGE_SUPPORTING_MARKERS.includes(needle)) supporting.push(phrase);
   }
   if (frameClaim) supporting.push('a frame pointed at challenges.cloudflare.com');
   // A challenge is claimed by a title that says so, by a marker only an interstitial writes, or by

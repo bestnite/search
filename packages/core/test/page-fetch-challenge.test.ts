@@ -50,6 +50,8 @@ interface Scenario {
   afterClickStatus?: number;
   /** Keep the checkbox absent for this many presence reads, the way the loading state does. */
   checkboxAfterReads?: number;
+  /** Frames the driver reports, when the scenario needs frames other than the default challenge one. */
+  frameUrls?: string[];
 }
 
 interface PageState {
@@ -159,9 +161,12 @@ function browserFixture(scenario: Scenario): Fixture {
       return unlaid ? { x: 192, y: 304, width: 0, height: 0 } : { x: 192, y: 304, width: 300, height: 65 };
     },
   });
-  const frames = () => (challengeShowing()
-    ? [{ url: () => CHALLENGE_FRAME_URL, locator: (selector: string) => ({ first: () => frameFor(selector) }) }]
-    : []);
+  const frames = () => {
+    if (scenario.frameUrls) return scenario.frameUrls.map(url => ({ url: () => url }));
+    return challengeShowing()
+      ? [{ url: () => CHALLENGE_FRAME_URL, locator: (selector: string) => ({ first: () => frameFor(selector) }) }]
+      : [];
+  };
 
   const fetcher = createBrowserFetcher(async () => ({
     newContext: async () => ({
@@ -512,4 +517,28 @@ test('the click waits for the checkbox instead of pressing empty space during th
   assert.equal(fixture.page.clicks, 1, 'exactly one press, and it landed on the checkbox');
   assert.deepEqual(fixture.page.clickedSelectors, ['input[type=checkbox]'], 'nothing else was ever clicked');
   assert.equal(result.outcome, 'ok');
+});
+
+test('another vendor interstitial is named and left alone, never called Cloudflare', async () => {
+  // G2 answers with DataDome: a full-page cross-origin interstitial, no Cloudflare markers anywhere.
+  const door = {
+    title: 'g2.com',
+    html: '<html><head><title>g2.com</title></head><body><iframe src="https://geo.captcha-delivery.com/interstitial/?initialCid=x" width="1280" height="900"></iframe></body></html>',
+  };
+  const fixture = browserFixture({ steps: [{ status: 403, document: door }], frameUrls: ['https://www.g2.com/', 'https://geo.captcha-delivery.com/interstitial/?initialCid=x'] });
+  const result = await fixture.fetcher(request());
+  assert.equal(fixture.page.clicks, 0, 'the Cloudflare solver does not touch a stranger\'s challenge');
+  assert.ok(!result.notes.some(note => /^The page looked like a Cloudflare challenge/.test(note)), 'it is not labelled as Cloudflare');
+  assert.ok(result.notes.some(note => /A DataDome interstitial answered instead of the page; it is not a Cloudflare challenge, so nothing was attempted\./.test(note)));
+  assert.equal(result.statusCode, 403, 'the refusal is still reported as it answered');
+});
+
+test('a document that only carries a generic challenge script is not a Cloudflare challenge', () => {
+  const generic = detectCloudflareChallenge({
+    title: 'g2.com',
+    htmlMatches: challengeHtmlMatches('<script src="/cdn-cgi/challenge-platform/h/b/scripts/jsd/main.js"></script>'),
+    statusCode: 403,
+  });
+  assert.equal(generic.challenge, false, 'challenge-platform alone is not evidence of Cloudflare');
+  assert.deepEqual(generic.markers, []);
 });

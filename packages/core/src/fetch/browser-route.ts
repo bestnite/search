@@ -11,6 +11,7 @@ import {
   challengeNote,
   detectCloudflareChallenge,
   isChallengeFrameUrl,
+  otherInterstitialName,
   type ChallengeDetection,
 } from './challenge.js';
 import { CHALLENGE_CLICK_INTERVAL_MS, CHALLENGE_MAX_CLICKS, CHALLENGE_POLL_INTERVAL_MS, CHALLENGE_RENDER_WINDOW_MS, CHALLENGE_SOLVE_WINDOW_MS, MAX_FETCH_NAVIGATIONS, READABLE_TEXT_MIN_CHARS, RENDER_WINDOW_MS } from './limits.js';
@@ -621,6 +622,12 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       // Honest identification: a shield page and a plain refusal become distinguishable in the record.
       // The note never changes the outcome on its own.
       let challengeNoted = false;
+      // Not every interstitial is Cloudflare. The solver is Cloudflare-only, so a stranger's challenge is
+      // named and left alone instead of being described as something it is not.
+      if (!judged.detection?.challenge && statusCode !== undefined && statusCode >= 400) {
+        const other = otherInterstitialName(frameUrlsOf(activePage));
+        if (other) notes.push(`A ${other} interstitial answered instead of the page; it is not a Cloudflare challenge, so nothing was attempted.`);
+      }
       if (judged.detection?.challenge) {
         notes.push(challengeNote(judged.detection));
         challengeNoted = true;
