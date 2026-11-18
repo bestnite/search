@@ -258,16 +258,28 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
       const finalUrl = page.url();
       // Bound the capture inside the page: the remote side measures UTF-8 bytes and, when the
       // document is over the bound, reports only the size instead of serializing it across the wire.
-      const captured = await untilAborted(
-        page.evaluate((limit: number): Capture => {
-          const root = document.documentElement;
-          const html = root ? root.outerHTML : '';
-          // Four bytes per character is the UTF-8 upper bound; one byte per character is the lower.
-          if (html.length * 4 <= limit) return { html };
-          const bytes = new TextEncoder().encode(html).byteLength;
-          return bytes > limit ? { tooLarge: bytes } : { html };
-        }, maxDomBytes),
-      );
+      const target = page;
+      const readDom = () => target.evaluate((limit: number): Capture => {
+        const root = document.documentElement;
+        const html = root ? root.outerHTML : '';
+        // Four bytes per character is the UTF-8 upper bound; one byte per character is the lower.
+        if (html.length * 4 <= limit) return { html };
+        const bytes = new TextEncoder().encode(html).byteLength;
+        return bytes > limit ? { tooLarge: bytes } : { html };
+      }, maxDomBytes);
+      // A page that navigates itself right after `domcontentloaded` destroys the context the read was
+      // bound to. That is not a fetch failure: wait for the replacement document once and read again.
+      const captured = await untilAborted((async (): Promise<Capture> => {
+        try {
+          return await readDom();
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          if (!/execution context was destroyed|cannot find context|target (page, context or browser )?closed|context was destroyed/i.test(text)) throw error;
+          if (request.signal.aborted) throw error;
+          await target.waitForLoadState('domcontentloaded', { timeout: Math.min(5_000, request.routeTimeoutMs) }).catch(() => undefined);
+          return readDom();
+        }
+      })());
       if (typeof captured.tooLarge === 'number') {
         return routeFailure(
           'limit',

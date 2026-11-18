@@ -1941,3 +1941,39 @@ test('a navigation failure without a driver code reads the same as before', asyn
   });
   assert.match(result.error?.message ?? '', /^The browser could not load the target page \(something odd happened\)\.$/);
 });
+
+test('a document that navigates while it is being read is read once more, not failed', async () => {
+  const { createBrowserFetcher } = await import('../src/fetch/browser-route.js');
+  let reads = 0;
+  const fetcher = createBrowserFetcher(async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        goto: async () => ({ status: () => 200 }),
+        url: () => 'https://example.com/',
+        waitForLoadState: async () => undefined,
+        evaluate: async () => {
+          reads += 1;
+          if (reads === 1) throw new Error('Execution context was destroyed, most likely because of a navigation');
+          return { html: '<html><head><title>settled</title></head><body>ok</body></html>' };
+        },
+        close: async () => undefined,
+      }),
+      close: async () => undefined,
+    }),
+    close: async () => undefined,
+  }) as never);
+  const result = await fetcher({
+    url: new URL('https://example.com'),
+    format: 'markdown',
+    routeTimeoutMs: 5_000,
+    settleMs: 0,
+    selectorWait: '',
+    contextMode: 'isolated',
+    endpoint: 'ws://127.0.0.1:3030/ws',
+    maxBodyBytes: 1_000_000,
+    signal: new AbortController().signal,
+  });
+  assert.equal(reads, 2, 'the read was attempted exactly twice');
+  assert.equal(result.outcome, 'ok');
+  assert.match(result.html ?? '', /ok/);
+});
