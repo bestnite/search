@@ -252,7 +252,6 @@ test('the fetch test endpoint runs the saved chain against a local page and retu
 test('the settings page offers the challenge solver and no retired delegated switch', async () => {
   const page = await readFile(new URL('../src/ui/page.html', import.meta.url), 'utf8');
   assert.match(page, /pageFetch\.browser\.challengeSolver/, 'the solver control is rendered');
-  assert.match(page, /challengeSolver: 'Cloudflare 挑战处理'/, 'the Chinese label exists');
-  assert.match(page, /challengeSolver: 'Cloudflare challenge handling'/, 'the English label exists');
+  assert.match(page, /challengeSolver: 'Cloudflare 挑战处理'/, 'the label exists');
   assert.doesNotMatch(page, /pageFetch\.allowDelegatedFetching/, 'the retired switch is gone from the page');
 });

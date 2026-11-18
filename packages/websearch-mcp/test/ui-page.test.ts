@@ -15,7 +15,7 @@ import {
  */
 const page = await readFile(new URL('../src/ui/page.html', import.meta.url), 'utf8');
 
-/** How many language tables define this label: a bare `key:` or a quoted `'key':`, once per table. */
+/** How many times this label is defined: a bare `key:` or a quoted `'key':`, exactly once now. */
 function definitions(key: string): number {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const quoted = page.match(new RegExp(`'${escaped}':`, 'g')) ?? [];
@@ -26,12 +26,12 @@ function definitions(key: string): number {
 
 test('the settings page is split into the same six subjects as the plugin page', () => {
   for (const key of ['tabBehavior', 'tabReliability', 'tabDiagnostics', 'tabBackends', 'tabBrowser', 'tabFetch']) {
-    assert.equal(definitions(key), 2, `${key} is labelled in both languages`);
+    assert.equal(definitions(key), 1, `${key} is labelled once, in Chinese`);
   }
   assert.match(page, /const TABS = \['behavior', 'reliability', 'diagnostics', 'backends', 'browser', 'fetch'\]/, 'the tab order is declared once');
   assert.match(page, /behavior: behaviorSection/, 'each tab has its own section');
   for (const help of ['helpBehavior', 'helpReliability', 'helpDiagnostics', 'helpBackends', 'helpBrowser', 'helpFetch']) {
-    assert.equal(definitions(help), 2, `${help} explains the tab in both languages`);
+    assert.equal(definitions(help), 1, `${help} explains the tab`);
   }
 });
 
@@ -40,18 +40,18 @@ test('the retired two-tab layout leaves no trace', () => {
   assert.doesNotMatch(page, /function overview\(/, 'the page-long overview is gone');
 });
 
-test('every route, condition and failure kind the core defines has a label in both languages', () => {
+test('every route, condition and failure kind the core defines has a label', () => {
   for (const kind of FETCH_ROUTE_KINDS) {
-    assert.equal(definitions(`route.${kind}`), 2, `route.${kind}`);
-    assert.equal(definitions(`routeHelp.${kind}`), 2, `routeHelp.${kind}`);
+    assert.equal(definitions(`route.${kind}`), 1, `route.${kind}`);
+    assert.equal(definitions(`routeHelp.${kind}`), 1, `routeHelp.${kind}`);
   }
-  for (const type of FETCH_CONDITION_TYPES) assert.equal(definitions(`condition.${type}`), 2, `condition.${type}`);
-  for (const kind of FETCH_FAILURE_KINDS) assert.equal(definitions(`failure.${kind}`), 2, `failure.${kind}`);
+  for (const type of FETCH_CONDITION_TYPES) assert.equal(definitions(`condition.${type}`), 1, `condition.${type}`);
+  for (const kind of FETCH_FAILURE_KINDS) assert.equal(definitions(`failure.${kind}`), 1, `failure.${kind}`);
 });
 
 test('the search timeout and the fetch deadline no longer share one label', () => {
-  assert.equal(definitions('overallTimeout'), 2, 'the search timeout keeps its own key');
-  assert.equal(definitions('fetchOverallTimeout'), 2, 'the fetch deadline has its own');
+  assert.equal(definitions('overallTimeout'), 1, 'the search timeout keeps its own key');
+  assert.equal(definitions('fetchOverallTimeout'), 1, 'the fetch deadline has its own');
   assert.match(page, /pageFetch\.overallTimeoutMs', type: 'number', label: t\('fetchOverallTimeout'\)/, 'and the fetch field uses it');
 });
 
@@ -69,5 +69,12 @@ test('the fetch provider panel reads only fields the readiness entry actually ha
 
 test('a section that throws is reported instead of silently keeping the previous tab', () => {
   assert.match(page, /catch \(error\) \{\s*\n\s*const message = error instanceof Error/, 'the section render is guarded');
-  assert.equal(definitions('sectionFailed'), 2, 'and says so in both languages');
+  assert.equal(definitions('sectionFailed'), 1, 'and says so on the page');
+});
+
+test('the page carries no second language', () => {
+  assert.match(page, /^const TEXT = \{$/m, 'the strings live in one table');
+  assert.doesNotMatch(page, /^\s{2}en: \{$/m, 'there is no English table');
+  assert.doesNotMatch(page, /id="lang"/, 'there is no language switch');
+  assert.doesNotMatch(page, /state\.lang/, 'and no language state to read');
 });

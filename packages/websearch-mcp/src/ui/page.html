@@ -153,7 +153,6 @@
   </div>
   <div class="path mono" id="configPath">—</div>
   <div class="actions">
-    <button class="ghost" id="lang">EN</button>
     <button class="ghost" id="reload">重新加载</button>
     <button class="primary" id="save">保存</button>
   </div>
@@ -164,8 +163,8 @@
 <footer id="foot"></footer>
 <div class="toast" id="toast"></div>
 <script type="module">
-const I18N = {
-  zh: {
+const TEXT = {
+
     save: '保存', reload: '重新加载', dirty: '有未保存的更改', clean: '已保存',
     saved: '已保存并热重载', savedNoChange: '没有需要保存的更改', reloaded: '已从磁盘重新加载',
     loadError: '磁盘上的配置无法解析，页面暂时显示默认值；保存后即覆盖。',
@@ -251,109 +250,19 @@ const I18N = {
     formatMarkdown: 'Markdown（阅读）', formatHtml: 'HTML（结构）', fetchTestResult: '测试结果', saveFirst: '请先保存再测试。',
     provCredOk: '已存储凭证', provCredMissing: '尚未存储凭证',
     failure: { network: '网络', timeout: '超时', http: 'HTTP', provider: '服务商', authentication: '认证', protocol: '协议', conversion: '转换', 'unsupported-content': '内容不支持', limit: '上限' },
-  },
-  en: {
-    save: 'Save', reload: 'Reload', dirty: 'Unsaved changes', clean: 'Saved',
-    saved: 'Saved and hot-reloaded', savedNoChange: 'Nothing to save', reloaded: 'Reloaded from disk',
-    loadError: 'The file on disk does not parse, so defaults are shown; saving replaces it.',
-    sectionFailed: 'This section could not be rendered; the other sections are unaffected.',
-    sessionExpired: 'Session expired. Open the link from --print-url again.',
-    mode: 'Mode',
-    maxResults: 'Max results', concurrency: 'Concurrency', overallTimeout: 'Overall timeout (ms)', backendTimeout: 'Timeout (ms)',
-    language: 'Language', region: 'Region', recency: 'Recency', dedup: 'Dedup', fusion: 'Fusion',
-    safeSearch: 'Safe search', includeDomains: 'Include domains', excludeDomains: 'Exclude domains',
-    none: 'Any', any: 'Any', day: 'Day', week: 'Week', month: 'Month', year: 'Year',
-    url: 'By URL', urlTitle: 'By URL + title', rrf: 'RRF', ordered: 'Ordered concat',
-    retry: 'Retry', cache: 'Cache', breaker: 'Breaker', diagnostics: 'Diagnostics',
-    browser: 'Shared browser', tools: 'Output', compactDefault: 'Compact output by default (URL / title / date only)',
-    webSearchPlus: 'Expose the web_search_plus compatibility fields',
-    enabled: 'Enabled', retryEnabled: 'Retry enabled', statuses: 'Retry statuses', maxRetries: 'Max retries',
-    initialDelay: 'Initial delay (ms)', maxDelay: 'Max delay (ms)', networkErrors: 'Retry network errors', timeouts: 'Retry timeouts',
-    cacheEnabled: 'Cache enabled', ttl: 'TTL (seconds)', maxEntries: 'Max entries',
-    breakerEnabled: 'Breaker enabled', threshold: 'Failure threshold', cooldown: 'Cooldown (ms)',
-    diagEnabled: 'Record diagnostics', diagEntries: 'Entries kept',
-    browserEndpoint: 'Browser endpoint', statePath: 'Session state file', browserTimeout: 'Browser timeout (ms)', maxReads: 'Concurrent reads',
-    browserToken: 'Browser token', browserTokenNote: 'Protects the browser endpoint, not a site account',
-    backends: 'Backends', filter: 'Filter by name or id', onlyEnabled: 'Enabled only',
-    summary: (on, total, missing) => `${on} of ${total} enabled, ${missing} missing a credential`,
-    credential: 'Credential', credentialSave: 'Save credential', credentialClear: 'Clear',
-    credNone: 'Not set', credFile: 'Stored in file', credEnv: 'Provided by environment', credRequired: 'Not required',
-    credEnvWins: (ref) => `${ref} wins over the file, so a value saved here is ignored.`,
-    credPlaceholder: 'Paste the credential value',
-    test: 'Test', testing: 'Testing…', probe: 'Probe query', result: 'Result',
-    tier: { free: 'free', allowance: 'allowance', paid: 'paid', trial: 'trial', account: 'account session', 'self-hosted': 'self-hosted' },
-    docs: 'Docs', pricing: 'Pricing', expand: 'Expand', collapse: 'Collapse',
-    issues: 'The configuration did not validate', noChange: '—',
-    foot: (host, port) => `Listening on ${host}:${port} · a running MCP process re-reads the file within about 150ms`,
-    companionOn: 'container copy kept in sync at',
-    noAuth: 'no auth',
-    cleared: 'Credential cleared', credSaved: 'Credential saved', missingCred: 'missing credential',
-    credBrowserNote: 'Reads go through the shared browser: set its endpoint and token under Shared browser.',
-    credAnonymousNote: 'This mode needs no credential; a key, oauth or session mode adds the field here.',
-    tabsLabel: 'Settings sections', tabBehavior: 'Behavior', tabReliability: 'Reliability', tabDiagnostics: 'Diagnostics',
-    tabBackends: 'Search backends', tabBrowser: 'Browser', tabFetch: 'Page fetch',
-    helpBehavior: 'Defaults for every search: how many results, which language and region, and how results are deduplicated and fused. A single call can override them.',
-    helpReliability: 'Timeouts, retries, cache and breaker: what a search does when it is slow or failing.',
-    helpDiagnostics: 'Record per-call diagnostics, so “why was this search slow” has an answer that is not another search.',
-    helpBackends: 'One card per search backend: enablement, access mode, endpoint, rate limits and its own credential.',
-    helpBrowser: 'The browser you host. Xiaohongshu reads and the page-fetch browser route both use it; the token protects this endpoint only.',
-    helpFetch: 'One fetch tries these routes in order; the rules decide when the next one runs. Provider and credentials reuse the search-side configuration.',
-    groupSearchDefaults: 'Search defaults', groupQueryDefaults: 'Query defaults', groupOutput: 'Output',
-    groupTimeout: 'Timeout', groupRetry: 'Retry', groupCache: 'Cache', groupBreaker: 'Breaker',
-    groupRecord: 'Recording', groupConnection: 'Connection', groupSession: 'Session', groupLimits: 'Concurrency',
-    'route.http': 'HTTP', 'route.browser': 'Browser', 'route.provider': 'Provider',
-    'routeHelp.http': 'Fastest, but cannot see a page that only appears once its scripts run',
-    'routeHelp.browser': 'Real browser rendering: slower, and it sees what scripts produce',
-    'routeHelp.provider': 'Fetches through the search provider, billed against its own quota',
-    'condition.status': 'Target status', 'condition.api-status': 'Provider API status', 'condition.network': 'Network error',
-    'condition.timeout': 'Timeout', 'condition.error': 'Failure kind', 'condition.match': 'Content match',
-    'failure.network': 'Network error', 'failure.timeout': 'Timeout', 'failure.http': 'HTTP error',
-    'failure.provider': 'Provider failure', 'failure.authentication': 'Credential rejected', 'failure.protocol': 'Protocol error',
-    'failure.conversion': 'Conversion failed', 'failure.unsupported-content': 'No usable content', 'failure.limit': 'Limit exceeded',
-    webExtract: 'Expose the web_extract tool', webExtractHelp: 'Off hides the tool entirely; fetch configuration, credentials and this page stay available.',
-    fetchReadyTitle: 'Fetch readiness', fetchReady: 'The saved fetch chain can run.', fetchReadyHelp: 'Checked from configuration and stored credentials only; nothing is fetched.',
-    problem: { fetchNoRoutes: 'No route is enabled, so every page fetch fails.', fetchDelegatedOff: 'A browser or provider route is enabled without the delegated-fetching opt-in.', fetchBrowserNoEndpoint: 'The browser route is enabled but no shared browser endpoint is set.', fetchProviderMissing: 'The provider route is enabled but no fetch-capable provider is selected.', fetchProviderMode: '{{provider}} cannot fetch in {{mode}} mode.', fetchProviderEndpoint: '{{provider}} has no fetch endpoint configured.', fetchProviderCredential: '{{provider}} needs a stored credential for its fetch mode.' },
-    routesTitle: 'Routes', routesHelp: 'One record per route; they run one at a time in this order, and a matched fallback rule moves on.  ',
-    route: { http: 'HTTP', browser: 'Browser', provider: 'Provider' },
-    routeHelp: { http: 'Direct request, decoded response HTML.', browser: 'Rendered DOM from the shared browser.', provider: 'One selected provider, native Markdown.' },
-    moveUp: 'Move up', moveDown: 'Move down', enabled: 'Enabled', timeout: 'Route timeout (ms)',
-    rulesTitle: 'Fallback rules', rulesHelp: 'Rules are OR, conditions inside one rule are AND; a missing field is unavailable, never an empty string.',
-    rulesCount: (count, max) => `${count} / ${max}`,
-    addRule: 'Add rule', addCondition: 'Add condition', removeRule: 'Remove rule',
-    addStatusPreset: 'Add status preset', addChallengePreset: 'Add challenge preset', restoreDefaultRules: 'Restore defaults',
-    presetsHelp: 'Presets are ordinary editable rules. The challenge preset combines a title and an HTML marker; it never triggers on the word "cloudflare" alone and does not solve a challenge.',
-    conditionType: 'Condition type', conditionStatuses: 'Status codes, comma separated', conditionKinds: 'Failure kinds', conditionField: 'Field', conditionOperator: 'Operator', conditionValue: 'Value', conditionCase: 'Case sensitive',
-    condition: { network: 'Network error', timeout: 'Route timeout', status: 'Target status is', 'api-status': 'Provider API status is', error: 'Operational error is', match: 'Content matches' },
-    matchField: { title: 'title', html: 'HTML', text: 'text', markdown: 'Markdown' },
-    matchOperator: { contains: 'contains', equals: 'equals', regex: 'regex' },
-    providerTitle: 'Fetch provider', providerHelp: 'Selecting a provider does not change its search participation and never sends a request on its own.', providerNone: 'None selected',
-    providerServes: (formats) => `Returns ${formats}`, providerMarkdownOnly: 'This provider returns Markdown only; asking for HTML skips it without a request and the next enabled route serves the page.',
-    providerFields: 'Rules that read title, target status or HTML stay unavailable on a provider that does not return them; the test trace names each unavailable field.',
-    fetchMode: 'Fetch access mode', fetchEndpoint: 'Fetch endpoint', providerTimeout: 'Provider call timeout (ms)', providerCredentialRequired: 'This mode needs a credential', providerCredentialOptional: 'No credential needed for this mode',
-    limitsTitle: 'Safety and limits',
-    fetchOverallTimeout: 'Overall fetch deadline (ms)', maxRedirects: 'Maximum redirects', maxBodyBytes: 'Maximum downloaded bytes', maxOutputChars: 'Maximum output characters', maxRuleScanChars: 'Rule scan characters',
-    allowPrivateNetworks: 'Allow private network targets', browserContext: 'Browser context', contextIsolated: 'Isolated', contextSession: 'Session',
-    challengeSolver: 'Cloudflare challenge handling', solverAuto: 'Attempt once', solverOff: 'Do not attempt',
-    settleMs: 'Settle delay (ms)', selectorWait: 'Selector to wait for',
-    fetchTest: 'Page fetch test', fetchTestHelp: 'A user-triggered test against the saved configuration. It reaches the network and a provider may meter the call; nothing runs automatically.', runFetchTest: 'Run fetch test',
-    formatMarkdown: 'Markdown (reading)', formatHtml: 'HTML (structure)', fetchTestResult: 'Test result', saveFirst: 'Save your changes before testing.',
-    provCredOk: 'Credential stored', provCredMissing: 'No credential stored',
-    failure: { network: 'network', timeout: 'timeout', http: 'HTTP', provider: 'provider', authentication: 'authentication', protocol: 'protocol', conversion: 'conversion', 'unsupported-content': 'unsupported content', limit: 'limit' },
-  },
 };
 
 const state = {
   snap: null, draft: null, dirty: false,
   tab: 'behavior', fetchUrl: '', fetchFormat: 'markdown', fetchResult: null, fetchBusy: false,
-  lang: localStorage.getItem('wsm.lang') || 'zh',
   filter: '', onlyEnabled: false, open: new Set(), closed: new Set(), results: {}, issues: [], probeQuery: '', compactByDefault: false,
 };
 const t = (key, ...args) => {
-  const table = I18N[state.lang] || I18N.zh;
-  const value = table[key] ?? I18N.zh[key] ?? key;
+  const value = TEXT[key] ?? key;
   return typeof value === 'function' ? value(...args) : value;
 };
-const local = (field) => (field && typeof field === 'object' ? (field[state.lang] ?? field.en ?? '') : String(field ?? ''));
+// Catalog metadata carries both languages; this page is Chinese, so it asks for that one.
+const local = (field) => (field && typeof field === 'object' ? (field.zh ?? field.en ?? '') : String(field ?? ''));
 const clone = (value) => structuredClone(value);
 
 function h(tag, props = {}, ...kids) {
@@ -396,8 +305,7 @@ function toast(message, tone = '') {
 
 function touch() { markDirty(); render(); }
 function problemText(problem) {
-  const table = I18N[state.lang] && I18N[state.lang].problem ? I18N[state.lang].problem : {};
-  const raw = table[problem.key] ?? problem.key;
+  const raw = (TEXT.problem && TEXT.problem[problem.key]) ?? problem.key;
   return String(raw).replace(/\{\{(\w+)\}\}/g, (_match, name) => String((problem.vars || {})[name] ?? ''));
 }
 function nextId(rules, base) {
@@ -1046,14 +954,12 @@ function render() {
   authChip.hidden = !noAuth;
   if (noAuth) authChip.textContent = t('noAuth');
   document.getElementById('configPath').textContent = state.snap.configPath;
-  document.getElementById('lang').textContent = state.lang === 'zh' ? 'EN' : '中文';
   document.getElementById('reload').textContent = t('reload');
   document.getElementById('save').textContent = t('save');
   const companion = state.snap.companion?.active
     ? ` · ${t('companionOn')} ${state.snap.companion.path}`
     : '';
   document.getElementById('foot').textContent = `${t('foot', state.snap.bound?.host ?? '', state.snap.bound?.port ?? '')}${companion}`;
-  document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
   renderBanner();
   const app = document.getElementById('app');
   const sections = {
@@ -1135,11 +1041,6 @@ function boot() {
   if (remembered && TABS.includes(remembered)) state.tab = remembered;
   document.getElementById('save').addEventListener('click', save);
   document.getElementById('reload').addEventListener('click', async () => { state.issues = []; await refresh(); markClean(); toast(t('reloaded')); });
-  document.getElementById('lang').addEventListener('click', () => {
-    state.lang = state.lang === 'zh' ? 'en' : 'zh';
-    localStorage.setItem('wsm.lang', state.lang);
-    render();
-  });
   refresh();
 }
 
