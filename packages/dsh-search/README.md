@@ -93,6 +93,10 @@ queries. A 429 answer lowers the per-site cap to 1 for the rest of that browser 
   from an earlier search. Needs the Xiaohongshu backend in browser mode plus a shared browser endpoint.
 - `reddit_thread` — read one Reddit post with its comment tree. Capped by depth, comment count and
   character budget.
+- `backend_status` — one compact read of what is on: which backends are enabled, each one's mode,
+  cost tier, whether a credential is stored (never the value), today's call count and the last
+  outcome with its error, plus whether this plugin is the active provider. Pass a backend id for
+  its full mode list, limits and option fields. Read-only; nothing is enabled or spent.
 - `search_manage` — inspect or change this plugin's settings from the agent side, including the shared
   browser token (`scope: browser`) instead of a backend credential.
 

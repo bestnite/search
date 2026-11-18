@@ -4,7 +4,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
 import { catalog, defaultConfig, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseConfig, parseXCredentials, revision, SearchEngine, setUserAgent, validateConfig } from '@nite07/search-core';
-import type { RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
+import type { AccessMode, BackendOutcome, RedditComment, RedditCredentials, SearchConfig } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { xhsBrowserRead } from './browser-read.js';
 import { formatXhsNote, renderXhsNote } from './xhs-note.js';
@@ -77,6 +77,79 @@ export async function apply(ctx:Context,raw:SearchConfig){
     }
     throw new Error('Unsupported search management action.');
   }
+
+  /**
+   * Compact answer to "what is enabled right now": one read for the agent, never the whole config.
+   * Credentials are reported as present or missing — the value is never resolved here.
+   */
+  async function status(args: { backend?: string }): Promise<Record<string, unknown>> {
+    const today = new Date().toISOString().slice(0, 10);
+    const counters = usage.counters();
+    const latest = new Map<string, BackendOutcome>();
+    for (const outcome of engine.diagnostics()) latest.set(outcome.backend, outcome);
+    const credentialState = async (id: string, mode: AccessMode): Promise<'not-required' | 'present' | 'missing'> =>
+      mode === 'anonymous' || mode === 'browser' ? 'not-required' : ((await ctx.credentials.describe(credentialRef(backendCredentialRef(id)))).configured ? 'present' : 'missing');
+    const lastOutcome = (id: string) => {
+      const outcome = latest.get(id);
+      if (!outcome) return undefined;
+      return { ok: outcome.ok, attempts: outcome.attempts, durationMs: outcome.durationMs, ...(outcome.at ? { at: new Date(outcome.at).toISOString() } : {}), ...(outcome.ok ? {} : { error: { kind: outcome.error?.kind ?? 'unknown', message: outcome.error?.message ?? '', ...(outcome.error?.status ? { status: outcome.error.status } : {}) } }) };
+    };
+    const attemptsToday = (id: string, mode: AccessMode) => { const counter = counters[`${id}-${mode}`]; return counter?.day === today ? counter.attempts : 0; };
+    const lastLine = (last: ReturnType<typeof lastOutcome>) => last ? `last ${last.ok ? 'ok' : 'failed'} in ${last.durationMs}ms${last.ok ? '' : ` — ${last.error?.kind}: ${last.error?.message}`}` : 'no call recorded yet';
+
+    if (typeof args.backend === 'string') {
+      const definition = catalog.find(d => d.id === args.backend);
+      if (!definition) throw new Error(`Unknown backend id: ${args.backend}`);
+      const row = config.backends[definition.id]!;
+      const credential = await credentialState(definition.id, row.mode);
+      const last = lastOutcome(definition.id);
+      const lines = [`${definition.title} (${definition.id}) — ${row.enabled ? 'enabled' : 'disabled'} in ${row.mode} mode`];
+      for (const mode of definition.modes) lines.push(`- ${mode.mode}: ${mode.tier}${mode.mode === row.mode ? ' (current)' : ''}`);
+      if (definition.options.length) lines.push(`Options: ${definition.options.map(o => `${o.key}=${String(row.options[o.key] ?? o.default)}`).join(', ')}`);
+      lines.push(`Credential: ${credential}; today ${attemptsToday(definition.id, row.mode)} calls; ${lastLine(last)}`);
+      lines.push(`Docs: ${definition.docs} (verified ${definition.verifiedAt}, evidence ${definition.evidence})`);
+      return {
+        backend: {
+          id: definition.id, title: definition.title, status: definition.status, evidence: definition.evidence, verifiedAt: definition.verifiedAt, docs: definition.docs, capabilities: definition.capabilities,
+          modes: definition.modes.map(m => ({ mode: m.mode, tier: m.tier, limits: m.limits, pricingUrl: m.pricingUrl, ...(m.credentialShape ? { credentialShape: m.credentialShape } : {}) })),
+          ...(definition.options.length ? { options: definition.options.map(o => ({ key: o.key, type: o.type, default: o.default, ...(o.choices ? { choices: o.choices } : {}), ...(o.min === undefined ? {} : { min: o.min }), ...(o.max === undefined ? {} : { max: o.max }) })) } : {}),
+        },
+        current: { enabled: row.enabled, mode: row.mode, timeoutMs: row.timeoutMs, rateLimitPerMinute: row.rateLimitPerMinute, dailyAttemptLimit: row.dailyAttemptLimit, options: row.options },
+        credential, attemptsToday: attemptsToday(definition.id, row.mode), ...(last ? { last } : {}),
+        text: lines.join('\n'),
+      };
+    }
+
+    const enabled: Record<string, unknown>[] = [];
+    const problems: string[] = [];
+    const browserToken = (await ctx.credentials.describe(credentialRef(browserCredentialRef()))).configured;
+    for (const definition of catalog) {
+      const row = config.backends[definition.id]!;
+      if (!row.enabled) continue;
+      const credential = await credentialState(definition.id, row.mode);
+      const last = lastOutcome(definition.id);
+      const tier = definition.modes.find(m => m.mode === row.mode)?.tier ?? 'unverified';
+      enabled.push({ id: definition.id, title: definition.title, mode: row.mode, tier, credential, attemptsToday: attemptsToday(definition.id, row.mode), ...(last ? { last } : {}) });
+      if (credential === 'missing') problems.push(`${definition.id} is enabled in ${row.mode} mode but no credential is stored, so every call fails until one is added.`);
+      if (row.mode === 'browser' && !browserToken) problems.push(`${definition.id} reads through the shared browser and no endpoint token is stored, so it only works against an endpoint that accepts unauthenticated clients.`);
+    }
+    let searchProvider: string | undefined;
+    try { const row = ctx.configEditor.configuration().find(item => item.entry.options.id === 'web'); searchProvider = ({ ...row?.inherited, ...row?.override } as { searchProvider?: string }).searchProvider; } catch { /* Diagnostics only: never fail a read over this. */ }
+    if (searchProvider !== 'nite-search') problems.push(`This plugin is not the active search provider${searchProvider ? ` (${searchProvider} is)` : ''}, so these settings do not affect web search.`);
+    if (!enabled.length) problems.push('No backend is enabled: every search fails until one is turned on.');
+
+    const lines = [`Active search provider: ${searchProvider ?? 'unknown'}${searchProvider === 'nite-search' ? ' (this plugin)' : ''}`];
+    lines.push(`${enabled.length} of ${catalog.length} backends enabled — ${config.mode} mode, backend concurrency ${config.concurrency}, maxResults ${config.maxResults}, cache ${config.cache.enabled ? `on (${config.cache.ttlSeconds}s)` : 'off'}, diagnostics ${engine.diagnostics().length}/${config.diagnostics.maxEntries}`);
+    for (const row of enabled) lines.push(`- ${row.id} — ${row.mode}, ${row.tier}, credential ${row.credential}, today ${row.attemptsToday} calls, ${lastLine(lastOutcome(String(row.id)))}`);
+    lines.push(problems.length ? `Problems:\n${problems.map(p => `- ${p}`).join('\n')}` : 'Problems: none');
+    return {
+      provider: { searchProvider: searchProvider ?? null, isSelf: searchProvider === 'nite-search' },
+      search: { mode: config.mode, concurrency: config.concurrency, maxResults: config.maxResults, cache: { enabled: config.cache.enabled, ttlSeconds: config.cache.ttlSeconds }, diagnostics: { enabled: config.diagnostics.enabled, entries: engine.diagnostics().length } },
+      browser: { endpointConfigured: Boolean(config.browser.endpoint), statePathConfigured: Boolean(config.browser.statePath), tokenPresent: browserToken, maxConcurrentReads: config.browser.maxConcurrentReads, timeoutMs: config.browser.timeoutMs },
+      enabled, available: catalog.length - enabled.length, problems, text: lines.join('\n'),
+    };
+  }
+
   const connection=ctx.get('connection' as never) as unknown as Connection;
   const route=(path:string,methods:('GET'|'POST')[],handler:(request:Request)=>Promise<unknown>)=>ctx.effect(()=>connection.fetch.register({path:`/api/nite-search/${path}`,methods,requestBody:'buffered',fetch:async request=>{
     try{return Response.json(await handler(request),{headers:{'Cache-Control':'no-store'}});}catch{return Response.json({error:'Search management operation failed. Check configuration, revision, credentials, and enabled state.'},{status:400,headers:{'Cache-Control':'no-store'}});}
@@ -167,5 +240,6 @@ export async function apply(ctx:Context,raw:SearchConfig){
   }}));
   if(config.tools.webSearchPlus)ctx.effect(()=>tools.register({name:'web_search_plus',description:'Search with an explicit strategy instead of the saved one: parallel or single mode, which enabled backends to use, how much of each source to return, and a result bound. Overrides apply to this call only and never change saved settings. Only enabled backends are usable; a disabled or unknown id is reported, not silently dropped. Single mode ignores a backend selection and the result says so. The result names the backends that actually ran, because a blacklist would otherwise pick up backends enabled later.',parameters:{type:'object',properties:{query:{type:'string',description:'Search query.'},mode:{type:'string',enum:['single','parallel'],description:'Strategy for this call. Omit to use the configured mode.'},backends:{type:'array',items:{type:'string'},description:'Enabled backend ids to use, for example ["exa","reddit"]. Omit for every enabled backend.'},allBackends:{type:'boolean',description:'Shorthand for every enabled backend before exclusions. Cheaper than listing ids.'},exclude:{type:'array',items:{type:'string'},description:'Backends to leave out of this call, applied to allBackends or to the backends list.'},backend:{type:'string',description:'Single backend id. Ignored (with a note) in single mode, where the configured backend wins, and in parallel mode.'},compact:{type:'boolean',description:'Return only url, title and date per source, dropping snippets. Defaults to the saved preference; pass false to force full sources.'},maxResults:{type:'integer',minimum:1,maximum:50,description:'Upper bound on returned sources for this call.'}},required:['query']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>{const result=value as {content?:string;sources?:Array<{title?:string;url:string}>};const lines:string[]=[];if(result.content)lines.push(result.content);for(const source of result.sources??[])lines.push(`- ${source.title||source.url} <${source.url}>`);return [{type:'text',text:lines.join('\n')||'No sources returned.'}];}},execute:async(args:any,exec:{signal:AbortSignal})=>engine.search({query:args.query,maxResults:args.maxResults},AbortSignal.any([lifetime.signal,exec.signal]),undefined,{...(args.mode?{mode:args.mode}:{}),...(args.allBackends?{backends:'all' as const}:(Array.isArray(args.backends)&&args.backends.length?{backends:args.backends.map(String)}:{})),...(Array.isArray(args.exclude)&&args.exclude.length?{exclude:args.exclude.map(String)}:{}),...(args.backend?{backend:String(args.backend)}:{}),...(typeof args.compact==='boolean'?{compact:args.compact}:{}),...(args.maxResults?{maxResults:args.maxResults}:{})})}));
   ctx.effect(()=>tools.register({name:'search_manage',description:'Inspect or configure the DSH search plugin, explicitly test an enabled backend (may incur charges), manage credentials, or clear caches/diagnostics. Configuration uses an expectedRevision from settings. Never enable a paid backend without user authorization. Credential values are never returned.',parameters:{type:'object',properties:{action:{type:'string',enum:['settings','save','test','clear-cache','clear-diagnostics','credential','activate']},config:{type:'object',additionalProperties:true},expectedRevision:{type:'string'},backendId:{type:'string'},query:{type:'string'},scope:{type:'string',enum:['browser'],description:'Manage the shared browser token instead of a backend credential.'},value:{type:'string'},remove:{type:'boolean'}},required:['action']},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:(args,exec)=>operate(args,exec.signal)}));
+  ctx.effect(()=>tools.register({name:'backend_status',description:'Report which search backends are enabled, what each one still needs, and how its most recent call went. Use it instead of reading the whole configuration when you need to know what is available, why a search returned nothing, or which backend refused and how. Returns per-backend access mode, cost tier, whether a credential is stored (never its value), today\'s attempt count and the last outcome with its error, plus whether this plugin is the active search provider and whether the shared browser endpoint is set. Read-only: nothing is enabled, disabled or spent.',parameters:{type:'object',properties:{backend:{type:'string',description:'Backend id to inspect in full: every access mode with its cost tier and limits, the option fields, the current configuration row and the last outcome. Omit to list the enabled backends only.'}}},output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:String((value as {text?:string}).text??'No backend status returned.')}]},execute:(args:any)=>status(args??{})}));
 }
 export { defaultConfig, validateConfig };

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply, Config, defaultConfig } from '../src/index.js';
-import { revision } from '@nite07/search-core';
+import { catalog, revision } from '@nite07/search-core';
 function harness(){const routes=new Map<string,any>();const definitions:Record<string,any>={};let stored:any;const secrets=new Map<string,string>();const records=new Map();const table={get:(k:string)=>records.get(k),entries:()=>records.entries(),put:async(k:string,v:any)=>{records.set(k,v);}};const ctx:any={fiber:{entry:{id:'test'}},effect(fn:any){return fn();},web:{registerSearchProvider(){return ()=>{};}},credentials:{resolve:async(ref:string)=>secrets.has(ref)?{value:secrets.get(ref)}:undefined,describe:async(ref:string)=>({configured:secrets.has(ref),writable:true}),set:async(ref:string,value:string)=>{secrets.set(ref,value);},unset:async(ref:string)=>{secrets.delete(ref);}},configEditor:{edit:async(_entry:any,fn:any)=>{stored=fn({});},configuration:()=>[{entry:{options:{id:'web'}},inherited:{},override:{searchProvider:'nite-search',fetchProvider:'http'}}]},storageDomain:{open:async()=>({table:()=>table,close:async()=>{}})},get(name:string){if(name==='connection')return {fetch:{register:(r:any)=>{routes.set(r.path,r);return async()=>{};}}};if(name==='tools')return {register:(d:any)=>{definitions[d.name]=d;return ()=>{};}};}};return {ctx,routes,secrets,get tool(){return (name:string)=>definitions[name];},get stored(){return stored;}};}
 test('native DSH Config supplies exact shared defaults',()=>assert.deepEqual(Config({}),defaultConfig()));
 test('Host UI route and Agent tool share config save/read and credential operations',async()=>{const h=harness();const c=defaultConfig();await apply(h.ctx,c);const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal:new AbortController().signal});assert.deepEqual(snapshot.config,c);assert.equal(snapshot.revision,revision(c));assert.deepEqual(snapshot.active,{searchProvider:'nite-search',isSelf:true});const route=h.routes.get('/api/nite-search/settings');assert.deepEqual((await (await route.fetch(new Request('https://localhost/api/nite-search/settings'))).json()).config,c);
@@ -102,4 +102,42 @@ test('the client exposes token values without credential-name controls or explan
  assert.doesNotMatch(client,/credentialRef|browserTokenStoredAt|browserTokenRefAdvanced|browserOwnToken/);
  assert.match(client,/scope: 'browser'/);assert.match(client,/secret-browser/);
  for(const lang of ['en','zh']){const locale=JSON.parse(await readFile(new URL(`../locale/${lang}.json`,import.meta.url),'utf8'));assert.ok(!Object.keys(locale).some(key=>/credentialRef|browserTokenStoredAt|browserTokenRefAdvanced/i.test(key)));}
+});
+
+test('backend_status reports what is enabled without returning the configuration',async()=>{
+ const h=harness();const c=defaultConfig();
+ c.backends.keenable!.enabled=true;c.backends.brave!.enabled=true;c.backends.xiaohongshu!.enabled=true;c.browser.endpoint='';
+ await apply(h.ctx,c);
+ const tool=h.tool('backend_status');assert.ok(tool,'backend_status should be registered');
+ const signal=new AbortController().signal;
+ const status:any=await tool!.execute({},{signal});
+ assert.deepEqual(status.enabled.map((row:any)=>row.id).sort(),['brave','keenable','xiaohongshu']);
+ assert.equal(status.enabled.find((row:any)=>row.id==='brave').credential,'missing');
+ assert.equal(status.enabled.find((row:any)=>row.id==='keenable').credential,'not-required');
+ assert.equal(status.available,catalog.length-3);
+ assert.equal(status.provider.isSelf,true);
+ assert.ok(status.problems.some((problem:string)=>/brave/.test(problem)),'a missing credential is reported as a problem');
+ assert.ok(status.problems.some((problem:string)=>/xiaohongshu/.test(problem)),'a browser backend without a stored endpoint token is reported');
+ assert.match(String(status.text),/3 of 24|3 of/);
+ const serialized=JSON.stringify(status);
+ assert.ok(!serialized.includes('"config":'),'the configuration is not echoed back');
+ assert.ok(!serialized.includes('endpoint":"https://api.keenable.ai'),'backend endpoints are not dumped');
+ const detail:any=await tool!.execute({backend:'brave'},{signal});
+ assert.equal(detail.backend.id,'brave');
+ assert.ok(detail.backend.modes.length>=1);
+ assert.equal(detail.credential,'missing');
+ assert.equal(detail.current.enabled,true);
+ assert.match(String(detail.text),/Brave/);
+ await assert.rejects(tool!.execute({backend:'nope'},{signal}),/Unknown backend id/);
+});
+
+test('backend_status counts a stored credential as present and never resolves its value',async()=>{
+ const h=harness();const c=defaultConfig();
+ c.backends.brave!.enabled=true;
+ await apply(h.ctx,c);
+ await h.tool('search_manage')!.execute({action:'credential',backendId:'brave',value:'BRAVE-SECRET'},{signal:new AbortController().signal});
+ const status:any=await h.tool('backend_status')!.execute({},{signal:new AbortController().signal});
+ assert.equal(status.enabled.find((row:any)=>row.id==='brave').credential,'present');
+ assert.ok(!status.problems.some((problem:string)=>/brave/.test(problem)));
+ assert.ok(!JSON.stringify(status).includes('BRAVE-SECRET'));
 });

@@ -19,6 +19,30 @@ function sources(rows:unknown,keys={title:'title',url:'url',snippet:'snippet',da
     const title=string(r[keys.title]);const snippet=string(r[keys.snippet]);const date=string(r[keys.date]);
     return [{url,...(title?{title}:{}),...(snippet?{snippet}:{}),...(date?{publishedAt:date}:{})}];});
 }
+/** MCP servers name the result body differently; these are the keys seen in practice, most specific first. */
+const MCP_TEXT_KEYS=['snippet','snippets','text','description','summary','excerpt','excerpts','highlights','content','body'] as const;
+const MCP_DATE_KEYS=['published_at','publishedAt','publishedDate','published','page_age','date'] as const;
+/** The first populated candidate as text: a string as-is, an array of strings or of {text} joined. */
+function pickText(row:Row,keys:readonly string[]):string|undefined{
+  for(const key of keys){
+    const value=row[key];
+    const joined=typeof value==='string'?value:Array.isArray(value)?value.map(v=>typeof v==='string'?v:string(obj(v).text)||'').filter(Boolean).join('\n'):undefined;
+    if(joined?.trim())return joined.trim().slice(0,2000);
+  }
+  return undefined;
+}
+/**
+ * Normalise one MCP result row. The original row is kept so the provider keeps its own fields; the
+ * prefixed keys are what `sources()` reads. Trusting a single key would silently drop every snippet
+ * the moment a server renames its body field.
+ */
+function mcpRow(value:unknown):Row{
+  const row=obj(value);
+  const snippet=pickText(row,MCP_TEXT_KEYS);
+  const title=typeof row.title==='string'&&row.title.trim()?row.title:string(row.name);
+  const publishedAt=pickText(row,MCP_DATE_KEYS);
+  return {...row,...(title?{title}:{}),...(snippet?{snippet}:{}),...(publishedAt?{published_at:publishedAt}:{})};
+}
 
 /**
  * Backends that read through the shared browser. A backend added here gets the endpoint, the session
@@ -87,10 +111,10 @@ export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Pr
     const args=id==='exa'?{query:i.query,objective:i.query,numResults:i.maxResults}:id==='you'?{query:i.query,count:i.maxResults}:{objective:i.query,search_queries:[i.query]};
     const endpoint=new URL(b.endpoint);if(id==='you')endpoint.searchParams.set('profile','free');if(id==='parallel')endpoint.searchParams.set('tools','web_search');
     const result=await callMcp(endpoint.href,tool,args,t);const structured=obj(result.structuredContent);
-    if(Array.isArray(structured.results))return {sources:sources(structured.results)};
+    if(Array.isArray(structured.results))return {sources:sources(array(structured.results).map(mcpRow))};
     const text=array(result.content).map(v=>string(obj(v).text)||'').join('\n');
     if(!text.trim())throw new SearchError('protocol','MCP search response has no recognized result payload.');
-    try{const parsed=obj(JSON.parse(text));const list=[parsed.results,obj(parsed.data).results,obj(parsed.results).web].find(Array.isArray);if(Array.isArray(list))return {sources:sources(list)};}catch(e){if(e instanceof SearchError)throw e;}
+    try{const parsed=obj(JSON.parse(text));const list=[parsed.results,obj(parsed.data).results,obj(parsed.results).web].find(Array.isArray);if(Array.isArray(list))return {sources:sources(list.map(mcpRow))};}catch(e){if(e instanceof SearchError)throw e;}
     const found:Source[]=[];const blocks=text.split(/(?=Title:)/);for(const block of blocks){const url=block.match(/URL:\s*(https?:\/\/\S+)/)?.[1];if(url)found.push({url,title:block.match(/Title:\s*(.+)/)?.[1],snippet:block.split(/(?:Text|Content):\s*/).slice(1).join(' ').slice(0,4000)});}
     if(!found.length&&text.trim())throw new SearchError('protocol','MCP result format contains no verifiable source URLs.');return {sources:found};
   }
