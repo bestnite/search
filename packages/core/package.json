@@ -6,11 +6,12 @@
   "author": "nite07",
   "repository": {
     "type": "git",
-    "url": "git+https://git.nite07.com/nite/search-core.git"
+    "url": "git+https://git.nite07.com/nite/search.git",
+    "directory": "packages/core"
   },
-  "homepage": "https://git.nite07.com/nite/search-core",
+  "homepage": "https://git.nite07.com/nite/search/src/branch/main/packages/core",
   "bugs": {
-    "url": "https://git.nite07.com/nite/search-core/issues"
+    "url": "https://git.nite07.com/nite/search/issues"
   },
   "keywords": [
     "search",

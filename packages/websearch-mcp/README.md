@@ -1,7 +1,7 @@
 # websearch-mcp
 
 An MCP server for multi-backend web search, plus discussion reading for Reddit and X, built on
-[`@nite07/search-core`](https://git.nite07.com/nite/search-core). Works with any MCP client: Claude
+[`@nite07/search-core`](https://git.nite07.com/nite/search/src/branch/main/packages/core). Works with any MCP client: Claude
 Code, Codex, DSH, or your own.
 
 ## Why another search server
@@ -74,11 +74,15 @@ Xiaohongshu search, but not a Xiaohongshu note-reading tool.
 
 ## Development
 
+From the monorepo root:
+
 ```sh
-npm install
-npm run check     # typecheck, tests, build
-node dist/main.js --config ./config.json
+npm ci --ignore-scripts
+npm run check
+node packages/websearch-mcp/dist/main.js --config ./config.json
 ```
+
+The [workspace guide](../../README.md) describes local core linking and independent packaging.
 
 ## License
 

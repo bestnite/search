@@ -45,7 +45,7 @@ dsh --profile web   # 或者用你自己的方式重启 dsh web
 
 browser 模式的后端共用一个浏览器：
 
-1. 用 [`@nite07/search-core`](https://git.nite07.com/nite/search-core/tree/main/image) 里 `image/` 目录的镜像起一个容器，启动日志会打印端点和令牌
+1. 用 [`@nite07/search-core`](https://git.nite07.com/nite/search/src/branch/main/packages/core/image) 里 `image/` 目录的镜像起一个容器，启动日志会打印端点和令牌
 2. 打开它的 noVNC 页面（`http://<host>:6080/vnc.html`），在那扇已经开着的窗口里登录小红书。这扇窗口就是登录态，容器每分钟把它写进磁盘
 3. 打开 **设置 → 网页搜索 → 搜索后端**，填「共享浏览器」那一段：端点（`ws://<host>:3000/ws`）、会话文件（可留空）、读取超时；再把启动日志里的令牌填进「端点令牌」
 
@@ -63,7 +63,8 @@ browser 模式的后端共用一个浏览器：
 ## 开发
 
 ```sh
-npm install --ignore-scripts --legacy-peer-deps
+# 在 monorepo 根目录运行，统一使用根锁文件
+npm ci --ignore-scripts
 npm run check
 ```
 

@@ -28,7 +28,7 @@ on:
         default: linux/amd64
   pull_request:
     paths:
-      - 'image/**'
+      - 'packages/core/image/**'
       - '.github/workflows/image.yml'
 
 concurrency:
@@ -94,7 +94,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: image
+          context: packages/core/image
           platforms: ${{ inputs.platform || 'linux/amd64' }}
           push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}

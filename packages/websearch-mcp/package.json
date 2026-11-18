@@ -6,11 +6,12 @@
   "author": "nite07",
   "repository": {
     "type": "git",
-    "url": "git+https://git.nite07.com/nite/websearch-mcp.git"
+    "url": "git+https://git.nite07.com/nite/search.git",
+    "directory": "packages/websearch-mcp"
   },
-  "homepage": "https://git.nite07.com/nite/websearch-mcp",
+  "homepage": "https://git.nite07.com/nite/search/src/branch/main/packages/websearch-mcp",
   "bugs": {
-    "url": "https://git.nite07.com/nite/websearch-mcp/issues"
+    "url": "https://git.nite07.com/nite/search/issues"
   },
   "keywords": [
     "mcp",

@@ -45,7 +45,7 @@ Xiaohongshu answers only its own page runtime, so it has no callable HTTP endpoi
 
 One browser serves every backend in browser mode:
 
-1. Start the browser container from the `image/` directory of [`@nite07/search-core`](https://git.nite07.com/nite/search-core/tree/main/image). It prints the endpoint and a bearer token at startup.
+1. Start the browser container from the `image/` directory of [`@nite07/search-core`](https://git.nite07.com/nite/search/src/branch/main/packages/core/image). It prints the endpoint and a bearer token at startup.
 2. Open its noVNC page (`http://<host>:6080/vnc.html`) and sign in to Xiaohongshu in the window that is already open. That window is the session; the container writes it to disk every minute.
 3. In **Settings → Web search → Backends**, fill the **Shared browser** block — endpoint (`ws://<host>:3000/ws`), session file (optional), read timeout — and paste the printed token as the **endpoint token**.
 
@@ -62,10 +62,14 @@ The token guards the browser endpoint, not a site account, so it is stored once 
 
 ## Development
 
+Run from the monorepo root (the root lockfile owns all workspace dependencies):
+
 ```sh
-npm install --ignore-scripts --legacy-peer-deps
+npm ci --ignore-scripts
 npm run check
 ```
+
+See the [workspace guide](../../README.md) for build order, SDK development dependencies and packaging.
 
 Design notes: [docs/PLAN.md](docs/PLAN.md). Verification status: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
