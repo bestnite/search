@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { SearchError } from '../transport.js';
 import type { Source } from '../types.js';
-import { BrowserSession, sessionFor, type BrowserSessionOptions } from '../browser.js';
+import { type BrowserReader, type BrowserSession, DEFAULT_MAX_CONCURRENT_READS, sessionFor, type BrowserSessionOptions } from '../browser.js';
 import { commentsScript, healthScript, noteScript, searchScript } from './scripts.js';
 
 /**
@@ -17,8 +17,16 @@ export interface XhsContext {
   statePath?: string;
   timeoutMs: number;
   signal: AbortSignal;
-  /** Injected in tests; production uses the real browser connection. */
-  browser?: Pick<BrowserSession, 'evaluate' | 'target' | 'persist' | 'close'>;
+  /**
+   * Optional local admission bound for this site (1 through 8). Defaults to the browser session's
+   * conservative initial value; it is not a Xiaohongshu quota. Hosts have no setting for it yet.
+   */
+  maxConcurrentReads?: number;
+  /**
+   * Injected in tests; production uses the kept browser session. Only the transaction entry
+   * point is exposed: a read must not be able to close the connection or write the session file.
+   */
+  browser?: Pick<BrowserSession, 'read'>;
 }
 
 /**
@@ -65,13 +73,6 @@ export interface XhsComment {
 interface PageAnswer { ok?: boolean; code?: string; message?: string; status?: number }
 
 /**
- * One connection per endpoint, kept for the life of the process.
- *
- * A connection owns its browser context, and that context is the window a human signs into over
- * VNC. Dropping it after every read would close that window and leave no way to log in, so the
- * connection is reused until the host shuts it down.
- */
-/**
  * Search results carry the per-note token that detail and comment reads require, but a Source must
  * not expose it. Keeping it here is what lets a caller read a note it just saw in a search.
  */
@@ -87,8 +88,22 @@ function rememberToken(id: string, token: string | undefined): void {
   }
 }
 
-const browserFor = (ctx: XhsContext): Pick<BrowserSession, 'evaluate' | 'target' | 'persist' | 'close'> =>
-  ctx.browser ?? sessionFor(`xhs|${ctx.wsEndpoint}|${ctx.token ?? ''}`, optionsOf(ctx));
+const browserFor = (ctx: XhsContext): Pick<BrowserSession, 'read'> => {
+  if (ctx.browser) return ctx.browser;
+  const options = optionsOf(ctx);
+  // The key names everything that changes isolation: endpoint, token, site and session file.
+  // Two callers with conflicting values must not silently share one session. The token stays
+  // an in-memory key only; it is never logged.
+  const key = JSON.stringify([
+    'xhs',
+    options.wsEndpoint,
+    options.token ?? '',
+    options.siteUrl,
+    options.statePath ?? '',
+    options.maxConcurrentReads ?? DEFAULT_MAX_CONCURRENT_READS,
+  ]);
+  return sessionFor(key, options);
+};
 
 export function optionsOf(ctx: XhsContext): BrowserSessionOptions {
   return {
@@ -96,8 +111,52 @@ export function optionsOf(ctx: XhsContext): BrowserSessionOptions {
     siteUrl: ctx.siteUrl ?? DEFAULT_SITE_URL,
     timeoutMs: ctx.timeoutMs,
     statePath: ctx.statePath ?? process.env.XHS_STATE_PATH ?? DEFAULT_STATE_PATH,
+    // The keeper in the browser image is the only writer of this file. A read loads it but must
+    // never save over the cookies the human just refreshed in the VNC window.
+    statePolicy: 'read-only',
     ...(ctx.token ? { token: ctx.token } : {}),
+    ...(ctx.maxConcurrentReads !== undefined ? { maxConcurrentReads: ctx.maxConcurrentReads } : {}),
   };
+}
+
+interface XhsHealth { guest?: boolean; signedIn?: boolean }
+
+/**
+ * Auth answers that mean the cached page is no longer usable. A 403 is deliberately absent: it
+ * usually means the note is private or the account lacks permission for that subject, and
+ * dropping the context would not fix that — it would only force the user to sign in again.
+ */
+const staleSessionAnswers = new WeakSet<SearchError>();
+
+/**
+ * One complete read transaction: health probe, then the actual page script, then mapping. Its
+ * admission slot lasts for all of it, but the page is shared, so the stages of different
+ * transactions may interleave while each result stays with its own call. On an auth failure the
+ * page generation is dropped but the search is not replayed: the next read starts from the state
+ * file the keeper wrote.
+ */
+function readTransaction<T>(ctx: XhsContext, read: (reader: BrowserReader) => Promise<T>): Promise<T> {
+  guard(ctx);
+  return browserFor(ctx).read(async reader => {
+    try {
+      const health = unwrapAnswer<XhsHealth>(await reader.evaluate(healthScript()));
+      // The identity probe gates every read. `healthScript` always returns a boolean; anything
+      // other than an explicit non-guest answer means the signed-in page is not usable, so fail
+      // before the business script runs and let the session reload the state file.
+      if (health.guest !== false) {
+        const error = new SearchError(
+          'authentication',
+          'Xiaohongshu reports the browser as a guest, so no read was sent. Sign in once in the browser container VNC window; the next read reloads the saved session.',
+        );
+        staleSessionAnswers.add(error);
+        throw error;
+      }
+      return await read(reader);
+    } catch (error) {
+      if (error instanceof SearchError && staleSessionAnswers.has(error)) reader.invalidate();
+      throw error;
+    }
+  }, ctx.signal);
 }
 
 /** Page answers carry their own vocabulary; translate once, here. */
@@ -112,16 +171,22 @@ export function unwrapAnswer<T>(answer: unknown): T {
   if (code === 'EMPTY') return fail('protocol', `Xiaohongshu returned no note for that id (${detail}).`);
   const status = Number(body.status ?? 0);
   if (/登录|login/i.test(detail)) {
-    return fail('authentication', `Xiaohongshu says the browser is not signed in (${detail}). Open the browser container's VNC page, sign in once in the window that is already open, and ask again.`);
+    return fail('authentication', `Xiaohongshu says the browser is not signed in (${detail}). Open the browser container's VNC page, sign in once in the window that is already open, and ask again.`, true);
   }
-  if (status === 401 || status === 406) return fail('authentication', `Xiaohongshu refused the read with HTTP ${status}; the browser session is not signed in or was challenged. Sign in again in that browser.`);
+  if (status === 401 || status === 406) {
+    return fail('authentication', `Xiaohongshu refused the read with HTTP ${status}; the browser session is not signed in or was challenged. Sign in again in that browser; the next read reloads the saved session.`, true);
+  }
+  // A private note is a per-subject refusal: the page and the session are still fine, so this
+  // must not invalidate the cached context or push the user through a fresh sign-in.
   if (status === 403) return fail('authentication', `Xiaohongshu denied this read with HTTP 403 (${detail}). The subject may be private, or the session lacks permission.`);
   if (status === 429) return fail('rate-limit', 'Xiaohongshu rate-limited the read; wait before asking again.');
   return fail('protocol', `Xiaohongshu answered something unexpected (${code || 'no code'}): ${detail}`);
 }
 
-function fail(kind: 'protocol' | 'authentication' | 'rate-limit', message: string): never {
-  throw new SearchError(kind, message);
+function fail(kind: 'protocol' | 'authentication' | 'rate-limit', message: string, staleSession = false): never {
+  const error = new SearchError(kind, message);
+  if (staleSession) staleSessionAnswers.add(error);
+  throw error;
 }
 
 const guard = (ctx: XhsContext): void => {
@@ -131,19 +196,13 @@ const guard = (ctx: XhsContext): void => {
 
 /** Read the search page, which also yields the per-note token that detail and comment reads need. */
 export async function readXhsSearchNotes(input: { query: string; limit: number; sort?: string }, ctx: XhsContext): Promise<XhsNoteSummary[]> {
-  guard(ctx);
-  const browser = browserFor(ctx);
-  try {
-    await unwrapAnswer(await browser.evaluate(healthScript()));
+  return readTransaction(ctx, async reader => {
     const answer = unwrapAnswer<{ items: XhsNoteSummary[] }>(
-      await browser.evaluate(searchScript({ query: input.query, limit: input.limit, page: 1, sort: input.sort ?? 'general' })),
+      await reader.evaluate(searchScript({ query: input.query, limit: input.limit, page: 1, sort: input.sort ?? 'general' })),
     );
     for (const item of answer.items) rememberToken(item.id, (item as { xsecToken?: string }).xsecToken);
     return answer.items;
-  } finally {
-    await browser.persist().catch(() => undefined);
-    await browser.close().catch(() => undefined);
-  }
+  });
 }
 
 /** Search as the engine sees it: citeable sources, one per note. */
@@ -158,32 +217,20 @@ export async function searchXhs(input: { query: string; maxResults: number; sort
 
 /** A note's detail. The token comes from the argument, the share link, or an earlier search. */
 export async function fetchXhsNote(input: { url?: string; id?: string; token?: string }, ctx: XhsContext): Promise<XhsNote> {
-  guard(ctx);
   const { id, token } = resolveTarget({ ...input, token: input.token ?? noteTokens.get(trimNoteId(input)) });
-  const browser = browserFor(ctx);
-  try {
-    await unwrapAnswer(await browser.evaluate(healthScript()));
-    const answer = unwrapAnswer<{ note: XhsNote }>(await browser.evaluate(noteScript({ id, token })));
+  return readTransaction(ctx, async reader => {
+    const answer = unwrapAnswer<{ note: XhsNote }>(await reader.evaluate(noteScript({ id, token })));
     return answer.note;
-  } finally {
-    await browser.persist().catch(() => undefined);
-    await browser.close().catch(() => undefined);
-  }
+  });
 }
 
 export async function fetchXhsComments(input: { url?: string; id?: string; token?: string; limit?: number; cursor?: string }, ctx: XhsContext): Promise<{ comments: XhsComment[]; hasMore: boolean; cursor?: string }> {
-  guard(ctx);
   const { id, token } = resolveTarget({ ...input, token: input.token ?? noteTokens.get(trimNoteId(input)) });
-  const browser = browserFor(ctx);
-  try {
-    await unwrapAnswer(await browser.evaluate(healthScript()));
+  return readTransaction(ctx, async reader => {
     return unwrapAnswer<{ comments: XhsComment[]; hasMore: boolean; cursor?: string }>(
-      await browser.evaluate(commentsScript({ id, token, cursor: input.cursor ?? '', limit: Math.min(Math.max(input.limit ?? 20, 1), 100) })),
+      await reader.evaluate(commentsScript({ id, token, cursor: input.cursor ?? '', limit: Math.min(Math.max(input.limit ?? 20, 1), 100) })),
     );
-  } finally {
-    await browser.persist().catch(() => undefined);
-    await browser.close().catch(() => undefined);
-  }
+  });
 }
 
 /** Best-effort id from whatever the caller passed, used only to look up a remembered token. */
