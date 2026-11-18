@@ -46,6 +46,8 @@ interface Scenario {
   layoutAfterReads?: number;
   /** Hold the document as a shell for this long after the click, the way a booting app behaves. */
   renderDelayMs?: number;
+  /** The status the resolved document answers once the delay elapses; 200 by default. */
+  afterClickStatus?: number;
 }
 
 interface PageState {
@@ -101,7 +103,11 @@ function browserFixture(scenario: Scenario): Fixture {
       }
       // The click landed; the document stays a shell until the application boots.
       const ready = scenario.afterClick;
-      setTimeout(() => { current = ready; }, scenario.renderDelayMs);
+      const resolvedStatus = scenario.afterClickStatus ?? 200;
+      setTimeout(() => {
+        current = ready;
+        status = resolvedStatus;
+      }, scenario.renderDelayMs);
     },
   };
 
@@ -463,4 +469,22 @@ test('a page that clears slowly still gets its render window instead of being cl
   assert.equal(fixture.page.clicks, 1, 'one press only');
   assert.equal(result.outcome, 'ok', 'the slowly rendered document is the result');
   assert.ok(result.notes.some(note => /finished on its own after the widget cleared/.test(note)));
+});
+
+test('a pressed widget keeps its wait past the plain solve window', async () => {
+  // The challenge clears only after the solve window would have ended; the press buys the longer render
+  // window instead of the attempt being cut off while the platform is still verifying.
+  const lateDocument = {
+    title: 'LINUX DO - 新的理想型社区',
+    html: '<html><head><title>LINUX DO</title></head><body>' + '论坛帖子 '.repeat(120) + '</body></html>',
+  };
+  const fixture = browserFixture({
+    steps: [{ status: 403, document: challengeDocument() }],
+    afterClick: lateDocument,
+    renderDelayMs: 2_500,
+  });
+  const result = await fixture.fetcher(request({ routeTimeoutMs: 20_000 }));
+  assert.equal(fixture.page.clicks, 1);
+  assert.equal(result.outcome, 'ok', 'the late render is still accepted');
+  assert.equal(fixture.page.loads, 1, 'and nothing was reloaded');
 });

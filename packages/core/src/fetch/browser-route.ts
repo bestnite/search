@@ -534,6 +534,11 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
               if (typeof fresh === 'number' && fresh >= 100) {
                 statusCode = fresh;
                 observedStatus = fresh;
+              } else {
+                // Nothing to read the resolved document's status from. The content is the evidence:
+                // report the status as unknown rather than carrying the refusal the challenge answered.
+                statusCode = undefined;
+                notes.push("The resolved document's status could not be read; the captured content is what the result rests on.");
               }
               notes.push('The challenge page finished on its own after the widget cleared; no reload was made.');
               return true;
@@ -549,7 +554,7 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         // caller, the route timeout and the overall deadline, so every wait here is both bounded and
         // cancellable. Nothing in this loop waits for a person.
         const windowMs = Math.max(CHALLENGE_POLL_INTERVAL_MS, Math.min(CHALLENGE_SOLVE_WINDOW_MS, request.routeTimeoutMs));
-        const deadline = Date.now() + windowMs;
+        let deadline = Date.now() + windowMs;
         let frameSeen = false;
         let clicks = 0;
         let nextClickAt = 0;
@@ -566,6 +571,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
               if (await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())))) {
                 clicks += 1;
                 nextClickAt = Date.now() + CHALLENGE_CLICK_INTERVAL_MS;
+                // A pressed widget needs longer than the plain solve window: the platform verifies, sets
+                // its clearance cookie and reloads the page, and a forum behind it boots afterwards.
+                // The route signal still ends this at the route deadline, so the extra time is bounded.
+                deadline = Math.max(deadline, Date.now() + Math.min(CHALLENGE_RENDER_WINDOW_MS, request.routeTimeoutMs));
               }
             }
           }
