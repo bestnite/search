@@ -1,0 +1,114 @@
+name: image
+
+# The browser image is the only artifact here, and its version tracks the Patchright driver inside it,
+# so it has its own tag line: a `browser-v1.64.3` ref publishes 1.64.3, 1.64, 1 and latest.
+#
+# This runs on GitHub's hosted runners, which have a docker daemon.
+on:
+  push:
+    tags:
+      - 'browser-v*'
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Publish the image. Uncheck to only build.'
+        type: boolean
+        default: true
+      tag:
+        description: 'Extra tag to publish (empty for none).'
+        type: string
+        default: ''
+      platform:
+        description: 'Target platform.'
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+          - linux/amd64,linux/arm64
+        default: linux/amd64
+  pull_request:
+    paths:
+      - 'image/**'
+      - '.github/workflows/image.yml'
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # One place decides whether this run publishes; everything downstream reads it.
+  PUBLISH: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            nite07/search-browser
+            ghcr.io/${{ github.repository_owner }}/search-browser
+          # latest is assigned explicitly: metadata would otherwise also put it on branch builds that
+          # already carry sha-<short>.
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=Search browser for @nite07/search-core
+            org.opencontainers.image.description=Patchright-driven Google Chrome behind a token-protected Playwright endpoint, with a VNC window for the sign-in
+          tags: |
+            type=match,pattern=browser-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+\.\d+),group=1
+            type=match,pattern=browser-v(\d+),group=1
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/browser-v') }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ !startsWith(github.ref, 'refs/tags/browser-v') }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+
+      - name: Log in to Docker Hub
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          platforms: ${{ inputs.platform || 'linux/amd64' }}
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Registry-side cache, so a rebuild after a workflow-only change reuses the layers.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        if: always()
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          echo "publish: ${PUBLISH}"
+          echo "platform: ${{ inputs.platform || 'linux/amd64' }}"
+          echo "tags:"
+          echo "$TAGS"
