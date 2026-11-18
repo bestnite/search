@@ -15,18 +15,23 @@ function configWith(enabled: string[]): ServerConfig {
 }
 
 /** A stand-in engine that records the overrides instead of searching. */
-function stubEngine() {
+function stubEngine(result: Record<string, unknown> = {}) {
   const seen: Array<Record<string, unknown>> = [];
   const engine = {
     async search(input: unknown, _signal: unknown, _only: unknown, overrides: Record<string, unknown>) {
       seen.push({ input, overrides });
-      return { sources: [{ url: 'https://example.test/a', title: 'A' }], truncated: false, content: 'note', cached: false, outcomes: [] };
+      const sources = [{ url: 'https://example.test/a', title: 'A', backends: ['exa'] }];
+      return {
+        sources, truncated: false, content: 'note', cached: false,
+        outcomes: [{ backend: 'exa', mode: 'key', ok: true, attempts: 1, durationMs: 1, sources, warnings: [] }],
+        ...result,
+      };
     },
   } as unknown as SearchEngine;
   return { engine, seen };
 }
 
-test('web_search passes the strategy through and reports the enabled set', async () => {
+test('web_search passes all plus exclusions through and distinguishes enabled from selected backends', async () => {
   const { engine, seen } = stubEngine();
   const tools = createTools(configWith(['exa', 'reddit']), identity, engine);
   const search = tools.find(tool => tool.name === 'web_search')!;
@@ -39,7 +44,76 @@ test('web_search passes the strategy through and reports the enabled set', async
   assert.deepEqual(overrides.exclude, ['reddit']);
   assert.equal(overrides.compact, true);
   assert.equal(overrides.maxResults, 5);
+  assert.deepEqual(value.enabledBackends, ['exa', 'reddit']);
+  assert.equal(value.requestedBackends, 'all');
+  assert.deepEqual(value.selectedBackends, ['exa']);
+  assert.deepEqual(value.executedBackends, ['exa']);
+  assert.deepEqual(value.backends, ['exa'], 'the compatibility alias names the selected set, not the enabled set');
+  assert.equal(value.cached, false);
+  assert.deepEqual(value.backendStats, [{ backend: 'exa', ok: true, attempts: 1, sourceCount: 1 }]);
+  assert.deepEqual(value.sources, [{ url: 'https://example.test/a', title: 'A', backends: ['exa'] }]);
+});
+
+test('an explicit backend array wins over allBackends and preserves exclusions', async () => {
+  const { engine, seen } = stubEngine();
+  const search = createTools(configWith(['exa', 'reddit']), identity, engine).find(tool => tool.name === 'web_search')!;
+  const value = await search.call({ query: 'cordis', backends: ['exa', 'reddit'], allBackends: true, exclude: ['reddit'] }, new AbortController().signal) as Record<string, unknown>;
+  assert.deepEqual(seen[0]!.overrides, { backends: ['exa', 'reddit'], exclude: ['reddit'], compact: false });
+  assert.deepEqual(value.requestedBackends, ['exa', 'reddit'], 'the requested set is not rewritten to the resolved subset');
+  assert.deepEqual(value.selectedBackends, ['exa']);
+});
+
+test('omitted selection and allBackends false both report the default all request', async () => {
+  const { engine, seen } = stubEngine();
+  const search = createTools(configWith(['exa', 'reddit']), identity, engine).find(tool => tool.name === 'web_search')!;
+  for (const args of [{ query: 'cordis' }, { query: 'cordis', allBackends: false }]) {
+    const value = await search.call(args, new AbortController().signal) as Record<string, unknown>;
+    assert.equal(value.requestedBackends, 'all');
+    assert.deepEqual(value.enabledBackends, ['exa', 'reddit']);
+    assert.deepEqual(value.selectedBackends, ['exa'], 'selection is taken from outcomes, not inferred from the request');
+  }
+  assert.ok(seen.every(call => (call.overrides as Record<string, unknown>).backends === undefined));
+});
+
+test('zero-attempt failures are selected but not executed and retain their errors', async () => {
+  const error = { kind: 'configuration', message: 'API-key mode selected but credential is missing.' };
+  const { engine } = stubEngine({
+    outcomes: [
+      { backend: 'reddit', ok: false, attempts: 0, sources: [], error },
+      { backend: 'exa', ok: true, attempts: 2, sources: [{ url: 'https://example.test/a' }, { url: 'https://example.test/b' }] },
+    ],
+  });
+  const search = createTools(configWith(['exa', 'reddit']), identity, engine).find(tool => tool.name === 'web_search')!;
+  const value = await search.call({ query: 'cordis' }, new AbortController().signal) as Record<string, unknown>;
+  assert.deepEqual(value.selectedBackends, ['reddit', 'exa'], 'outcome order is preserved');
+  assert.deepEqual(value.backends, ['reddit', 'exa']);
+  assert.deepEqual(value.executedBackends, ['exa']);
+  assert.deepEqual(value.backendStats, [
+    { backend: 'reddit', ok: false, attempts: 0, sourceCount: 0, error },
+    { backend: 'exa', ok: true, attempts: 2, sourceCount: 2 },
+  ]);
+});
+
+test('cache hits preserve selection and source provenance without claiming upstream attempts', async () => {
+  const sources = [{ url: 'https://example.test/a', title: 'A', backends: ['exa', 'reddit'] }];
+  const { engine } = stubEngine({
+    cached: true, sources,
+    outcomes: [
+      { backend: 'exa', ok: true, attempts: 3, sources },
+      { backend: 'reddit', ok: true, attempts: 1, sources },
+    ],
+  });
+  const search = createTools(configWith(['exa', 'reddit']), identity, engine).find(tool => tool.name === 'web_search')!;
+  const value = await search.call({ query: 'cordis', backends: ['exa', 'reddit'] }, new AbortController().signal) as Record<string, unknown>;
+  assert.equal(value.cached, true);
+  assert.deepEqual(value.selectedBackends, ['exa', 'reddit']);
   assert.deepEqual(value.backends, ['exa', 'reddit']);
+  assert.deepEqual(value.executedBackends, []);
+  assert.deepEqual(value.backendStats, [
+    { backend: 'exa', ok: true, attempts: 0, sourceCount: 1 },
+    { backend: 'reddit', ok: true, attempts: 0, sourceCount: 1 },
+  ]);
+  assert.deepEqual(value.sources, sources);
 });
 
 test('compact defaults from the config when the call omits it', async () => {

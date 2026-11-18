@@ -93,7 +93,10 @@ export class SearchEngine {
       if(!domainAllowed(source.url,c))continue;
       const key=normalizeUrl(source.url);let existing=merged.get(key);
       if(!existing&&c.dedup==='url-title'&&source.title)existing=[...merged.values()].find(x=>x.source.title?.trim().toLowerCase()===source.title!.trim().toLowerCase());
-      if(existing)existing.score+=1/(60+rank+1);else merged.set(key,{source,score:1/(60+rank+1),order:order++});
+      if(existing){
+        existing.score+=1/(60+rank+1);
+        if(!existing.source.backends!.includes(outcome.backend))existing.source.backends!.push(outcome.backend);
+      }else merged.set(key,{source:{...source,backends:[outcome.backend]},score:1/(60+rank+1),order:order++});
     }
     const ranked=[...merged.values()].sort((a,b)=>c.fusion==='rrf'?b.score-a.score||a.order-b.order:a.order-b.order);
     const rankedSources=ranked.slice(0,max).map(x=>x.source);
@@ -101,7 +104,7 @@ export class SearchEngine {
     // Compact is a strategy the caller opted into: the plain provider path (no overrides) never
     // trims snippets, while the strategy tool defaults to the saved preference.
     const compact=overrides?(overrides.compact??c.tools.compactByDefault):false;
-    const sources=compact?rankedSources.map(source=>({url:source.url,...(source.title?{title:source.title}:{}),...(source.publishedAt?{publishedAt:source.publishedAt}:{})})):rankedSources;
+    const sources=compact?rankedSources.map(source=>({url:source.url,backends:source.backends!,...(source.title?{title:source.title}:{}),...(source.publishedAt?{publishedAt:source.publishedAt}:{})})):rankedSources;
     const failed=outcomes.filter(o=>!o.ok);const report:string[]=[...notes];
     if(!ids.length)report.push('Search failed: no backend is enabled. Ask the user to configure and enable a search backend.');
     else if(!success.length)report.push('Search failed: every selected backend failed. This is not a successful search with no matches.');

@@ -72,7 +72,8 @@ export interface BrowserConfig {
   maxConcurrentReads: number;
 }
 
-export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string }
+/** Adapters omit backends; the engine stamps and unions trusted backend ids on merged results. */
+export interface Source { url: string; title?: string; snippet?: string; summary?: string; publishedAt?: string; backends?: string[] }
 export interface SearchInput { query: string; maxResults?: number }
 /**
  * Per-call strategy; it never mutates saved configuration. There is no mode here: the length of

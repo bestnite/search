@@ -126,9 +126,21 @@ export function render(value: unknown): string {
     if (typeof record.text === 'string') return record.text;
     if (Array.isArray(record.sources)) {
       const lines: string[] = [];
+      for (const [key, label] of [['enabledBackends', 'Enabled backends'], ['requestedBackends', 'Requested backends'], ['selectedBackends', 'Selected backends'], ['executedBackends', 'Executed backends']] as const) {
+        const ids = record[key];
+        if (Array.isArray(ids)) lines.push(`${label}: ${ids.join(', ') || '(none)'}.`);
+        else if (ids === 'all') lines.push(`${label}: all enabled (before exclusions).`);
+      }
+      if (typeof record.cached === 'boolean') lines.push(`Cache hit: ${record.cached ? 'yes; no upstream requests were made' : 'no'}.`);
+      if (Array.isArray(record.backendStats)) {
+        for (const stats of record.backendStats as Array<{ backend: string; ok: boolean; attempts: number; sourceCount: number }>) {
+          lines.push(`[${stats.backend}] ${stats.ok ? 'OK' : 'FAILED'}; attempts=${stats.attempts}; sourceCount=${stats.sourceCount} (before filtering and deduplication).`);
+        }
+      }
       if (typeof record.report === 'string' && record.report !== '') lines.push(record.report);
-      for (const source of record.sources as Array<{ title?: string; url?: string }>) {
-        lines.push(`- ${source.title ?? source.url ?? ''} <${source.url ?? ''}>`);
+      for (const source of record.sources as Array<{ title?: string; url?: string; backends?: string[] }>) {
+        const provenance = source.backends?.length ? ` [backends: ${source.backends.join(', ')}]` : '';
+        lines.push(`- ${source.title ?? source.url ?? ''} <${source.url ?? ''}>${provenance}`);
       }
       return lines.join('\n') || 'No sources returned.';
     }

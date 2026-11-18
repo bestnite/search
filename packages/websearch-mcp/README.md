@@ -37,6 +37,27 @@ and Reddit, which need no account.
    `list_backends` first: it reports each backend's modes, cost tier, enabled state and whether a
    credential is present. It never enables anything.
 
+## Search response and provenance
+
+`web_search` distinguishes configuration from what a call actually did:
+
+- `enabledBackends`: every backend enabled in the current configuration, not evidence of execution.
+- `requestedBackends`: the explicit backend array, or `"all"` when no selection was supplied.
+- `selectedBackends`: requested, enabled backends after exclusions, taken from the engine outcomes.
+- `executedBackends`: selected backends that attempted an upstream request **in this call**. A cache
+  hit or a failure before a request has no executed backend.
+- `backends`: compatibility alias for `selectedBackends`; older releases misleadingly returned the
+  entire enabled set here.
+- `cached`: whether the response came from the search cache.
+- `backendStats`: each selected backend's `backend`, `ok`, `attempts`, `sourceCount` and optional
+  `error`. `sourceCount` counts raw backend results before filtering, deduplication and the merged
+  result limit. On a cache hit it describes the cached result, but `attempts` is zero.
+
+Every merged source includes `backends: string[]`, for example `["exa", "parallel"]`. URL and title
+deduplication union these ids without duplicates; compact output and cache hits preserve them.
+The text response also names enabled, requested, selected and executed sets, cache status, and the
+backend ids beside each result, so clients that only read text receive the same provenance.
+
 ## Settings page
 
 The configuration has a page: every backend, its access mode, its cost tier, its options and its

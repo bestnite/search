@@ -5,8 +5,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createServer } from '../src/sdk.js';
 import { createTools } from '../src/tools.js';
 import type { ServerConfig } from '../src/config.js';
-import { defaultConfig } from '@nite07/search-core';
-import type { SearchEngine } from '@nite07/search-core';
+import { defaultConfig, SearchEngine } from '@nite07/search-core';
 
 const identity = { name: 'websearch-mcp', version: '9.9.9', projectUrl: 'https://git.nite07.com/nite/search' };
 
@@ -27,12 +26,14 @@ function failingEngine(): SearchEngine {
 function engineSaying(text: string): SearchEngine {
   return {
     async search() {
-      return { sources: [{ url: 'https://example.test/a', title: 'A' }], truncated: false, content: text, cached: false, outcomes: [] };
+      const sources = [{ url: 'https://example.test/a', title: 'A', backends: ['exa'] }];
+      return {
+        sources, truncated: false, content: text, cached: false,
+        outcomes: [{ backend: 'exa', mode: 'key', ok: true, attempts: 1, durationMs: 1, sources, warnings: [] }],
+      };
     },
   } as unknown as SearchEngine;
 }
-
-const toolsFor = (engine: SearchEngine) => createTools(configWith(['exa']), identity, engine);
 
 /** A modern-era request carries its revision and capabilities in the _meta envelope. */
 const MODERN_META = {
@@ -40,11 +41,11 @@ const MODERN_META = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 
-async function harness(engine: SearchEngine) {
+async function harness(engine: SearchEngine, config = configWith(['exa'])) {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const inbox: Array<Record<string, unknown>> = [];
   clientSide.onmessage = message => inbox.push(message as Record<string, unknown>);
-  const handle = serveStdio(() => createServer(toolsFor(engine), identity), { transport: serverSide });
+  const handle = serveStdio(() => createServer(createTools(config, identity, engine), identity), { transport: serverSide });
   const send = async (message: Record<string, unknown>): Promise<Record<string, any>> => {
     await clientSide.send(message as never);
     const deadline = Date.now() + 2000;
@@ -98,6 +99,96 @@ test('tools/list and tools/call keep the text plus structuredContent framing', a
     assert.notEqual(called.result.isError, true, 'a successful call is not flagged as an error');
     assert.match(called.result.content[0].text, /example\.test/);
     assert.equal(called.result.structuredContent.sources[0].url, 'https://example.test/a');
+  } finally {
+    await close();
+  }
+});
+
+test('optional search strategy survives MCP validation and the response reports provenance', async () => {
+  const seen: Array<Record<string, unknown>> = [];
+  const sources = [{ url: 'https://example.test/shared', title: 'Shared result', backends: ['exa', 'reddit'] }];
+  const engine = {
+    async search(input: unknown, _signal: unknown, onlyBackend: unknown, overrides: Record<string, unknown>) {
+      seen.push({ input, onlyBackend, overrides });
+      return {
+        sources, truncated: false, content: 'a report', cached: false,
+        outcomes: [
+          { backend: 'exa', ok: true, attempts: 2, sources },
+          { backend: 'reddit', ok: true, attempts: 1, sources },
+        ],
+      };
+    },
+  } as unknown as SearchEngine;
+  const { send, close } = await harness(engine, configWith(['exa', 'reddit', 'searxng']));
+  try {
+    const called = await send({
+      jsonrpc: '2.0', id: 6, method: 'tools/call',
+      params: { name: 'web_search', arguments: { query: 'cordis', backends: ['exa', 'reddit'], allBackends: true, exclude: ['searxng'], compact: true, maxResults: 4 }, _meta: MODERN_META },
+    });
+    assert.notEqual(called.result.isError, true);
+    assert.deepEqual(seen, [{
+      input: { query: 'cordis' }, onlyBackend: undefined,
+      overrides: { backends: ['exa', 'reddit'], exclude: ['searxng'], compact: true, maxResults: 4 },
+    }], 'optional selection must not be stripped by the SDK schema');
+    assert.deepEqual(called.result.structuredContent, {
+      sources, truncated: false, report: 'a report',
+      enabledBackends: ['exa', 'searxng', 'reddit'], requestedBackends: ['exa', 'reddit'],
+      selectedBackends: ['exa', 'reddit'], executedBackends: ['exa', 'reddit'], backends: ['exa', 'reddit'], cached: false,
+      backendStats: [
+        { backend: 'exa', ok: true, attempts: 2, sourceCount: 1 },
+        { backend: 'reddit', ok: true, attempts: 1, sourceCount: 1 },
+      ],
+    });
+    const text = called.result.content[0].text as string;
+    assert.match(text, /enabled[^\n]*exa[^\n]*searxng[^\n]*reddit/i);
+    assert.match(text, /requested[^\n]*exa[^\n]*reddit/i);
+    assert.match(text, /selected[^\n]*exa[^\n]*reddit/i);
+    assert.match(text, /executed[^\n]*exa[^\n]*reddit/i);
+    assert.match(text, /cache[^\n]*(?:false|miss|no)/i);
+    const resultLine = text.split('\n').find(line => line.includes('https://example.test/shared'))!;
+    assert.ok(resultLine, 'a result line contains the URL');
+    assert.match(resultLine, /Shared result/);
+    assert.match(resultLine, /\[backends: exa, reddit\]/);
+  } finally {
+    await close();
+  }
+});
+
+test('a real engine runs only the selected backend and MCP cache hits report no execution', async () => {
+  const config = configWith(['exa', 'keenable']);
+  config.search.retry.enabled = false;
+  config.search.cache.enabled = true;
+  config.search.cache.ttlSeconds = 60;
+  const urls: string[] = [];
+  const fetcher = (async (input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    urls.push(url);
+    assert.match(url, /keenable/, 'the unselected enabled backend must not receive a request');
+    return Response.json({ results: [{ url: 'https://example.test/real', title: 'Real result', content: 'snippet' }] });
+  }) as typeof fetch;
+  const engine = new SearchEngine(config.search, async () => undefined, fetcher);
+  const { send, close } = await harness(engine, config);
+  try {
+    for (const [id, cached] of [[7, false], [8, true]] as const) {
+      const called = await send({
+        jsonrpc: '2.0', id, method: 'tools/call',
+        params: { name: 'web_search', arguments: { query: 'cordis', backends: ['keenable'], compact: true }, _meta: MODERN_META },
+      });
+      assert.notEqual(called.result.isError, true);
+      const value = called.result.structuredContent;
+      assert.deepEqual(value.enabledBackends, ['keenable', 'exa']);
+      assert.deepEqual(value.requestedBackends, ['keenable']);
+      assert.deepEqual(value.selectedBackends, ['keenable']);
+      assert.deepEqual(value.backends, ['keenable']);
+      assert.deepEqual(value.executedBackends, cached ? [] : ['keenable']);
+      assert.equal(value.cached, cached);
+      assert.deepEqual(value.backendStats, [{ backend: 'keenable', ok: true, attempts: cached ? 0 : 1, sourceCount: 1 }]);
+      assert.deepEqual(value.sources, [{ url: 'https://example.test/real', title: 'Real result', backends: ['keenable'] }]);
+      const text = called.result.content[0].text as string;
+      assert.match(text, /\[backends: keenable\]/);
+      assert.match(text, cached ? /cache[^\n]*(?:true|hit|yes)/i : /cache[^\n]*(?:false|miss|no)/i);
+      assert.equal(urls.length, 1, 'all requests use the injected fetch; the second call is cached');
+    }
   } finally {
     await close();
   }

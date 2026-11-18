@@ -115,7 +115,7 @@ export function createTools(
   const searchTool: ToolDefinition = {
     name: 'web_search',
     description:
-      'Search the web through the enabled backends and return citeable sources. The backends array is the whole strategy: one id runs that backend alone, several ids run in parallel, allBackends with exclude is the same choice written as a set, and leaving it out runs every enabled backend. Failures are named instead of being hidden behind an empty result, and the response reports every request that failed. Nothing falls back to another backend, access mode or credential.',
+      'Search the web through the enabled backends and return citeable sources. The backends array is the whole strategy: one id runs that backend alone, several ids run in parallel, allBackends with exclude is the same choice written as a set, and leaving it out runs every enabled backend. Failures are named instead of being hidden behind an empty result, and the response reports every request that failed. Nothing falls back to another backend, access mode or credential. The response distinguishes enabled, requested, selected and executed backends, reports cache hits and per-backend statistics, and each merged source carries a backends array naming every backend that found it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -141,11 +141,25 @@ export function createTools(
         ...(int(args.maxResults) !== undefined ? { maxResults: int(args.maxResults)! } : {}),
       };
       const result = await search.search({ query }, signal, undefined, overrides);
+      const selectedBackends = result.outcomes.map(outcome => outcome.backend);
       return {
         sources: result.sources,
         truncated: result.truncated,
         report: result.content,
-        backends: enabledBackendIds(config),
+        enabledBackends: enabledBackendIds(config),
+        requestedBackends: overrides.backends ?? 'all',
+        selectedBackends,
+        // A selected backend can fail before sending a request; cache hits send none at all.
+        executedBackends: result.cached ? [] : result.outcomes.filter(outcome => outcome.attempts > 0).map(outcome => outcome.backend),
+        backends: selectedBackends,
+        cached: result.cached,
+        backendStats: result.outcomes.map(outcome => ({
+          backend: outcome.backend,
+          ok: outcome.ok,
+          attempts: result.cached ? 0 : outcome.attempts,
+          sourceCount: outcome.sources.length,
+          ...(outcome.error ? { error: outcome.error } : {}),
+        })),
       };
     },
   };
