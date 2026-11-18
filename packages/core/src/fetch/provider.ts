@@ -5,6 +5,7 @@ import { SearchError } from '../transport.js';
 import type { FetchFormat } from './types.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { DEFAULT_MAX_OUTPUT_CHARS } from './limits.js';
+import { delegatedNote } from './notes.js';
 
 /** Byte allowance for the JSON-RPC envelope around a page representation. */
 export const PROVIDER_PROTOCOL_OVERHEAD_BYTES = 64 * 1024;
@@ -241,7 +242,9 @@ const fromSearchError = (error: SearchError, apiStatus: number | undefined, note
 
 export const fetchFromProvider: ProviderFetcher = async (request, call) => {
   const adapter = adapters[request.providerId];
-  const notes: string[] = [];
+  // The provider resolves the target on its own side, so the local public-only policy cannot prove
+  // its destination. Enabling the route is the decision; every result still says what was not proven.
+  const notes: string[] = [delegatedNote('provider')];
   if (!adapter) {
     return routeFailure('unsupported-format', { kind: 'protocol', message: `No fetch adapter exists for ${request.providerId}.` }, { notes });
   }

@@ -14,12 +14,15 @@ import type {
 import type { BackendOutcome } from '@nite07/search-core';
 import { browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
 import type { SaveReadback, SaveResponse } from './presenter';
-import { feedbackAutoDismissMs, feedbackForSave } from './feedback';
+import { feedbackAutoDismissMs, feedbackForSave, feedbackTakesFocus } from './feedback';
 import type { SaveFeedback } from './feedback';
+import { decideOverlayKey } from './overlay-keys';
 import { blockersOf, visible } from './visibility';
 import type { FetchProviderInfo, SettingsSnapshot } from './types';
 
 const API = '/api/nite-search';
+/** What Tab can reach inside the feedback card, so the trap cycles over real controls only. */
+const FEEDBACK_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 /** The served configuration and the draft are the same configuration when their values agree. */
 const same = (a: unknown, b: unknown) => sameDraft(a as SearchConfig, b as SearchConfig);
@@ -106,6 +109,7 @@ export function createClient(React: any, ReactDOM?: any) {
         const [feedback, setFeedback] = React.useState(null as SaveFeedback | null);
         const summary = React.useRef(null as HTMLDivElement | null);
         const feedbackCard = React.useRef(null as HTMLDivElement | null);
+        const saveButton = React.useRef(null as HTMLButtonElement | null);
         const feedbackTimer = React.useRef(null as ReturnType<typeof setTimeout> | null);
         const clearFeedbackTimer = () => { if (feedbackTimer.current) { clearTimeout(feedbackTimer.current); feedbackTimer.current = null; } };
         /** A success message is transient and never takes focus; an error stays until the user closes it. */
@@ -116,17 +120,43 @@ export function createClient(React: any, ReactDOM?: any) {
           if (dismissAfter === undefined) return;
           feedbackTimer.current = setTimeout(() => { feedbackTimer.current = null; setFeedback(null); }, dismissAfter);
         }
-        function dismissFeedback() { clearFeedbackTimer(); setFeedback(null); }
+        /**
+         * Close the card. Focus returns to the save button only when the card was holding it, so an
+         * error the user dismissed with Escape does not drop the keyboard at the top of the document;
+         * a success that dismisses itself never moves focus at all.
+         */
+        function dismissFeedback() {
+          const held = typeof document !== 'undefined' && !!feedbackCard.current && feedbackCard.current.contains(document.activeElement);
+          clearFeedbackTimer();
+          setFeedback(null);
+          if (held) saveButton.current?.focus();
+        }
+        /** The card is outside the modal's focus trap, so it keeps `Escape` and `Tab` for itself. */
+        function feedbackKeyDown(event: any) {
+          const card = feedbackCard.current;
+          if (!card) return;
+          const decision = decideOverlayKey(
+            { key: String(event.key), shiftKey: Boolean(event.shiftKey) },
+            {
+              active: typeof document === 'undefined' ? undefined : document.activeElement,
+              focusables: Array.from(card.querySelectorAll(FEEDBACK_FOCUSABLE)) as unknown[],
+              card,
+            },
+          );
+          if (!decision) return;
+          if (decision.preventDefault) event.preventDefault();
+          if (decision.stopPropagation) event.stopPropagation();
+          if (decision.dismiss) { dismissFeedback(); return; }
+          (decision.focus as HTMLElement | undefined)?.focus?.();
+        }
         React.useEffect(() => () => clearFeedbackTimer(), []);
         // An error card takes focus so a screen reader announces it; a success toast never does, so a
-        // save that just succeeded cannot pull the keyboard away from the next edit. Escape closes
-        // either card, and neither makes the page behind it unusable.
+        // save that just succeeded cannot pull the keyboard away from the next edit. `Escape` and
+        // `Tab` are handled on the card itself (see `feedbackKeyDown`), never on `document`: a document
+        // listener here would race the host modal's own handler and close the whole settings panel.
         React.useEffect(() => {
-          if (!feedback) return;
-          if (feedback.kind === 'error') feedbackCard.current?.focus();
-          const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); dismissFeedback(); } };
-          document.addEventListener('keydown', onKey);
-          return () => document.removeEventListener('keydown', onKey);
+          if (!feedback || !feedbackTakesFocus(feedback)) return;
+          feedbackCard.current?.focus();
         }, [feedback]);
         const dirty = !!snapshot && !same(draft, snapshot.config);
         const definitions: BackendDefinition[] = snapshot?.catalog || catalog;
@@ -289,7 +319,9 @@ export function createClient(React: any, ReactDOM?: any) {
           const errors = merged.filter((issue, index) => merged.findIndex(other => other.path === issue.path && other.code === issue.code) === index);
           setIssues(errors); if (errors.length || !snapshot) return;
           const intended = clone(draft); const revision = snapshot.revision;
-          setPending('save'); setNotice('saving'); setFailed(false); dismissFeedback();
+          // The floating pending card is the single "saving" indicator; the footer keeps showing the
+          // draft state, so the phrase is not repeated in two places.
+          setPending('save'); setNotice(''); setFailed(false); dismissFeedback();
           let response: SaveResponse | undefined;
           let transportError = false;
           try {
@@ -566,10 +598,10 @@ export function createClient(React: any, ReactDOM?: any) {
           if (!feedback && pending !== 'save') return null;
           const described = feedback && (feedback.text || feedback.detail) ? { 'aria-describedby': describeId } : {};
           const card = !feedback
-            ? <div className="ns-feedback ns-feedback--pending" role="status" aria-live="polite"><p className="ns-feedback-text">{t('saving')}</p></div>
+            ? <div className="ns-feedback ns-feedback--pending" role="status" aria-live="polite" ref={feedbackCard} onKeyDown={feedbackKeyDown}><p className="ns-feedback-text">{t('saving')}</p></div>
             : feedback.kind === 'success'
-              ? <div className="ns-feedback ns-feedback--success" role="status" aria-live="polite"><p className="ns-feedback-text">{feedback.text}</p><button type="button" className="ns-link" onClick={dismissFeedback}>{t('feedbackDismiss')}</button></div>
-              : <div className="ns-feedback ns-feedback--error" role="alertdialog" aria-labelledby={titleId} {...described} tabIndex={-1} ref={feedbackCard}>
+              ? <div className="ns-feedback ns-feedback--success" role="status" aria-live="polite" ref={feedbackCard} onKeyDown={feedbackKeyDown}><p className="ns-feedback-text">{feedback.text}</p><button type="button" className="ns-link" onClick={dismissFeedback}>{t('feedbackDismiss')}</button></div>
+              : <div className="ns-feedback ns-feedback--error" role="alertdialog" aria-labelledby={titleId} {...described} tabIndex={-1} ref={feedbackCard} onKeyDown={feedbackKeyDown}>
                   <h4 id={titleId}>{feedback.title}</h4>
                   <div id={describeId}>
                     {feedback.text && <p className="ns-feedback-text">{feedback.text}</p>}
@@ -743,7 +775,7 @@ export function createClient(React: any, ReactDOM?: any) {
               {!definitions.some(matches) && <p className="ns-muted">{t('noMatch')}</p>}
             </section>
           </div>}
-          <footer className="ns-footer"><span aria-live="polite" className={failed ? 'ns-error' : ''}>{statusText}</span><div className="ns-actions"><button disabled={!!pending || !dirty} onClick={() => setConfirming({ kind: 'discard' })}>{t('discard')}</button><button className="ns-primary" disabled={!!pending || !dirty} onClick={save}>{t(pending === 'save' ? 'saving' : 'save')}</button></div>{confirmRow('discard', 'discardConfirm', () => { setDraft(clone(snapshot.config)); setIssues([]); setNotice(''); })}</footer>
+          <footer className="ns-footer"><span aria-live="polite" className={failed ? 'ns-error' : ''}>{statusText}</span><div className="ns-actions"><button disabled={!!pending || !dirty} onClick={() => setConfirming({ kind: 'discard' })}>{t('discard')}</button><button ref={saveButton} className="ns-primary" disabled={!!pending || !dirty} onClick={save}>{t(pending === 'save' ? 'saving' : 'save')}</button></div>{confirmRow('discard', 'discardConfirm', () => { setDraft(clone(snapshot.config)); setIssues([]); setNotice(''); })}</footer>
           </>}
           {feedbackLayer()}
         </div>;

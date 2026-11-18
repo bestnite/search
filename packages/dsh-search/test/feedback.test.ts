@@ -64,7 +64,6 @@ for (const lang of ['en', 'zh'] as const) {
     const writeFailed = feedbackForSave(classifySaveOutcome({ response: { status: 500, payload: { error: { code: 'save-failed', message: 'disk full' } } }, readback: { ok: true, matches: false } }), text);
     assert.equal(writeFailed?.title, text.t('saveFailed'));
     assert.equal(writeFailed?.detail, 'disk full', 'the server reason is kept beside the wording');
-    assert.equal(writeFailed?.code, 'save-failed');
 
     const unconfirmed = feedbackForSave(classifySaveOutcome({ transportError: true, readback: { ok: true, matches: false } }), text);
     assert.equal(unconfirmed?.text, text.t('saveUnconfirmed'));

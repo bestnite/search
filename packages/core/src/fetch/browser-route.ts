@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
+import { delegatedNote } from './notes.js';
 import { connectFailure } from '../browser.js';
 import type { SearchError } from '../transport.js';
 import type { FetchBrowserContextMode, FetchFormat } from './types.js';
@@ -21,7 +22,7 @@ import { utf8ByteLength } from './bytes.js';
  *
  * The remote browser resolves the target outside this process, so the local address policy cannot
  * prove where it lands. Enabling the route is that decision, and every result it produces carries
- * {@link DELEGATED_NOTE} so a caller is told exactly what could not be checked here.
+ * {@link delegatedNote} so a caller is told exactly what could not be checked here.
  */
 export interface BrowserRouteRequest {
   url: URL;
@@ -48,8 +49,6 @@ export type BrowserFetcher = (request: BrowserRouteRequest) => Promise<RouteResu
 export type BrowserConnect = (endpoint: string, options: { timeout: number; headers?: Record<string, string> }) => Promise<Browser>;
 
 export const defaultBrowserConnect: BrowserConnect = (endpoint, options) => chromium.connect(endpoint, options);
-
-const DELEGATED_NOTE = 'The browser resolved the target outside this process: the local public-only check cannot prove its destination.';
 
 /** One bounded close, so no single unresponsive resource can hold the whole teardown open. */
 const boundedClose = async (operation: () => Promise<unknown>, timeoutMs = 2_000): Promise<void> => {
@@ -96,7 +95,7 @@ interface Capture {
  */
 export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserConnect): BrowserFetcher {
   return async request => {
-    const notes = [DELEGATED_NOTE];
+    const notes = [delegatedNote('browser')];
     const maxDomBytes = Math.max(1, request.maxBodyBytes);
     let browser: Browser | undefined;
     let context: BrowserContext | undefined;

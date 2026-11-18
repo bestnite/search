@@ -18,8 +18,6 @@ export interface SaveFeedback {
   text?: string;
   /** A server sentence, kept beside the localized wording instead of replacing it. */
   detail?: string;
-  /** The host error code, when the answer carried one; shown only as a last resort. */
-  code?: string;
   /** Every issue the refusal named, so the card can link to each field. */
   issues: ConfigIssue[];
 }
@@ -66,12 +64,23 @@ export function feedbackForSave(
     case 'conflict':
       return { kind: 'error', title: text.t('conflictTitle'), text: text.t('conflict'), issues: [] };
     case 'write-failed':
-      return { kind: 'error', title: text.t('saveFailed'), detail: outcome.message, code: outcome.code, issues: [] };
+      return { kind: 'error', title: text.t('saveFailed'), detail: outcome.message, issues: [] };
     case 'unconfirmed':
       return { kind: 'error', title: text.t('saveUnconfirmedTitle'), text: text.t('saveUnconfirmed'), issues: [] };
     case 'state-unknown':
       return { kind: 'error', title: text.t('saveStateUnknownTitle'), text: text.t('saveStateUnknown'), issues: [] };
   }
+}
+
+/**
+ * Whether opening this card moves focus into it.
+ *
+ * A refusal has to be announced and its field links have to be reachable, so it takes focus. A
+ * success must not: the save already finished, and pulling the keyboard away from the next edit is
+ * the opposite of helpful.
+ */
+export function feedbackTakesFocus(feedback: SaveFeedback): boolean {
+  return feedback.kind === 'error';
 }
 
 /** How long the card may stay: a success dismisses itself, an error waits for the user. */

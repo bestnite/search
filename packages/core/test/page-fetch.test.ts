@@ -761,6 +761,35 @@ test('the browser route reuses the stored session only when asked, and closes on
   assert.ok(failed.notes.some(note => /resolved the target outside this process/.test(note)), 'the delegated trust boundary is disclosed');
 });
 
+test('a provider route discloses the same delegated trust boundary on success and on failure', async () => {
+  const config = pageConfig(page => {
+    page.providerId = 'exa';
+    routeOf(page, 'http').enabled = false;
+    routeOf(page, 'provider').enabled = true;
+  });
+  const note = 'The provider resolved the target outside this process: the local public-only check cannot prove its destination.';
+
+  const ok = await engineFor(config, { providerCall: fakeProvider([exaMarkdown('# Page\n\nbody')]).call }).fetchPage({ url: 'https://example.com', format: 'markdown' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.contentRoute, 'provider');
+  assert.ok(ok.notes.includes(note), 'a successful provider fetch says what the local policy could not prove');
+
+  const failing = await engineFor(config, {
+    providerCall: fakeProvider([() => { throw new Error('connect ECONNREFUSED 127.0.0.1'); }]).call,
+  }).fetchPage({ url: 'https://example.com', format: 'markdown' });
+  assert.equal(failing.ok, false);
+  assert.equal(failing.attempts[0]!.route, 'provider');
+  assert.ok(failing.notes.includes(note), 'a failed provider fetch carries the same boundary');
+
+  // The browser route says the same thing about its own actor, from one shared sentence.
+  const browser = fakeBrowser({ failGoto: new Error('net::ERR_NAME_NOT_RESOLVED') });
+  const browserRoute = await engineFor(pageConfig(page => {
+    routeOf(page, 'http').enabled = false;
+    routeOf(page, 'browser').enabled = true;
+  }), { browser: browser.fetcher }).fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.ok(browserRoute.notes.includes(note.replace('The provider', 'The browser')), 'the browser route keeps the same sentence with its own actor');
+});
+
 test('a browser route reports only the main-document status, so subresource failures cannot match a rule', async () => {
   const browser = fakeBrowser({ status: 200, html: '<html><body><img src="/missing.png"><p>ok</p></body></html>' });
   const config = pageConfig(page => {
