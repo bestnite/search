@@ -1,4 +1,4 @@
-import { chmod, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
+import { chmod, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -178,9 +178,16 @@ async function backup(path: string, text: string): Promise<string | undefined> {
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${String(now.getMilliseconds()).padStart(3, '0')}`;
   const target = `${path}.bak-${stamp}`;
   await writeAtomic(target, text);
+  // Sorted by mtime, not by name: a name carries the writer's local time, and the same directory may
+  // be written by a host process and by a container whose clock is UTC.
   const directory = dirname(path);
   const prefix = `${basename(path)}.bak-`;
-  const stale = (await readdir(directory).catch(() => [] as string[])).filter(name => name.startsWith(prefix)).sort().reverse().slice(BACKUP_LIMIT);
+  const names = (await readdir(directory).catch(() => [] as string[])).filter(name => name.startsWith(prefix));
+  const entries = await Promise.all(names.map(async name => {
+    const info = await stat(join(directory, name)).catch(() => undefined);
+    return { name, at: info?.mtimeMs ?? 0 };
+  }));
+  const stale = entries.sort((a, b) => b.at - a.at).slice(BACKUP_LIMIT).map(entry => entry.name);
   await Promise.all(stale.map(name => unlink(join(directory, name)).catch(() => undefined)));
   return target;
 }

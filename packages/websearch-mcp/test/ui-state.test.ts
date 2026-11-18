@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '@nite07/search-core';
@@ -54,15 +54,25 @@ test('a valid save keeps credentials, unknown keys and a backup', async () => {
   assert.equal((await stat(path)).mode & 0o777, 0o600);
 });
 
-test('backups rotate instead of growing without bound', async () => {
+test('backups rotate by age, not by the timestamp in the name', async () => {
   const { path } = await workspace();
-  for (let index = 0; index < 8; index += 1) {
-    const next = defaultConfig();
-    next.maxResults = 5 + index;
-    await saveConfig(path, { config: next });
+  const directory = join(path, '..');
+  // Names carry the writer's local time, and a container writes UTC: sorting by name would delete the
+  // newest backup. These five are named so that name order and age disagree.
+  const now = Date.now() / 1000;
+  for (let index = 0; index < 5; index += 1) {
+    const name = join(directory, `config.json.bak-1990010${index + 1}-000000-000`);
+    await writeFile(name, '{}', 'utf8');
+    // index 0 is the oldest file and sorts last by name.
+    await utimes(name, now - (5 - index) * 86400, now - (5 - index) * 86400);
   }
-  const backups = (await readdir(join(path, '..'))).filter(name => name.startsWith('config.json.bak-'));
-  assert.ok(backups.length <= 5, `expected at most 5 backups, found ${backups.length}`);
+  const next = defaultConfig();
+  await saveConfig(path, { config: next });
+  await saveConfig(path, { config: next });
+  const backups = (await readdir(directory)).filter(name => name.startsWith('config.json.bak-'));
+  assert.equal(backups.length, 5, `expected five backups, found ${backups.length}`);
+  assert.equal(backups.includes('config.json.bak-19900101-000000-000'), false, 'the oldest file goes, whatever its name says');
+  assert.equal(backups.includes('config.json.bak-19900105-000000-000'), true, 'the newest pre-existing file stays');
 });
 
 test('credentials are written and cleared without ever being read back', async () => {

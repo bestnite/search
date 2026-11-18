@@ -35,8 +35,11 @@ function parseArgs(argv: readonly string[]): Map<string, string | true> {
   return flags;
 }
 
+/**
+ * The manifest beside dist is the authority. npm_package_version is inherited from whatever started
+ * this process, and a host like an MCP gateway sets it to its own version.
+ */
 async function readVersion(): Promise<string> {
-  if (process.env.npm_package_version) return process.env.npm_package_version;
   try {
     const text = await readFile(new URL('../package.json', import.meta.url), 'utf8');
     const parsed = JSON.parse(text) as { version?: unknown };
@@ -44,7 +47,7 @@ async function readVersion(): Promise<string> {
   } catch {
     // A checkout without a manifest beside dist is still usable; the version is cosmetic.
   }
-  return '0.1.0';
+  return process.env.npm_package_version ?? '0.1.0';
 }
 
 const help = (): string => `websearch-mcp — MCP server for multi-backend web search
