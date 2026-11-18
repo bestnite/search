@@ -47,14 +47,22 @@ instance can hold the page while MCP clients keep spawning the stdio server.
 websearch-mcp --ui                                    # http://127.0.0.1:7799
 websearch-mcp --ui --host 0.0.0.0 --port 7799         # reachable from the LAN; the token still applies
 websearch-mcp --print-url --host 0.0.0.0 --port 7799  # the link to open
-websearch-mcp --rotate-token                          # invalidate every link issued so far
+websearch-mcp --set-token 'my-own-token'              # set your own, saved for later runs
+websearch-mcp --rotate-token                          # mint a random one, invalidating old links
+websearch-mcp --no-token                              # no authentication at all
 ```
 
 - The bind address and port are launch arguments: `--host` / `--port`, or `WEBSEARCH_MCP_UI_HOST` /
   `WEBSEARCH_MCP_UI_PORT`. The default binds loopback only.
-- The first request has to carry `?token=`; it is exchanged for an `HttpOnly`, `SameSite=Strict`
-  cookie, so the link does not remain in browser history. The token is kept in `ui-token` beside the
-  configuration at mode 0600. Treat the link like a password: the page can write credentials.
+- **Authentication is on only when a token is configured.** `--set-token <value>` saves your own,
+  `--token <value>` uses one for a single run, `WEBSEARCH_MCP_UI_TOKEN` supplies one, `--rotate-token`
+  mints a random one, and `--no-token` ignores whatever is saved. Precedence: `--no-token`,
+  `--set-token`, `--rotate-token`, `--token`, environment, then `ui-token` beside the configuration
+  (mode 0600). Nothing is minted behind your back.
+- With a token the first request carries `?token=`, exchanged for an `HttpOnly`, `SameSite=Strict`
+  cookie, so the link does not stay in browser history. **With no token the page is open**: whoever
+  can reach the port can rewrite the configuration, credentials included. Loopback plus no token is a
+  reasonable single-user setup; anything wider deserves a token.
 - Saving validates against the same schema the server enforces. A rejected save leaves the file
   untouched and lists every problem by path; an accepted one writes `config.json.bak-<local time>`
   (five kept) and replaces the file atomically at mode 0600.

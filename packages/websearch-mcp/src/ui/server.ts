@@ -11,6 +11,8 @@ export interface UiOptions {
   host: string;
   port: number;
   tokenFile: string;
+  /** Absent means no authentication: whoever can reach the port can rewrite the configuration. */
+  token?: string;
   version: string;
   log: (message: string) => void;
 }
@@ -18,8 +20,8 @@ export interface UiOptions {
 export interface UiHandle {
   port: number;
   urls: string[];
-  token: string;
-  sessions: SessionStore;
+  token?: string;
+  sessions?: SessionStore;
   close(): Promise<void>;
 }
 
@@ -49,15 +51,16 @@ export function baseUrls(host: string, port: number): string[] {
   return displayHosts(host).map(item => `http://${withBrackets(item)}:${port}`);
 }
 
-export function tokenUrls(host: string, port: number, token: string): string[] {
-  return baseUrls(host, port).map(base => `${base}/?token=${encodeURIComponent(token)}`);
+export function tokenUrls(host: string, port: number, token?: string): string[] {
+  return baseUrls(host, port).map(base => (token ? `${base}/?token=${encodeURIComponent(token)}` : base));
 }
 
 export async function startUi(options: UiOptions): Promise<UiHandle> {
   let actualPort = options.port;
-  const sessions = new SessionStore({ tokenFile: options.tokenFile });
+  const token = options.token;
+  const sessions = token === undefined ? undefined : new SessionStore({ tokenFile: options.tokenFile, token });
   const limiter = new FailureLimiter();
-  const token = await sessions.load();
+  if (sessions) await sessions.load();
 
   const server: Server = createServer((request, response) => {
     handle(request, response).catch(error => {
@@ -67,7 +70,7 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
     });
   });
 
-  const prune = setInterval(() => sessions.prune(), 60_000);
+  const prune = setInterval(() => sessions?.prune(), 60_000);
   prune.unref?.();
 
   await new Promise<void>((resolve, reject) => {
@@ -94,7 +97,7 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
 
   return {
     port,
-    token,
+    ...(token === undefined ? {} : { token }),
     urls: tokenUrls(options.host, port, token),
     sessions,
     close: async () => {
@@ -133,6 +136,12 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
     }
 
     if (url.pathname === '/' && method === 'GET') {
+      if (!sessions) {
+        const page = await renderPage();
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end(page);
+        return;
+      }
       const candidate = url.searchParams.get('token') ?? undefined;
       if (candidate !== undefined) {
         if (limiter.blocked(ip)) return json(response, 429, { error: 'Too many failed attempts; wait five minutes.' });
@@ -157,7 +166,7 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      if (!sessions.check(cookieValue(request.headers.cookie, SESSION_COOKIE))) {
+      if (sessions && !sessions.check(cookieValue(request.headers.cookie, SESSION_COOKIE))) {
         return json(response, 401, { error: 'Session expired. Reload the link from --print-url.' });
       }
       try {
@@ -178,7 +187,12 @@ export async function startUi(options: UiOptions): Promise<UiHandle> {
   async function api(method: string, url: URL, request: IncomingMessage, response: ServerResponse, settings: UiOptions): Promise<void> {
     if (url.pathname === '/api/settings' && method === 'GET') {
       const current = await snapshot(settings.configPath);
-      return json(response, 200, { ...current, version: settings.version, bound: { host: settings.host, port: actualPort } });
+      return json(response, 200, {
+        ...current,
+        version: settings.version,
+        bound: { host: settings.host, port: actualPort },
+        auth: token === undefined ? 'none' : 'token',
+      });
     }
     if (url.pathname === '/api/settings' && method === 'PUT') {
       const body = await readJson(request);

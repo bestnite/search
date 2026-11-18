@@ -7,6 +7,8 @@ import { defaultConfig } from '@nite07/search-core';
 import { startUi } from '../src/ui/server.js';
 import { SESSION_COOKIE } from '../src/ui/session.js';
 
+const TEST_TOKEN = 'test-token-0123456789abcdef';
+
 interface Harness {
   base: string;
   token: string;
@@ -24,15 +26,16 @@ async function harness(): Promise<Harness> {
     host: '127.0.0.1',
     port: 0,
     tokenFile: join(directory, 'ui-token'),
+    token: TEST_TOKEN,
     version: '0.0.0-test',
     log: () => undefined,
   });
   const base = `http://127.0.0.1:${ui.port}`;
-  const login = await fetch(`${base}/?token=${encodeURIComponent(ui.token)}`, { redirect: 'manual' });
+  const login = await fetch(`${base}/?token=${encodeURIComponent(ui.token ?? '')}`, { redirect: 'manual' });
   const raw = login.headers.getSetCookie?.()[0] ?? login.headers.get('set-cookie') ?? '';
   return {
     base,
-    token: ui.token,
+    token: ui.token ?? '',
     cookie: raw.split(';')[0] ?? '',
     configPath,
     close: () => ui.close(),
@@ -172,5 +175,37 @@ test('guessing the token is rate limited', async () => {
     assert.equal(last, 429);
   } finally {
     await h.close();
+  }
+});
+
+test('without a token the page and the API are open, but still same-origin', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'wsm-open-'));
+  const configPath = join(directory, 'config.json');
+  await writeFile(configPath, `${JSON.stringify({ search: defaultConfig(), credentials: {}, compactByDefault: false }, null, 2)}\n`);
+  const ui = await startUi({
+    configPath,
+    host: '127.0.0.1',
+    port: 0,
+    tokenFile: join(directory, 'ui-token'),
+    version: '0.0.0-test',
+    log: () => undefined,
+  });
+  try {
+    assert.equal(ui.token, undefined);
+    assert.match(ui.urls[0] ?? '', /^http:\/\/127\.0\.0\.1:\d+$/, 'the printed URL carries no token');
+    const page = await fetch(`${ui.urls[0]}/`);
+    assert.equal(page.status, 200, 'no cookie, no redirect, just the page');
+    const settings = await fetch(`http://127.0.0.1:${ui.port}/api/settings`);
+    assert.equal(settings.status, 200);
+    assert.equal((await settings.json() as { auth: string }).auth, 'none');
+
+    const crossOrigin = await fetch(`http://127.0.0.1:${ui.port}/api/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify({ config: defaultConfig() }),
+    });
+    assert.equal(crossOrigin.status, 403, 'an open page is still not writable from another site');
+  } finally {
+    await ui.close();
   }
 });

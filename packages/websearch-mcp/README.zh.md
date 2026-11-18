@@ -38,13 +38,20 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 websearch-mcp --ui                                    # 只听 127.0.0.1:7799
 websearch-mcp --ui --host 0.0.0.0 --port 7799         # 局域网可达，令牌照旧
 websearch-mcp --print-url --host 0.0.0.0 --port 7799  # 打印要打开的链接
-websearch-mcp --rotate-token                          # 作废之前发出的所有链接
+websearch-mcp --set-token 'my-own-token'              # 自己指定令牌，存下来供以后用
+websearch-mcp --rotate-token                          # 随机生成一个，作废旧链接
+websearch-mcp --no-token                              # 完全不鉴权
 ```
 
 - 绑定地址和端口是启动参数：`--host` / `--port`，或环境变量 `WEBSEARCH_MCP_UI_HOST` /
   `WEBSEARCH_MCP_UI_PORT`。默认只绑 loopback。
-- 第一个请求必须带 `?token=`，它会被换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不会留在
-  浏览器历史里。令牌存在配置旁边的 `ui-token`，权限 0600。链接等同密码：页面能写凭证。
+- **配置了令牌才鉴权。** `--set-token <值>` 存下自己指定的令牌，`--token <值>` 只对本次运行生效，
+  `WEBSEARCH_MCP_UI_TOKEN` 提供令牌，`--rotate-token` 随机生成，`--no-token` 无视已存的令牌。
+  优先级：`--no-token` → `--set-token` → `--rotate-token` → `--token` → 环境变量 → 配置旁边的
+  `ui-token`（0600）。不会在你没要求时偷偷生成。
+- 有令牌时，第一个请求带 `?token=`，换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不留在浏览器
+  历史里。**没有令牌时页面是敞开的**：能连上端口的人就能改配置，包括凭证。只绑 loopback 又不设令牌，
+  单人自用没问题；一旦绑到更宽的地址，就该配一个令牌。
 - 保存时用服务端同一套 schema 校验。被拒的保存不动文件，按字段路径列出所有问题；通过的保存先写
   `config.json.bak-<本地时间>`（保留 5 份），再原子替换文件并设为 0600。
 - 正在跑的 stdio 服务监听到文件变化就重读，所以保存后下一次 `web_search` 就用新配置，不用重启

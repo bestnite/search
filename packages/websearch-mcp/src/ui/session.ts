@@ -19,12 +19,14 @@ export class SessionStore {
   private readonly idleMs: number;
   private readonly absoluteMs: number;
 
-  constructor(private readonly options: { tokenFile: string; idleMs?: number; absoluteMs?: number; now?: () => number }) {
+  constructor(private readonly options: { tokenFile: string; token?: string; idleMs?: number; absoluteMs?: number; now?: () => number }) {
+    this.token = options.token;
     this.now = options.now ?? (() => Date.now());
     this.idleMs = options.idleMs ?? IDLE_MS;
     this.absoluteMs = options.absoluteMs ?? ABSOLUTE_MS;
   }
 
+  /** The token is decided by the caller now; this only reads the file when it was not given one. */
   async load(): Promise<string> {
     if (this.token) return this.token;
     try {
