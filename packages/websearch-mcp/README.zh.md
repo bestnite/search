@@ -15,19 +15,32 @@
 
 ```sh
 npm install -g @nite07/websearch-mcp
+mkdir -p ~/.config/websearch-mcp
 websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 ```
 
-`--print-config` 生成一份完整且合法的配置，除了 Keenable 和 Reddit（这两家不需要账号）之外全部关闭。
+这会生成初始设置，默认启用无需账号的 Keenable 和 Reddit。无需编辑生成的文件，后续在 Web UI 中操作，或让 Agent 帮你修改即可。
+
+## 接入 MCP 客户端
+
+在客户端的 MCP 设置中添加一个 **stdio** 服务：
+
+| 字段 | 填写内容 |
+| --- | --- |
+| 名称 | `websearch` |
+| 命令 | `websearch-mcp` |
+| 参数 | 留空 |
+
+客户端需要能找到该命令；找不到时，填安装后的可执行文件完整路径。如果客户端只接受配置文件，
+按该客户端的说明添加 stdio 服务即可。
 
 ## 第一次搜索
 
-1. 打开 `~/.config/websearch-mcp/config.json`
-2. 在 `search.backends` 里把想用的那几家改成 `"enabled": true`。匿名档的 Keenable、Exa、You.com、AnySearch、Parallel、Reddit 不需要额外配置
-3. 按「客户端配置」把服务注册到你的 MCP 客户端
-4. 让客户端搜点东西
+让 Agent 使用默认后端搜索，也可以先让它列出可用服务商。例如：
 
-想先看看有什么可用又不花钱，调 `list_backends`：它列出每个后端的模式、费用档、启用状态以及有没有凭证，但不会启用任何东西。
+> 用 Keenable 和 Reddit 搜一下最近的自托管新闻。
+
+想更换后端、查看费用或调整搜索偏好，可以使用下面的 Web UI，或直接让 Agent 操作，无需手写配置。
 
 ## 搜索结果
 
@@ -54,67 +67,20 @@ WEBSEARCH_MCP_UI_PORT=7799 WEBSEARCH_MCP_UI_TOKEN=replace-with-a-long-random-tok
 websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 ```
 
-## 客户端配置
-
-```json
-{
-  "mcpServers": {
-    "websearch": {
-      "command": "websearch-mcp",
-      "env": { "WEBSEARCH_MCP_CONFIG": "/home/you/.config/websearch-mcp/config.json" }
-    }
-  }
-}
-```
-
-想显式指定文件时也可以用 `--config <path>`。两者都没有时，服务读取 `~/.config/websearch-mcp/config.json`。
-
 ## 凭证
 
-凭证名字由 search-core 固定，不是配置项：后端 id 转大写、连字符换下划线，再加 `_KEY`。Brave 是 `DSH_SEARCH_BRAVE_KEY`，知乎站内是 `DSH_SEARCH_ZHIHU_SITE_KEY`。
-
-放到客户端能看到的地方：
-
-```json
-{
-  "mcpServers": {
-    "websearch": {
-      "command": "websearch-mcp",
-      "env": {
-        "WEBSEARCH_MCP_CONFIG": "/home/you/.config/websearch-mcp/config.json",
-        "DSH_SEARCH_BRAVE_KEY": "…"
-      }
-    }
-  }
-}
-```
-
-环境变量没有时，可以用配置文件里的 `credentials.<后端-id>` 直接写值。值是字面字符串，`${...}` 不会被展开。
+在 Web UI 的服务商卡片中填写 API Key 或账号凭证并保存，也可以授权 Agent 通过 `search_manage`
+设置或清除凭证。该工具不会返回凭证值。不要把密钥粘贴到共享对话中。
 
 ## 需要浏览器的搜索
 
-小红书搜索和笔记读取需要浏览器容器。按 [packages/core/image](../core/image/README.zh.md) 起容器、在 VNC 里登录，然后把它配进来：
+小红书搜索和笔记读取需要浏览器容器：
 
-```json
-{
-  "search": {
-    "browser": {
-      "endpoint": "ws://127.0.0.1:3000/ws",
-      "statePath": "/path/to/search-browser/data/state.json",
-      "timeoutMs": 60000,
-      "maxConcurrentReads": 2
-    },
-    "backends": {
-      "xiaohongshu": { "enabled": true, "mode": "browser" }
-    }
-  }
-}
-```
+1. 按[浏览器容器说明](../core/image/README.zh.md)启动容器，在 VNC 中登录小红书。
+2. 在 Web UI 的「浏览器」部分填写容器提供的端点和端点令牌；使用登录态文件时，也在这里填写路径。
+3. 在「后端」中启用小红书的 browser 模式并保存。
 
-端点令牌写在 `DSH_SEARCH_BROWSER_TOKEN` 或文件里的 `credentials.browser`。
-`statePath` 填容器保存登录态的文件路径，`maxConcurrentReads`（1–8）控制同一站点的并发读取数。
-
-读取笔记时，向 `xiaohongshu_note` 传入 App 中复制的完整分享链接，或之前搜索返回的笔记 id。
+随后就可以让 Agent 搜索小红书，或读取从 App 复制的完整分享链接。
 
 ## 工具
 
@@ -137,21 +103,19 @@ websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 可以让 Agent 用 `search_manage` 查看设置、调整后端或页面抓取选项、设置或清除凭证，
 也可以测试已保存的后端与抓取配置。工具不会返回凭证值，修改后无需重启 MCP 服务。
 
-Agent 应先读取设置（`action: "settings"`），再提交修改后的完整配置和读取时的 `expectedRevision`
-（`action: "save"`）；修改凭证也需要带上该版本。`test` 和 `fetch-test` 会发出真实请求，可能产生费用。
-修改配置、凭证或运行测试前，都需要你的授权。
+例如：
+
+> 帮我看看有哪些免费后端，启用 Keenable 并保存。
+
+测试会发出真实请求，可能产生费用。修改配置、凭证或运行测试前，都需要你的授权。
 
 ## 页面抓取
 
-用 `web_extract` 读取已知 URL，返回 Markdown 或 HTML。在设置页启用，或将配置文件中的
-`search.tools.webExtract` 设为 `true`。
+在 Web UI 的「页面抓取」中启用 **web_extract**，或让 Agent 帮你启用。
+随后让它读取指定网页，返回 Markdown；需要查看页面结构时，可以要求返回 HTML。
 
-```json
-{ "url": "https://example.com/article", "format": "markdown" }
-```
-
-需要查看页面结构时使用 `"html"`。支持读取需要 JavaScript 的页面，也可以在「页面抓取」中选择服务商。
-使用前请查看支持的格式和费用，需要 API Key 的模式应先填写凭证。默认只允许公网地址。
+支持读取需要 JavaScript 的页面，也可以在同一页面选择抓取服务商。使用前请查看支持的格式和费用，
+需要 API Key 的模式先填写凭证。默认只允许公网地址。
 
 ## 可以依赖的行为
 
@@ -165,10 +129,10 @@ Agent 应先读取设置（`action: "settings"`），再提交修改后的完整
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| 客户端里看不到工具 | 服务没起来。手动跑一次 `websearch-mcp --config <path>` 看报错。 |
-| 每次搜索都失败 | 没有启用任何后端。先调 `list_backends`，启用一家，再重启客户端。 |
-| 某个要 Key 的后端报缺凭证 | 环境变量名是按后端 id 生成的，用 `list_backends` 核对准确名字。 |
-| 小红书报没有端点 | `search.browser.endpoint` 是空的，后端自己也没配端点。 |
+| 客户端里看不到工具 | 服务没起来。在终端运行 `websearch-mcp` 查看启动报错。 |
+| 每次搜索都失败 | 没有启用任何后端。在 Web UI 中启用一家，或让 Agent 帮你启用，再重试。 |
+| 某个要 Key 的后端报缺凭证 | 在服务商卡片中填写凭证，或授权 Agent 设置。 |
+| 小红书报没有端点 | 在 Web UI 的「浏览器」部分填写端点。 |
 | 小红书报未登录 | 容器的登录态过期了。去 VNC 里重新登录，下次读取会重新加载会话文件。 |
 
 ## 开发

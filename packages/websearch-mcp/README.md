@@ -21,21 +21,34 @@ run is the caller's decision: one id in `backends` runs one backend, several run
 
 ```sh
 npm install -g @nite07/websearch-mcp
+mkdir -p ~/.config/websearch-mcp
 websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 ```
 
-`--print-config` writes a complete, valid configuration with every backend disabled except Keenable
-and Reddit, which need no account.
+This creates the initial settings with Keenable and Reddit enabled; neither needs an account.
+You do not need to edit the generated file. Use the settings page or ask your agent to make changes.
+
+## Connect your MCP client
+
+Add a **stdio** MCP server in your client's MCP settings:
+
+| Field | Value |
+| --- | --- |
+| Name | `websearch` |
+| Command | `websearch-mcp` |
+| Arguments | None |
+
+The command must be available to the client. If it cannot find it, use the full path to the installed
+executable. Clients that only accept a configuration file have their own setup format; follow that
+client's instructions for adding a stdio server.
 
 ## First search
 
-1. Open `~/.config/websearch-mcp/config.json`.
-2. Under `search.backends`, set `"enabled": true` on the providers you want. Anonymous tiers —
-   Keenable, Exa, You.com, AnySearch, Parallel, Reddit — need nothing else.
-3. Register the server with your MCP client (see **Client configuration**).
-4. Ask the client to search. To see what is available without spending anything, call
-   `list_backends` first: it reports each backend's modes, cost tier, enabled state and whether a
-   credential is present. It never enables anything.
+Ask your agent to search using the default backends, or ask it to list the available providers first.
+For example: “Search for recent self-hosting news using Keenable and Reddit.”
+
+To choose providers, check costs or change search preferences, use the settings page below or ask the agent to
+manage the settings for you. There is no need to write configuration by hand.
 
 ## Search results
 
@@ -64,74 +77,22 @@ To run only the settings page:
 websearch-mcp --ui --port 7799 --token replace-with-a-long-random-token
 ```
 
-## Client configuration
-
-```json
-{
-  "mcpServers": {
-    "websearch": {
-      "command": "websearch-mcp",
-      "env": { "WEBSEARCH_MCP_CONFIG": "/home/you/.config/websearch-mcp/config.json" }
-    }
-  }
-}
-```
-
-`--config <path>` works too when you would rather pass the file explicitly. Without either, the
-server reads `~/.config/websearch-mcp/config.json`.
-
 ## Credentials
 
-Credential names are fixed by search-core, not configuration fields: a backend id is uppercased with
-hyphens turned into underscores, then suffixed with `_KEY`. So Brave is `DSH_SEARCH_BRAVE_KEY` and
-Zhihu site search is `DSH_SEARCH_ZHIHU_SITE_KEY`.
-
-Put them where your client can see them:
-
-```json
-{
-  "mcpServers": {
-    "websearch": {
-      "command": "websearch-mcp",
-      "env": {
-        "WEBSEARCH_MCP_CONFIG": "/home/you/.config/websearch-mcp/config.json",
-        "DSH_SEARCH_BRAVE_KEY": "…"
-      }
-    }
-  }
-}
-```
-
-If an environment value is absent, `credentials.<backend-id>` may hold the value itself inside the
-config file. Values are literal strings: `${...}` is not expanded.
+Enter a provider's API key or account credential on its card in the settings page and save.
+You can also authorize the agent to set or remove a credential with `search_manage`.
+Credential values are never returned by that tool. Do not paste secrets into a shared conversation.
 
 ## Browser-backed search
 
-Xiaohongshu search and note reading need a browser container. Start
-it from [packages/core/image](../core/image/README.md), sign in over VNC, then point the server at it:
+Xiaohongshu search and note reading need a browser container:
 
-```json
-{
-  "search": {
-    "browser": {
-      "endpoint": "ws://127.0.0.1:3000/ws",
-      "statePath": "/path/to/search-browser/data/state.json",
-      "timeoutMs": 60000,
-      "maxConcurrentReads": 2
-    },
-    "backends": {
-      "xiaohongshu": { "enabled": true, "mode": "browser" }
-    }
-  }
-}
-```
+1. Start the [browser container](../core/image/README.md) and sign in to Xiaohongshu over VNC.
+2. In the settings page's **Browser** section, enter the endpoint and endpoint token shown by the
+   container. If you use a saved session file, enter its path there too.
+3. Enable Xiaohongshu in browser mode in **Backends** and save.
 
-The endpoint token goes in `DSH_SEARCH_BROWSER_TOKEN`, or in `credentials.browser` inside the file.
-Set `statePath` to the container's saved session file. `maxConcurrentReads` (1–8) controls concurrent
-reads on the same site.
-
-To read a note, pass its full share link from the app, or a note id returned by an earlier search,
-to `xiaohongshu_note`.
+Then ask your agent to search Xiaohongshu or read a full share link copied from the app.
 
 ## Tools
 
@@ -156,23 +117,18 @@ Ask the agent to use `search_manage` to view settings, change backends or page-f
 set or remove credentials. It can also test a saved backend or page-fetch setup. Credential values
 are never returned. Changes take effect without restarting the MCP server.
 
-The agent should read settings first (`action: "settings"`), then submit the complete edited config
-with its `expectedRevision` (`action: "save"`). Credential changes also require that revision.
-Actions `test` and `fetch-test` run real requests and may incur charges. Configuration changes,
-credential changes and tests require your authorization.
+For example: “Show me the available free backends, enable Keenable, and save.”
+Tests make real requests and may incur charges. Configuration changes, credential changes and tests
+require your authorization.
 
 ## Page fetching
 
-Use `web_extract` to read a known URL as Markdown or HTML. Enable it in the settings page, or set
-`search.tools.webExtract` to `true` in the configuration file.
+Enable **web_extract** in the settings page's **Page fetch** section, or ask the agent to enable it.
+Then ask it to read a URL as Markdown, or return HTML when you need the page structure.
 
-```json
-{ "url": "https://example.com/article", "format": "markdown" }
-```
-
-Use `"html"` when you need the page structure. Browser support is available for JavaScript pages.
-You can choose a fetch provider in **Page fetch**; check its supported formats and costs, and supply
-an API key if required. Page fetching allows public URLs by default.
+Browser support is available for JavaScript pages. You can choose a fetch provider on the same page;
+check its supported formats and costs, and supply an API key if required. Public URLs are allowed by
+default.
 
 ## Behaviour worth relying on
 
@@ -189,10 +145,10 @@ an API key if required. Page fetching allows public URLs by default.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| The client shows no tools | The server failed to start. Run `websearch-mcp --config <path>` by hand and read the error. |
-| Every search fails | No backend is enabled. Call `list_backends`, then enable one and restart the client. |
-| A keyed backend reports a missing credential | The environment variable is named after the backend id. Check the exact name with `list_backends`. |
-| Xiaohongshu reports no endpoint | `search.browser.endpoint` is empty and the backend has none. |
+| The client shows no tools | The server failed to start. Run `websearch-mcp` in a terminal and read the startup error. |
+| Every search fails | No backend is enabled. Enable one in the settings page or ask the agent to enable it, then retry. |
+| A keyed backend reports a missing credential | Enter the credential on the provider card, or authorize the agent to set it. |
+| Xiaohongshu reports no endpoint | Fill in the endpoint in the settings page’s Browser section. |
 | Xiaohongshu reports not signed in | The container's session expired. Sign in again over VNC; the next read reloads the state file. |
 
 ## Development
