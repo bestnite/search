@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>websearch-mcp · 设置</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --panel: #fff; --ink: #16181d; --muted: #626a78; --line: #dfe3ea;
+    --accent: #2f6fed; --accent-ink: #fff; --ok: #12855b; --warn: #b06a00; --bad: #c22a2a;
+    --chip: #eef1f6; --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --panel: #171a21; --ink: #e7eaf0; --muted: #9aa3b2; --line: #262b35;
+      --accent: #6f9dff; --accent-ink: #0b1220; --ok: #4cc79a; --warn: #e0a44a; --bad: #f27a7a;
+      --chip: #1e222b; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace; font-size: .92em; }
+  .bar {
+    position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: .75rem 1rem;
+    align-items: center; justify-content: space-between; padding: .75rem 1.25rem;
+    background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .ident { display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
+  .bar .path { color: var(--muted); font-size: .82rem; flex: 1 1 18rem; }
+  .bar .actions { display: flex; gap: .5rem; align-items: center; }
+  .chip { background: var(--chip); border-radius: 999px; padding: .1rem .55rem; font-size: .78rem; color: var(--muted); }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: transparent; border: 1px solid var(--line); }
+  .dot.on { background: var(--warn); border-color: var(--warn); }
+  button {
+    font: inherit; border-radius: .5rem; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); padding: .38rem .8rem; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.primary:disabled { opacity: .55; cursor: progress; }
+  button.ghost { background: transparent; }
+  button.small { padding: .18rem .5rem; font-size: .8rem; }
+  main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; }
+  section { margin-bottom: 2rem; }
+  h2 { font-size: 1rem; margin: 0 0 .75rem; letter-spacing: .01em; }
+  h3 { font-size: .95rem; margin: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: .75rem; box-shadow: var(--shadow); }
+  .grid { display: grid; gap: .75rem 1rem; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .field { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+  .field > span { font-size: .8rem; color: var(--muted); }
+  .field input[type=text], .field input[type=number], .field input[type=password], .field select {
+    font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: .45rem; padding: .35rem .5rem; min-width: 0;
+  }
+  .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .field.invalid input, .field.invalid select { border-color: var(--bad); }
+  .check { display: flex; align-items: center; gap: .45rem; font-size: .86rem; }
+  .pad { padding: 1rem; }
+  details.panel { padding: 0; }
+  details.panel > summary {
+    cursor: pointer; padding: .7rem 1rem; font-weight: 600; font-size: .9rem;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  details.panel > div { padding: 0 1rem 1rem; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .75rem; }
+  .toolbar input[type=search] {
+    font: inherit; padding: .35rem .6rem; border-radius: .45rem; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); min-width: 14rem;
+  }
+  .cards { display: flex; flex-direction: column; gap: .6rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: .7rem; box-shadow: var(--shadow); overflow: hidden; }
+  .card.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .card-head { display: flex; gap: .75rem; align-items: flex-start; padding: .7rem .9rem; }
+  .card-head .titles { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .3rem; }
+  .card-head .titles code { color: var(--muted); font-size: .78rem; }
+  .badges { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .badge { font-size: .74rem; padding: .05rem .5rem; border-radius: 999px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  .badge.ok { color: var(--ok); }
+  .badge.bad { color: var(--bad); }
+  .badge.warn { color: var(--warn); }
+  .switch { position: relative; display: inline-flex; width: 2.1rem; height: 1.2rem; flex: 0 0 auto; margin-top: .1rem; }
+  .switch input { position: absolute; opacity: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; }
+  .switch span::after {
+    content: ""; position: absolute; top: .15rem; left: .15rem; width: .9rem; height: .9rem;
+    border-radius: 50%; background: var(--panel); transition: transform .15s;
+  }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(.9rem); }
+  .card-body { border-top: 1px solid var(--line); padding: .9rem; display: grid; gap: .9rem; }
+  .row { display: grid; gap: .75rem 1rem; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .cred { display: flex; flex-direction: column; gap: .4rem; }
+  .cred-head { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+  .cred-input { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .cred-input input { flex: 1 1 18rem; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: .45rem; padding: .35rem .5rem; }
+  .note { font-size: .78rem; color: var(--muted); }
+  .note a { color: var(--accent); }
+  pre.out {
+    margin: 0; padding: .6rem .7rem; background: var(--bg); border: 1px solid var(--line);
+    border-radius: .5rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem;
+  }
+  #issues { margin-bottom: 1.25rem; }
+  #issues .panel { border-color: var(--bad); }
+  #issues ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+  #issues li { font-size: .85rem; }
+  #banner .panel { border-color: var(--warn); }
+  .toast {
+    position: fixed; left: 50%; bottom: 1.5rem; transform: translate(-50%, 1rem); opacity: 0;
+    background: var(--ink); color: var(--bg); padding: .5rem 1rem; border-radius: .5rem;
+    font-size: .85rem; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 40;
+    max-width: min(40rem, 90vw);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  footer { max-width: 1180px; margin: 0 auto; padding: 0 1.25rem 2.5rem; color: var(--muted); font-size: .8rem; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="ident">
+    <strong>websearch-mcp</strong>
+    <span class="chip" id="version">—</span>
+    <span class="chip mono" id="revision">—</span>
+    <span class="dot" id="dirty" title="有未保存的更改"></span>
+  </div>
+  <div class="path mono" id="configPath">—</div>
+  <div class="actions">
+    <button class="ghost" id="lang">EN</button>
+    <button class="ghost" id="reload">重新加载</button>
+    <button class="primary" id="save">保存</button>
+  </div>
+</header>
+<div id="issues"></div>
+<div id="banner"></div>
+<main id="app"></main>
+<footer id="foot"></footer>
+<div class="toast" id="toast"></div>
+<script type="module">
+const I18N = {
+  zh: {
+    save: '保存', reload: '重新加载', dirty: '有未保存的更改', clean: '已保存',
+    saved: '已保存并热重载', savedNoChange: '没有需要保存的更改', reloaded: '已从磁盘重新加载',
+    loadError: '磁盘上的配置无法解析，页面暂时显示默认值；保存后即覆盖。',
+    sessionExpired: '会话已过期，请用 --print-url 重新打开链接。',
+    strategy: '检索策略', mode: '模式', parallel: '并行（全部启用后端）', single: '单后端',
+    singleBackend: '单后端选择', singleBackendHint: 'single 模式下唯一使用的后端',
+    maxResults: '结果上限', concurrency: '并发', overallTimeout: '总超时 (ms)', backendTimeout: '超时 (ms)',
+    query: '查询默认值', language: '语言', region: '地区', recency: '时效', dedup: '去重', fusion: '融合',
+    safeSearch: '安全搜索', includeDomains: '包含域名', excludeDomains: '排除域名',
+    none: '不限制', any: '不限', day: '一天', week: '一周', month: '一月', year: '一年',
+    url: '按 URL', urlTitle: '按 URL + 标题', rrf: 'RRF', ordered: '按顺序拼接',
+    advanced: '高级', retry: '重试', cache: '缓存', breaker: '熔断', diagnostics: '诊断记录',
+    browser: '共享浏览器', tools: '输出', compactDefault: '默认精简输出（只返回 URL / 标题 / 日期）',
+    webSearchPlus: '启用 web_search_plus 兼容字段',
+    enabled: '启用', retryEnabled: '启用重试', statuses: '重试状态码', maxRetries: '最多重试次数',
+    initialDelay: '初始延迟 (ms)', maxDelay: '最大延迟 (ms)', networkErrors: '网络错误也重试', timeouts: '超时也重试',
+    cacheEnabled: '启用缓存', ttl: 'TTL (秒)', maxEntries: '条目上限',
+    breakerEnabled: '启用熔断', threshold: '失败阈值', cooldown: '冷却 (ms)',
+    diagEnabled: '记录诊断', diagEntries: '记录条数',
+    browserEndpoint: '浏览器端点', statePath: '登录态文件', browserTimeout: '浏览器超时 (ms)', maxReads: '并发读取上限',
+    browserToken: '浏览器令牌', browserTokenNote: '保护浏览器端点，不是站点账号凭证',
+    backends: '后端', filter: '按名称或 id 过滤', onlyEnabled: '只看已启用',
+    summary: (on, total, missing) => `已启用 ${on} / ${total}，缺凭证 ${missing}`,
+    credential: '凭证', credentialSave: '保存凭证', credentialClear: '清除',
+    credNone: '未配置', credFile: '已存于文件', credEnv: '由环境变量提供', credRequired: '无需凭证',
+    credEnvWins: (ref) => `环境变量 ${ref} 优先，页面写入的值不会生效。`,
+    credPlaceholder: '粘贴凭证值',
+    test: '测试', testing: '测试中…', probe: '测试查询', result: '结果',
+    tier: { free: '免费', allowance: '赠送额度', paid: '付费', trial: '试用', account: '账号会话', 'self-hosted': '自建' },
+    docs: '文档', pricing: '定价', expand: '展开', collapse: '收起',
+    issues: '配置未通过校验', noChange: '—',
+    foot: (host, port) => `监听 ${host}:${port} · 保存后正在运行的 MCP 进程会在约 150ms 内重读配置`,
+    cleared: '凭证已清除', credSaved: '凭证已保存', missingCred: '缺凭证',
+    credBrowserNote: '读取走共享浏览器：端点与令牌在「共享浏览器」一节填写。',
+    credAnonymousNote: '当前模式不需要凭证；切换到 key / oauth / session 模式后这里会出现凭证输入框。',
+  },
+  en: {
+    save: 'Save', reload: 'Reload', dirty: 'Unsaved changes', clean: 'Saved',
+    saved: 'Saved and hot-reloaded', savedNoChange: 'Nothing to save', reloaded: 'Reloaded from disk',
+    loadError: 'The file on disk does not parse, so defaults are shown; saving replaces it.',
+    sessionExpired: 'Session expired. Open the link from --print-url again.',
+    strategy: 'Strategy', mode: 'Mode', parallel: 'Parallel (every enabled backend)', single: 'Single backend',
+    singleBackend: 'Single backend', singleBackendHint: 'The only backend used in single mode',
+    maxResults: 'Max results', concurrency: 'Concurrency', overallTimeout: 'Overall timeout (ms)', backendTimeout: 'Timeout (ms)',
+    query: 'Query defaults', language: 'Language', region: 'Region', recency: 'Recency', dedup: 'Dedup', fusion: 'Fusion',
+    safeSearch: 'Safe search', includeDomains: 'Include domains', excludeDomains: 'Exclude domains',
+    none: 'Any', any: 'Any', day: 'Day', week: 'Week', month: 'Month', year: 'Year',
+    url: 'By URL', urlTitle: 'By URL + title', rrf: 'RRF', ordered: 'Ordered concat',
+    advanced: 'Advanced', retry: 'Retry', cache: 'Cache', breaker: 'Breaker', diagnostics: 'Diagnostics',
+    browser: 'Shared browser', tools: 'Output', compactDefault: 'Compact output by default (URL / title / date only)',
+    webSearchPlus: 'Expose the web_search_plus compatibility fields',
+    enabled: 'Enabled', retryEnabled: 'Retry enabled', statuses: 'Retry statuses', maxRetries: 'Max retries',
+    initialDelay: 'Initial delay (ms)', maxDelay: 'Max delay (ms)', networkErrors: 'Retry network errors', timeouts: 'Retry timeouts',
+    cacheEnabled: 'Cache enabled', ttl: 'TTL (seconds)', maxEntries: 'Max entries',
+    breakerEnabled: 'Breaker enabled', threshold: 'Failure threshold', cooldown: 'Cooldown (ms)',
+    diagEnabled: 'Record diagnostics', diagEntries: 'Entries kept',
+    browserEndpoint: 'Browser endpoint', statePath: 'Session state file', browserTimeout: 'Browser timeout (ms)', maxReads: 'Concurrent reads',
+    browserToken: 'Browser token', browserTokenNote: 'Protects the browser endpoint, not a site account',
+    backends: 'Backends', filter: 'Filter by name or id', onlyEnabled: 'Enabled only',
+    summary: (on, total, missing) => `${on} of ${total} enabled, ${missing} missing a credential`,
+    credential: 'Credential', credentialSave: 'Save credential', credentialClear: 'Clear',
+    credNone: 'Not set', credFile: 'Stored in file', credEnv: 'Provided by environment', credRequired: 'Not required',
+    credEnvWins: (ref) => `${ref} wins over the file, so a value saved here is ignored.`,
+    credPlaceholder: 'Paste the credential value',
+    test: 'Test', testing: 'Testing…', probe: 'Probe query', result: 'Result',
+    tier: { free: 'free', allowance: 'allowance', paid: 'paid', trial: 'trial', account: 'account session', 'self-hosted': 'self-hosted' },
+    docs: 'Docs', pricing: 'Pricing', expand: 'Expand', collapse: 'Collapse',
+    issues: 'The configuration did not validate', noChange: '—',
+    foot: (host, port) => `Listening on ${host}:${port} · a running MCP process re-reads the file within about 150ms`,
+    cleared: 'Credential cleared', credSaved: 'Credential saved', missingCred: 'missing credential',
+    credBrowserNote: 'Reads go through the shared browser: set its endpoint and token under Shared browser.',
+    credAnonymousNote: 'This mode needs no credential; a key, oauth or session mode adds the field here.',
+  },
+};
+
+const state = {
+  snap: null, draft: null, dirty: false,
+  lang: localStorage.getItem('wsm.lang') || 'zh',
+  filter: '', onlyEnabled: false, open: new Set(), closed: new Set(), results: {}, issues: [], probeQuery: '', compactByDefault: false,
+};
+const t = (key, ...args) => {
+  const table = I18N[state.lang] || I18N.zh;
+  const value = table[key] ?? I18N.zh[key] ?? key;
+  return typeof value === 'function' ? value(...args) : value;
+};
+const local = (field) => (field && typeof field === 'object' ? (field[state.lang] ?? field.en ?? '') : String(field ?? ''));
+const clone = (value) => structuredClone(value);
+
+function h(tag, props = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === 'class') node.className = value;
+    else if (key === 'dataset') Object.assign(node.dataset, value);
+    else if (key === 'html') node.innerHTML = value;
+    else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2).toLowerCase(), value);
+    else if (value === true) node.setAttribute(key, '');
+    else node.setAttribute(key, String(value));
+  }
+  for (const kid of kids.flat(4)) {
+    if (kid === undefined || kid === null || kid === false) continue;
+    node.append(kid && kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return node;
+}
+
+const getPath = (object, path) => path.split('.').reduce((acc, key) => (acc === undefined || acc === null ? undefined : acc[key]), object);
+function setPath(object, path, value) {
+  const keys = path.split('.');
+  const last = keys.pop();
+  let cursor = object;
+  for (const key of keys) {
+    if (cursor[key] === undefined || cursor[key] === null || typeof cursor[key] !== 'object') cursor[key] = {};
+    cursor = cursor[key];
+  }
+  cursor[last] = value;
+}
+
+function toast(message, tone = '') {
+  const node = document.getElementById('toast');
+  node.textContent = message;
+  node.className = `toast show ${tone}`;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { node.className = 'toast'; }, 3200);
+}
+
+function markDirty() {
+  state.dirty = true;
+  document.getElementById('dirty').classList.add('on');
+  document.getElementById('dirty').title = t('dirty');
+}
+function markClean() {
+  state.dirty = false;
+  document.getElementById('dirty').classList.remove('on');
+  document.getElementById('dirty').title = t('clean');
+}
+
+function field(spec) {
+  const wrap = h('label', { class: 'field', dataset: { path: spec.path || '' } });
+  wrap.append(h('span', {}, spec.label));
+  const value = spec.path ? getPath(state.draft, spec.path) : spec.value;
+  let input;
+  if (spec.type === 'select') {
+    input = h('select', { dataset: { kind: 'select' } },
+      spec.options.map(([optionValue, optionLabel]) => h('option', { value: optionValue, selected: String(value) === String(optionValue) }, optionLabel)));
+  } else if (spec.type === 'check') {
+    wrap.className = 'check';
+    input = h('input', { type: 'checkbox', checked: value === true, dataset: { kind: 'check' } });
+    wrap.replaceChildren(input, h('span', {}, spec.label));
+    return wrap;
+  } else if (spec.type === 'list') {
+    input = h('input', { type: 'text', value: Array.isArray(value) ? value.join(', ') : '', placeholder: spec.placeholder || '', dataset: { kind: 'list' } });
+  } else if (spec.type === 'number') {
+    input = h('input', { type: 'number', value: value ?? '', min: spec.min, max: spec.max, step: spec.step || 1, dataset: { kind: 'number' } });
+  } else {
+    input = h('input', { type: spec.secret ? 'password' : 'text', value: value ?? '', placeholder: spec.placeholder || '', autocomplete: 'off', dataset: { kind: 'text' } });
+  }
+  wrap.append(input);
+  if (spec.hint) wrap.append(h('span', { class: 'note' }, spec.hint));
+  return wrap;
+}
+
+function bindFields(root) {
+  for (const host of root.querySelectorAll('[data-path]')) {
+    const path = host.dataset.path;
+    if (!path) continue;
+    const input = host.matches('input, select') ? host : host.querySelector('input, select');
+    if (!input) continue;
+    const kind = input.dataset.kind || 'text';
+    const apply = () => {
+      let value;
+      if (kind === 'check') value = input.checked;
+      else if (kind === 'number') { value = Number(input.value); if (!Number.isFinite(value)) return; }
+      else if (kind === 'list') value = input.value.split(',').map(item => item.trim()).filter(Boolean);
+      else value = input.value;
+      setPath(state.draft, path, value);
+      markDirty();
+      if (path.endsWith('.mode')) onModeChange(path.slice(0, -5), input.value);
+      if (path.endsWith('.enabled')) render();
+    };
+    input.addEventListener(kind === 'select' || kind === 'check' ? 'change' : 'input', apply);
+  }
+}
+
+function onModeChange(backendPath, mode) {
+  const backendId = backendPath.split('.').pop();
+  const definition = state.snap.catalog.find(item => item.id === backendId);
+  const previous = definition?.modes.find(item => item.endpoint === getPath(state.draft, `${backendPath}.endpoint`));
+  const next = definition?.modes.find(item => item.mode === mode);
+  if (next && (!previous || getPath(state.draft, `${backendPath}.endpoint`) === previous.endpoint)) {
+    setPath(state.draft, `${backendPath}.endpoint`, next.endpoint);
+  }
+  render();
+}
+
+function overview() {
+  const strategy = h('div', { class: 'panel pad' },
+    h('div', { class: 'grid' },
+      field({ path: 'mode', type: 'select', label: t('mode'), options: [['parallel', t('parallel')], ['single', t('single')]] }),
+      field({ path: 'singleBackend', type: 'select', label: t('singleBackend'), hint: t('singleBackendHint'), options: state.snap.catalog.map(item => [item.id, item.title]) }),
+      field({ path: 'maxResults', type: 'number', label: t('maxResults'), min: 1, max: 50 }),
+      field({ path: 'concurrency', type: 'number', label: t('concurrency'), min: 1, max: 20 }),
+      field({ path: 'overallTimeoutMs', type: 'number', label: t('overallTimeout'), min: 1000, max: 180000, step: 1000 }),
+    ));
+
+  const query = h('div', { class: 'panel pad' },
+    h('div', { class: 'grid' },
+      field({ path: 'language', type: 'select', label: t('language'), options: [['', t('none')], ...(state.snap.languages || []).map(code => [code, code])] }),
+      field({ path: 'region', type: 'select', label: t('region'), options: [['', t('none')], ...(state.snap.regions || []).map(code => [code, code])] }),
+      field({ path: 'recency', type: 'select', label: t('recency'), options: [['any', t('any')], ['day', t('day')], ['week', t('week')], ['month', t('month')], ['year', t('year')]] }),
+      field({ path: 'dedup', type: 'select', label: t('dedup'), options: [['url', t('url')], ['url-title', t('urlTitle')]] }),
+      field({ path: 'fusion', type: 'select', label: t('fusion'), options: [['rrf', t('rrf')], ['ordered', t('ordered')]] }),
+      field({ path: 'safeSearch', type: 'check', label: t('safeSearch') }),
+      field({ path: 'includeDomains', type: 'list', label: t('includeDomains'), placeholder: 'example.com, docs.example.org' }),
+      field({ path: 'excludeDomains', type: 'list', label: t('excludeDomains'), placeholder: 'spam.example' }),
+    ));
+
+  const retry = details('retry', t('retry'),
+    field({ path: 'retry.enabled', type: 'check', label: t('retryEnabled') }),
+    field({ path: 'retry.maxRetries', type: 'number', label: t('maxRetries'), min: 0, max: 5 }),
+    field({ path: 'retry.initialDelayMs', type: 'number', label: t('initialDelay'), min: 0, max: 60000 }),
+    field({ path: 'retry.maxDelayMs', type: 'number', label: t('maxDelay'), min: 0, max: 120000 }),
+    field({ path: 'retry.statuses', type: 'list', label: t('statuses'), placeholder: '408, 429, 500' }),
+    field({ path: 'retry.networkErrors', type: 'check', label: t('networkErrors') }),
+    field({ path: 'retry.timeouts', type: 'check', label: t('timeouts') }));
+
+  const cache = details('cache', t('cache'),
+    field({ path: 'cache.enabled', type: 'check', label: t('cacheEnabled') }),
+    field({ path: 'cache.ttlSeconds', type: 'number', label: t('ttl'), min: 1, max: 86400 }),
+    field({ path: 'cache.maxEntries', type: 'number', label: t('maxEntries'), min: 1, max: 1000 }));
+
+  const breaker = details('breaker', t('breaker'),
+    field({ path: 'breaker.enabled', type: 'check', label: t('breakerEnabled') }),
+    field({ path: 'breaker.threshold', type: 'number', label: t('threshold'), min: 1, max: 100 }),
+    field({ path: 'breaker.cooldownMs', type: 'number', label: t('cooldown'), min: 1000, max: 3600000 }));
+
+  const diagnostics = details('diagnostics', t('diagnostics'),
+    field({ path: 'diagnostics.enabled', type: 'check', label: t('diagEnabled') }),
+    field({ path: 'diagnostics.maxEntries', type: 'number', label: t('diagEntries'), min: 1, max: 500 }));
+
+  const browser = details('browser', t('browser'),
+    field({ path: 'browser.endpoint', type: 'text', label: t('browserEndpoint'), placeholder: 'ws://127.0.0.1:3030/ws' }),
+    field({ path: 'browser.statePath', type: 'text', label: t('statePath'), placeholder: '~/.config/dsh-search/browser/state.json' }),
+    field({ path: 'browser.timeoutMs', type: 'number', label: t('browserTimeout'), min: 1000, max: 120000 }),
+    field({ path: 'browser.maxConcurrentReads', type: 'number', label: t('maxReads'), min: 1, max: 8 }),
+    credentialRow('browser', state.snap.browser, t('browserToken'), t('browserTokenNote')));
+
+  const tools = details('tools', t('tools'),
+    topLevelCheck(t('compactDefault')),
+    field({ path: 'tools.webSearchPlus', type: 'check', label: t('webSearchPlus') }));
+
+  return h('section', {},
+    h('h2', {}, t('strategy')),
+    h('div', { class: 'cards' }, strategy),
+    h('h2', { style: 'margin-top:1.25rem' }, t('query')),
+    h('div', { class: 'cards' }, query),
+    h('h2', { style: 'margin-top:1.25rem' }, t('advanced')),
+    h('div', { class: 'cards' }, retry, cache, breaker, diagnostics, browser, tools));
+}
+
+function details(key, title, ...children) {
+  const node = h('details', { class: 'panel', open: state.open.has(key) },
+    h('summary', {}, title), h('div', { class: 'grid' }, children));
+  node.addEventListener('toggle', () => { if (node.open) state.open.add(key); else state.open.delete(key); });
+  return node;
+}
+
+function topLevelCheck(label) {
+  const input = h('input', { type: 'checkbox', checked: state.compactByDefault === true });
+  input.addEventListener('change', () => { state.compactByDefault = input.checked; markDirty(); });
+  return h('label', { class: 'check', style: 'align-self:end' }, input, h('span', {}, label));
+}
+
+function credentialRow(id, credential, title, note) {
+  const input = h('input', { type: 'password', placeholder: t('credPlaceholder'), autocomplete: 'new-password' });
+  const save = h('button', { class: 'small', type: 'button' }, t('credentialSave'));
+  const clear = h('button', { class: 'small ghost', type: 'button' }, t('credentialClear'));
+  const scope = id === 'browser' ? { scope: 'browser' } : { scope: 'backend', id };
+
+  save.addEventListener('click', async () => {
+    const value = input.value.trim();
+    if (!value) { toast(t('credPlaceholder')); return; }
+    await postCredential({ ...scope, value });
+    input.value = '';
+    toast(t('credSaved'));
+  });
+  clear.addEventListener('click', async () => {
+    await postCredential({ ...scope, remove: true });
+    toast(t('cleared'));
+  });
+
+  return h('div', { class: 'cred', style: 'grid-column:1/-1' },
+    h('div', { class: 'cred-head' },
+      h('span', { class: 'note' }, `${title} · ${credential.ref}`),
+      credentialBadge(credential)),
+    note ? h('div', { class: 'note' }, note) : null,
+    h('div', { class: 'cred-input' }, input, save, clear),
+    credential.source === 'env' ? h('div', { class: 'note' }, t('credEnvWins', credential.ref)) : null);
+}
+
+function credentialBadge(credential) {
+  const map = {
+    env: [t('credEnv'), 'warn'],
+    file: [t('credFile'), 'ok'],
+    none: [t('credNone'), 'bad'],
+  };
+  const [label, tone] = credential.mode === 'anonymous' || credential.mode === 'browser' ? [t('credRequired'), ''] : (map[credential.source] || map.none);
+  return h('span', { class: `badge ${tone}` }, `${label}${credential.length ? ` · ${credential.length}` : ''}`);
+}
+
+async function postCredential(body) {
+  const response = await fetch('/api/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { toast(data.error || t('sessionExpired')); return; }
+  await refresh({ keepDraft: true });
+}
+
+function backendCard(definition) {
+  const backend = state.draft.backends[definition.id];
+  const credential = state.snap.credentials.find(item => item.id === definition.id) || { source: 'none', length: 0, ref: '' };
+  const mode = definition.modes.find(item => item.mode === backend.mode) || definition.modes[0];
+  const cardKey = `card:${definition.id}`;
+  const open = state.open.has(cardKey) || (backend.enabled === true && !state.closed.has(cardKey));
+
+  const switchInput = h('input', { type: 'checkbox', checked: backend.enabled === true, dataset: { path: `backends.${definition.id}.enabled`, kind: 'check' } });
+  const badgeOfMode = h('span', { class: 'badge' }, `${backend.mode} · ${local(t('tier')[mode?.tier] || mode?.tier)}`);
+  const head = h('div', { class: 'card-head' },
+    h('label', { class: 'switch' }, switchInput, h('span')),
+    h('div', { class: 'titles' },
+      h('h3', {}, definition.title, ' ', h('code', {}, definition.id)),
+      h('div', { class: 'badges' }, badgeOfMode, credentialBadge({ ...credential, mode: backend.mode }))),
+    h('div', { style: 'display:flex;gap:.4rem' },
+      h('button', { class: 'ghost small', type: 'button', onclick: () => testBackend(definition.id) }, t('test')),
+      h('button', { class: 'ghost small', type: 'button', onclick: () => {
+        if (open) { state.closed.add(cardKey); state.open.delete(cardKey); } else { state.closed.delete(cardKey); state.open.add(cardKey); }
+        render();
+      } }, open ? t('collapse') : t('expand'))));
+
+  const body = h('div', { class: 'card-body' },
+    h('div', { class: 'row' },
+      field({ path: `backends.${definition.id}.mode`, type: 'select', label: t('mode'), options: definition.modes.map(item => [item.mode, `${item.mode} · ${local(t('tier')[item.tier] || item.tier)}`]) }),
+      field({ path: `backends.${definition.id}.endpoint`, type: 'text', label: 'endpoint' }),
+      field({ path: `backends.${definition.id}.timeoutMs`, type: 'number', label: t('backendTimeout'), min: 1000, max: 120000 }),
+      field({ path: `backends.${definition.id}.rateLimitPerMinute`, type: 'number', label: 'rate/min', min: 0, max: 100000 }),
+      field({ path: `backends.${definition.id}.dailyAttemptLimit`, type: 'number', label: 'daily', min: 0, max: 1000000 })),
+    definition.options.length
+      ? h('div', { class: 'row' }, definition.options.map(option => optionField(definition.id, option)))
+      : null,
+    h('div', { class: 'note' },
+      mode ? local(mode.limits) : '',
+      mode?.pricingUrl ? h('a', { href: mode.pricingUrl, target: '_blank', rel: 'noreferrer' }, ` · ${t('pricing')}`) : null,
+      definition.docs ? h('a', { href: definition.docs, target: '_blank', rel: 'noreferrer' }, ` · ${t('docs')}`) : null),
+    backend.mode === 'key' || backend.mode === 'oauth' || backend.mode === 'session'
+      ? credentialRow(definition.id, { ...credential, mode: backend.mode, ref: credential.ref || `DSH_SEARCH_${definition.id.replaceAll('-', '_').toUpperCase()}_KEY` }, t('credential'), mode ? local(mode.credentialShape || { en: '', zh: '' }) : '')
+      : h('div', { class: 'note', style: 'grid-column:1/-1' }, backend.mode === 'browser' ? t('credBrowserNote') : t('credAnonymousNote')),
+    state.results[definition.id] ? resultBox(definition.id) : null);
+
+  const card = h('article', { class: `card${backend.enabled ? ' on' : ''}` }, head);
+  if (open) card.append(body);
+  return card;
+}
+
+function optionField(backendId, option) {
+  const spec = {
+    path: `backends.${backendId}.options.${option.key}`,
+    label: `${local(option.label)} (${option.key})`,
+    hint: local(option.help),
+  };
+  if (option.choices) return field({ ...spec, type: 'select', options: option.choices.map(choice => [choice, choice]) });
+  if (option.type === 'boolean') return field({ ...spec, type: 'check' });
+  if (option.type === 'number') return field({ ...spec, type: 'number', min: option.min ?? 0, max: option.max ?? 100000 });
+  return field({ ...spec, type: 'text' });
+}
+
+function resultBox(backendId) {
+  const result = state.results[backendId];
+  return h('div', {},
+    h('div', { class: 'note' }, `${t('result')}${result.pending ? ` · ${t('testing')}` : ''}`),
+    h('pre', { class: 'out' }, result.text || result.error || ''));
+}
+
+async function testBackend(backendId) {
+  const query = state.probeQuery || 'websearch-mcp connectivity test';
+  state.results[backendId] = { pending: true, text: t('testing') };
+  render();
+  try {
+    const response = await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backendId, query }),
+    });
+    const data = await response.json();
+    state.results[backendId] = data.ok
+      ? { text: `${data.text}\n\n${data.sources.map(source => `- ${source.title || source.url} <${source.url}>`).join('\n')}` }
+      : { error: data.error || data.issues?.map(issue => `${issue.path}: ${issue.message}`).join('\n') };
+  } catch (error) {
+    state.results[backendId] = { error: String(error) };
+  }
+  render();
+}
+
+function backendsSection() {
+  const enabled = state.snap.catalog.filter(item => state.draft.backends[item.id]?.enabled).length;
+  const missing = state.snap.catalog.filter(item => {
+    const backend = state.draft.backends[item.id];
+    const credential = state.snap.credentials.find(entry => entry.id === item.id);
+    return backend?.enabled && backend.mode !== 'anonymous' && backend.mode !== 'browser' && credential?.source === 'none';
+  }).length;
+
+  const probe = h('input', { type: 'search', value: state.probeQuery || '', placeholder: t('probe') });
+  probe.addEventListener('input', () => { state.probeQuery = probe.value; });
+  const search = h('input', { type: 'search', value: state.filter, placeholder: t('filter') });
+  search.addEventListener('input', () => { state.filter = search.value.trim().toLowerCase(); renderBackends(); });
+  const only = h('input', { type: 'checkbox', checked: state.onlyEnabled });
+  only.addEventListener('change', () => { state.onlyEnabled = only.checked; renderBackends(); });
+
+  const list = h('div', { class: 'cards', id: 'cards' });
+  const summary = h('span', { class: 'chip' }, t('summary', enabled, state.snap.catalog.length, missing));
+  const section = h('section', {},
+    h('h2', {}, t('backends'), ' ', summary),
+    h('div', { class: 'toolbar' }, search, h('label', { class: 'check' }, only, t('onlyEnabled')), probe),
+    list);
+  fillCards(list);
+  return section;
+}
+
+function fillCards(list) {
+  const catalog = state.snap.catalog.filter(definition => {
+    if (state.onlyEnabled && !state.draft.backends[definition.id]?.enabled) return false;
+    if (!state.filter) return true;
+    return `${definition.id} ${definition.title}`.toLowerCase().includes(state.filter);
+  });
+  list.replaceChildren(...catalog.map(backendCard));
+}
+
+function renderBackends() {
+  const list = document.getElementById('cards');
+  if (list) fillCards(list);
+}
+
+function renderBanner() {
+  const target = document.getElementById('banner');
+  const pieces = [];
+  if (state.snap.loadError) pieces.push(h('div', { class: 'panel pad' }, h('strong', {}, t('loadError')), h('pre', { class: 'out', style: 'margin-top:.5rem' }, state.snap.loadError)));
+  if (state.issues.length) {
+    pieces.push(h('div', { class: 'panel pad' }, h('strong', {}, t('issues')),
+      h('ul', {}, state.issues.map(issue => h('li', {}, h('code', {}, issue.path || '(config)'), ' — ', issue.message)))));
+  }
+  target.replaceChildren(...pieces);
+}
+
+function render() {
+  document.getElementById('version').textContent = state.snap.version || 'dev';
+  document.getElementById('revision').textContent = state.snap.revision;
+  document.getElementById('configPath').textContent = state.snap.configPath;
+  document.getElementById('lang').textContent = state.lang === 'zh' ? 'EN' : '中文';
+  document.getElementById('reload').textContent = t('reload');
+  document.getElementById('save').textContent = t('save');
+  document.getElementById('foot').textContent = t('foot', state.snap.bound?.host ?? '', state.snap.bound?.port ?? '');
+  document.documentElement.lang = state.lang === 'zh' ? 'zh-CN' : 'en';
+  renderBanner();
+  const app = document.getElementById('app');
+  app.replaceChildren(overview(), backendsSection());
+  bindFields(app);
+  for (const issue of state.issues) {
+    const input = app.querySelector(`[data-path="${issue.path}"]`);
+    if (input) input.classList.add('invalid');
+  }
+}
+
+async function refresh({ keepDraft = false } = {}) {
+  const response = await fetch('/api/settings');
+  if (response.status === 401) { toast(t('sessionExpired')); return; }
+  state.snap = await response.json();
+  if (!keepDraft) {
+    state.draft = clone(state.snap.config);
+    state.compactByDefault = state.snap.compactByDefault === true;
+    state.issues = [];
+  }
+  if (state.probeQuery === undefined) state.probeQuery = '';
+  render();
+}
+
+async function save() {
+  const saveButton = document.getElementById('save');
+  saveButton.disabled = true;
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config: state.draft,
+        compactByDefault: state.compactByDefault === true,
+        expectedRevision: state.snap.revision,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) { toast(t('sessionExpired')); return; }
+    if (response.status === 409) { toast(data.error || 'conflict'); await refresh(); return; }
+    if (!response.ok) {
+      state.issues = data.issues || [{ path: '', message: data.error || 'save failed' }];
+      render();
+      return;
+    }
+    state.issues = [];
+    markClean();
+    state.snap.revision = data.revision;
+    document.getElementById('revision').textContent = data.revision;
+    renderBanner();
+    toast(t('saved'));
+    await refresh({ keepDraft: true });
+  } finally {
+    saveButton.disabled = false;
+  }
+}
+
+function boot() {
+  document.getElementById('save').addEventListener('click', save);
+  document.getElementById('reload').addEventListener('click', async () => { state.issues = []; await refresh(); markClean(); toast(t('reloaded')); });
+  document.getElementById('lang').addEventListener('click', () => {
+    state.lang = state.lang === 'zh' ? 'en' : 'zh';
+    localStorage.setItem('wsm.lang', state.lang);
+    render();
+  });
+  refresh();
+}
+
+boot();
+</script>
+</body>
+</html>

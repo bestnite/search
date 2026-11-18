@@ -14,6 +14,7 @@ import {
 import type { RedditComment, SearchOverrides, XhsContext } from '@nite07/search-core';
 import type { ServerConfig } from './config.js';
 import { credentialResolver, describeBackends, enabledBackendIds } from './config.js';
+import { asSource, type ConfigSource } from './live.js';
 import { fetchImages, type InlineImage } from './images.js';
 
 export interface ServerIdentity {
@@ -47,17 +48,25 @@ export interface NoteReaders {
 }
 
 export function createTools(
-  config: ServerConfig,
+  config: ServerConfig | ConfigSource,
   identity: ServerIdentity,
   engine?: SearchEngine,
   readers: ThreadReaders = { reddit: fetchRedditThread, x: fetchXThread },
   notes: NoteReaders = { note: fetchXhsNote, comments: fetchXhsComments },
 ): ToolDefinition[] {
   setUserAgent(`${identity.name}/${identity.version} (+${identity.projectUrl})`);
-  const search = engine ?? new SearchEngine(config.search, async reference => {
-    const { credentialResolver } = await import('./config.js');
-    return credentialResolver(config)(reference);
-  });
+  // Read through the source on every call: a configuration saved by the settings page has to reach a
+  // server that is already running, without a restart and without the engine keeping stale settings.
+  const configSource = asSource(config);
+  let cached: { revision: string; engine: SearchEngine } | undefined;
+  const engineFor = (current: ServerConfig): SearchEngine => {
+    if (engine) return engine;
+    const revision = configSource.revision();
+    if (cached?.revision === revision) return cached.engine;
+    const created = new SearchEngine(current.search, reference => credentialResolver(current)(reference));
+    cached = { revision, engine: created };
+    return created;
+  };
 
   const searchTool: ToolDefinition = {
     name: 'web_search',
@@ -78,6 +87,8 @@ export function createTools(
       required: ['query'],
     },
     async call(args, signal) {
+      const config = configSource.get();
+      const search = engineFor(config);
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('web_search needs a non-empty query.');
       const overrides: SearchOverrides = {
@@ -115,6 +126,7 @@ export function createTools(
       },
     },
     async call(args, signal) {
+      const config = configSource.get();
       const source = typeof args.source === 'string' ? args.source : 'reddit';
       const id = String(args.postId ?? args.url ?? '').trim();
       if (!id) throw new Error('read_thread needs a post URL or a post id.');
@@ -168,6 +180,7 @@ export function createTools(
       required: [],
     },
     async call(args, signal) {
+      const config = configSource.get();
       const target = {
         ...(typeof args.url === 'string' && args.url.trim() ? { url: args.url.trim() } : {}),
         ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
@@ -195,6 +208,7 @@ export function createTools(
       'List every backend this server knows about with its access modes, cost tier, whether it is enabled and whether a credential is present. Use it to decide which backends a search should address; it never enables anything.',
     inputSchema: { type: 'object', properties: {} },
     async call() {
+      const config = configSource.get();
       return { configPath: config.configPath, enabled: enabledBackendIds(config), backends: describeBackends(config) };
     },
   };

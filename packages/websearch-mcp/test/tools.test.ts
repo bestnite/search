@@ -222,3 +222,18 @@ test('the tool list names every capability the server offers', () => {
   const tools = createTools(configWith(['exa']), identity, stubEngine().engine);
   assert.deepEqual(tools.map(item => item.name), ['web_search', 'read_thread', 'xiaohongshu_note', 'list_backends']);
 });
+
+test('list_backends answers from the configuration present at call time', async () => {
+  let current = configWith(['exa']);
+  let revision = 0;
+  const source = { get: () => current, revision: () => `r${revision}` };
+  const tools = createTools(source, identity, stubEngine().engine);
+  const list = tools.find(tool => tool.name === 'list_backends')!;
+  const signal = new AbortController().signal;
+  const first = await list.call({}, signal) as { enabled: string[] };
+  assert.deepEqual(first.enabled, ['exa']);
+  current = configWith(['reddit']);
+  revision += 1;
+  const second = await list.call({}, signal) as { enabled: string[] };
+  assert.deepEqual(second.enabled, ['reddit'], 'a configuration replaced on disk is what the next call sees');
+});

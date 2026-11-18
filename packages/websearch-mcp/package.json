@@ -1,6 +1,6 @@
 {
   "name": "@nite07/websearch-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "MCP server for multi-backend web search plus Reddit and X thread reading, built on @nite07/search-core.",
   "license": "MIT",
   "author": "nite07",
@@ -32,7 +32,7 @@
     "config.example.json"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "npm run typecheck && npm run test && npm run build",

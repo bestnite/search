@@ -37,6 +37,47 @@ and Reddit, which need no account.
    `list_backends` first: it reports each backend's modes, cost tier, enabled state and whether a
    credential is present. It never enables anything.
 
+## Settings page
+
+The configuration has a page: every backend, its access mode, its cost tier, its options and its
+credential in one form, plus a probe button per backend. It runs as its own process, so a resident
+instance can hold the page while MCP clients keep spawning the stdio server.
+
+```sh
+websearch-mcp --ui                                    # http://127.0.0.1:7799
+websearch-mcp --ui --host 0.0.0.0 --port 7799         # reachable from the LAN; the token still applies
+websearch-mcp --print-url --host 0.0.0.0 --port 7799  # the link to open
+websearch-mcp --rotate-token                          # invalidate every link issued so far
+```
+
+- The bind address and port are launch arguments: `--host` / `--port`, or `WEBSEARCH_MCP_UI_HOST` /
+  `WEBSEARCH_MCP_UI_PORT`. The default binds loopback only.
+- The first request has to carry `?token=`; it is exchanged for an `HttpOnly`, `SameSite=Strict`
+  cookie, so the link does not remain in browser history. The token is kept in `ui-token` beside the
+  configuration at mode 0600. Treat the link like a password: the page can write credentials.
+- Saving validates against the same schema the server enforces. A rejected save leaves the file
+  untouched and lists every problem by path; an accepted one writes `config.json.bak-<local time>`
+  (five kept) and replaces the file atomically at mode 0600.
+- A running stdio server re-reads the file when it changes, so a save reaches the next `web_search`
+  without restarting the client. A file that stops parsing keeps the previous configuration and says
+  so on stderr.
+
+A resident page is a user service, not a container:
+
+```ini
+[Unit]
+Description=websearch-mcp settings WebUI
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /path/to/websearch-mcp/dist/main.js --ui --host 0.0.0.0 --port 7799
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=default.target
+```
+
 ## Client configuration
 
 ```json

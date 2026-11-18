@@ -29,6 +29,43 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 
 想先看看有什么可用又不花钱，调 `list_backends`：它列出每个后端的模式、费用档、启用状态以及有没有凭证，但不会启用任何东西。
 
+## 配置页面
+
+配置有页面了：每个后端的接入模式、成本档位、选项与凭证都在同一张表里，每张卡片带一个实测按钮。
+它跑在自己进程里——常驻一个实例守着页面，MCP 客户端照旧拉起 stdio 服务，互不影响。
+
+```sh
+websearch-mcp --ui                                    # 只听 127.0.0.1:7799
+websearch-mcp --ui --host 0.0.0.0 --port 7799         # 局域网可达，令牌照旧
+websearch-mcp --print-url --host 0.0.0.0 --port 7799  # 打印要打开的链接
+websearch-mcp --rotate-token                          # 作废之前发出的所有链接
+```
+
+- 绑定地址和端口是启动参数：`--host` / `--port`，或环境变量 `WEBSEARCH_MCP_UI_HOST` /
+  `WEBSEARCH_MCP_UI_PORT`。默认只绑 loopback。
+- 第一个请求必须带 `?token=`，它会被换成 `HttpOnly` + `SameSite=Strict` 的 cookie，链接不会留在
+  浏览器历史里。令牌存在配置旁边的 `ui-token`，权限 0600。链接等同密码：页面能写凭证。
+- 保存时用服务端同一套 schema 校验。被拒的保存不动文件，按字段路径列出所有问题；通过的保存先写
+  `config.json.bak-<本地时间>`（保留 5 份），再原子替换文件并设为 0600。
+- 正在跑的 stdio 服务监听到文件变化就重读，所以保存后下一次 `web_search` 就用新配置，不用重启
+  客户端。文件如果解析不了，保留上一份可用配置，并在 stderr 说明原因。
+
+常驻页面用用户级服务即可，不必上容器：
+
+```ini
+[Unit]
+Description=websearch-mcp settings WebUI
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /path/to/websearch-mcp/dist/main.js --ui --host 0.0.0.0 --port 7799
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=default.target
+```
+
 ## 客户端配置
 
 ```json
