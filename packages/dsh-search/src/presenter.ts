@@ -14,6 +14,30 @@ export type SettingsTab = 'behavior' | 'reliability' | 'diagnostics' | 'backends
 /** The control-id scheme shared by the page and the focus resolver. */
 export const fieldId = (path: string): string => `nite-search-${path.replace(/[^a-z0-9-]/gi, '-')}`;
 
+/**
+ * Whether a provider's single credential control has to be rendered.
+ *
+ * A keyed search mode needs it, and so does a declared keyed fetch mode even while search stays
+ * keyless — otherwise a keyed fetch would have no place to enter the key. A browser-backed search
+ * mode uses the shared browser token instead, and a provider whose catalog entry declares no fetch
+ * operation is never keyed for fetching, whatever its inert fetch record says.
+ */
+export function needsCredentialControl(input: { searchMode: string; fetchMode?: string; fetchModes: readonly string[] }): boolean {
+  const searchNeeds = input.searchMode !== 'anonymous' && input.searchMode !== 'browser';
+  const fetchMode = input.fetchMode ?? 'anonymous';
+  // Only a mode the fetch operation actually declares counts: a provider without one keeps an inert
+  // fetch record carrying its first search mode, which must never ask for a key.
+  const fetchNeeds = input.fetchModes.includes(fetchMode) && fetchMode !== 'anonymous';
+  return searchNeeds || fetchNeeds;
+}
+
+/**
+ * The one credential input of a backend, which lives on its search card. The Page fetch tab links to
+ * this exact control instead of rendering a second key field, so a keyed fetch mode and a keyed search
+ * mode share one place to enter the key.
+ */
+export const credentialFieldId = (backendId: string): string => `secret-${backendId}`;
+
 /** The tab a path belongs to. Fetch-only browser options stay on the Fetch tab, never the Browser tab. */
 export function tabForPath(path: string): SettingsTab {
   if (path === 'backends' || path === 'sec-backends') return 'backends';
@@ -32,6 +56,9 @@ export function tabForPath(path: string): SettingsTab {
  */
 export function focusForPath(path: string): { tab: SettingsTab; target: string } {
   if (path === 'backends' || path === 'sec-backends') return { tab: 'backends', target: 'sec-backends' };
+  // A credential input is addressed by its element id, because it is not a configuration path: a
+  // keyed fetch mode links to the search card's one key field rather than to any field of its mode.
+  if (path.startsWith('secret-')) return { tab: 'backends', target: path };
   if (path === 'browser' || path === 'sec-browser') return { tab: 'browser', target: 'browser.endpoint' };
   if (path.startsWith('browser.')) return { tab: 'browser', target: path };
   if (path === 'pageFetch.routes' || path === 'pageFetch') return { tab: 'fetch', target: 'sec-fetch-routes' };
@@ -122,9 +149,14 @@ export function classifySaveOutcome(input: { response?: SaveResponse; transportE
   return readback.matches ? { kind: 'saved' } : { kind: 'unconfirmed' };
 }
 
-/** The backend id a path belongs to, when it is inside a backend card. */
+/**
+ * The backend id a focus target belongs to, when it is inside a backend card.
+ *
+ * A credential input is addressed by its element id (`secret-<backend>`), so a link from the Page fetch
+ * tab still knows which backend card has to be shown before it can be focused.
+ */
 export function backendIdForPath(path: string): string | undefined {
-  const match = /^backends\.([^.]+)\./.exec(path);
+  const match = /^backends\.([^.]+)\./.exec(path) ?? /^secret-(.+)$/.exec(path);
   return match?.[1];
 }
 

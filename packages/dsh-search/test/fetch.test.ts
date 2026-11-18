@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { apply, defaultConfig } from '../src/index.js';
-import { fetchProblemText, fetchReadiness } from '@nite07/search-core';
+import { backendCredentialRef, fetchProblemText, fetchReadiness, fetchReadinessProviders } from '@nite07/search-core';
 import { catalog } from '@nite07/search-core';
 
 /** The same host harness the other plugin tests use: routes, tools, credentials and storage. */
@@ -236,6 +236,22 @@ test('the fetch provider card is never opened by selection, and shows the select
   assert.match(zh.fetchEvidenceBadge, /文档/);
 });
 
+test('one credential control serves a keyed search mode or a keyed fetch mode, and is focused directly', async () => {
+  const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
+  // A keyed fetch with keyless search must be enterable: the search card renders the control for
+  // either operation that needs the key, and the fetch card links to the input itself.
+  assert.match(client, /const fetchNeedsKey = \(def: BackendDefinition\): boolean => \{[\s\S]{0,260}includes\(mode as AccessMode\)/, 'only a declared keyed fetch mode asks for the key');
+  assert.match(client, /needsCredentialControl\(\{ searchMode: searchModeOf\(def\), fetchMode: fetchModeOf\(def\), fetchModes: def\.fetch\?\.modes \?\? \[\] \}\)/, 'the render decision is the tested presenter helper');
+  assert.match(client, /\{needsCredential\(def\) && !locked && credentialControl\(def\)\}/, 'the control is not gated on the search mode alone');
+  assert.match(client, /focusPath\(credentialFieldId\(def\.id\)\)/, 'the fetch card focuses the credential input, not a mode field');
+  assert.match(client, /credentialFieldId\(def\.id\)/);
+  assert.equal((client.match(/id=\{`secret-\$\{def\.id\}`\}/g) || []).length, 1, 'there is exactly one key input per provider');
+  assert.match(client, /anonymousSearchKeyedFetch/, 'keyless search and keyed fetch are described per mode, not contradicted');
+  assert.match(client, /credentialForFetch/, 'the control says when only the fetch mode uses the key');
+  assert.match(client, /provider\.modes\.map\(mode => \{[\s\S]{0,400}fetchEvidenceBadge/, 'the collapsed summary names a documented-only mode');
+  assert.match(client, /selectedFetchEvidence/, 'the selected provider summary names the evidence of the selected mode');
+});
+
 test('the fetch tab is wired to the shared draft and never to a second store', async () => {
   const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
   assert.match(client, /\{tab === 'fetch' &&/);
@@ -246,6 +262,35 @@ test('the fetch tab is wired to the shared draft and never to a second store', a
   assert.ok(!/localStorage[\s\S]{0,400}pageFetch/.test(client), 'fetch settings never live in a second store');
 });
 
+
+test('a keyed fetch with keyless search is saveable and uses the provider\'s one credential reference', async () => {
+  const h = harness();
+  await apply(h.ctx, defaultConfig());
+  const manage = h.tool('search_manage');
+  const snapshot: any = await manage.execute({ action: 'settings' }, { signal: signal() });
+  const draft = structuredClone(snapshot.config);
+  draft.pageFetch.providerId = 'exa';
+  draft.pageFetch.routes[2].enabled = true;
+  draft.backends.exa.fetch.mode = 'key';
+  draft.backends.exa.fetch.endpoint = '';
+  assert.equal(draft.backends.exa.mode, 'anonymous', 'the search row stays keyless');
+  // Saving is allowed before a key exists: the mode is a valid configuration, not a validation error.
+  await manage.execute({ action: 'save', config: draft, expectedRevision: snapshot.revision }, { signal: signal() });
+  const saved = h.stored;
+  assert.equal(saved.backends.exa.mode, 'anonymous');
+  assert.equal(saved.backends.exa.fetch.mode, 'key');
+  assert.equal(saved.backends.exa.fetch.endpoint, '', 'an empty endpoint keeps the mode\'s declared REST endpoint');
+
+  // Readiness says "credential missing" until the key is stored, and the key is the search-provider
+  // credential: one fixed reference, no fetch-only secret.
+  const providers = fetchReadinessProviders(saved, catalog, id => h.secrets.has(backendCredentialRef(id)));
+  assert.deepEqual(fetchReadiness(saved, providers).map(problem => problem.key), ['fetchProviderCredential']);
+  await manage.execute({ action: 'credential', backendId: 'exa', value: 'exa-key' }, { signal: signal() });
+  assert.equal(h.secrets.get(backendCredentialRef('exa')), 'exa-key');
+  const after: any = await manage.execute({ action: 'settings' }, { signal: signal() });
+  assert.equal(after.credentials.exa.configured, true);
+  assert.deepEqual(fetchReadiness(saved, fetchReadinessProviders(saved, catalog, id => h.secrets.has(backendCredentialRef(id)))), [], 'a keyed fetch with a stored key is ready');
+});
 
 test('the fetch test action runs the saved chain against a local page and returns the attempt trace', async () => {
   const server = createServer((_request, response) => {

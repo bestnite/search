@@ -106,8 +106,12 @@ from the documentation, and the evidence document says plainly what that does an
 
 One credential per provider stays the rule for keyed fetch modes: the fetch uses
 `backendCredentialRef(providerId)`, exactly the reference the provider's search mode uses. No second
-credential name and no second input box is introduced; the fetch card shows configured/not-configured
-and links to the one credential control on the search card.
+credential name and no second input box is introduced. That one control is rendered on the provider's
+search card whenever *any* operation of the provider needs the key, so a keyed fetch mode is enterable
+while search itself stays keyless; the fetch card shows configured/not-configured and links directly
+to the input, not to a mode field. Each operation's own note says which mode reads the key: keyless
+search must never be described as "no credential needed" while a keyed fetch of the same provider is
+waiting for one.
 
 ## 5. Route execution
 

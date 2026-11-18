@@ -12,6 +12,14 @@
 .ns-chip--risk{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .ns-chip.is-on{background:color-mix(in oklab,var(--dsw-alias-brand-primary) 14%,transparent);border-color:currentColor;font-weight:600}
 .ns-chip--off{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-state-idle-primary)}
+/* The evidence line under a provider card: chips, but a quiet block of its own rather than a
+   right-aligned summary row. */
+.ns-mode-evidence{margin:0 0 10px;justify-content:flex-start}
+.ns-mode-evidence .ns-chip{font-weight:500}
+/* The Page fetch card points at the one credential control instead of repeating its input. */
+.ns-credential-shared{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}
+.ns-credential-shared p{font-size:var(--ns-text-help);line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.ns-credential-shared .ns-actions{margin-top:8px}
 .ns-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .ns-dot.is-on{background:var(--dsw-alias-state-success-primary)}
 .ns-dot.is-off{background:var(--dsw-alias-state-idle-primary);opacity:.6}

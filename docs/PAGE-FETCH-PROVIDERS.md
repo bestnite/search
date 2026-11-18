@@ -143,6 +143,11 @@ non-2xx → the HTTP kind. The provider API status is preserved on the attempt a
 from the target status (`statusCode`). The provider's error body is never read into a message, a note
 or a diagnostic, and the stored key never appears in any user-visible string.
 
+Both providers classify a target status the same way, whichever transport reported it: a target status
+the provider reports is an HTTP failure of the *target* when it is 400 or above (outcome `http-error`,
+failure kind `http`, target `statusCode` set), and a provider-side failure otherwise. One `error:http`
+fallback rule therefore behaves identically for Exa and Parallel.
+
 A missing key is an ordinary `authentication` attempt, not a fatal error: both the engine and the
 provider transport refuse to build the request, and the attempt carries a note saying the credential
 is missing instead of a request being sent. Because the outcome is non-fatal, the route's fallback
@@ -155,9 +160,11 @@ at save time and is reported as a readiness problem in the settings page.
 
 Fetching reuses `backendCredentialRef(providerId)` — the same fixed reference the provider's search
 mode uses (`DSH_SEARCH_<ID>_KEY`). There is no second key, no fetch-only credential and no second input
-box: the fetch card shows configured/not-configured and links to the single credential control on the
-search card. Switching a provider between keyless and keyed fetching therefore never asks the user to
-enter the same secret twice.
+box: the one credential control is rendered on the provider's search card whenever any operation needs
+the key, and the fetch card shows configured/not-configured and links directly to that input. A keyed
+fetch therefore works while the provider's search mode stays keyless, without the page claiming that
+no credential is needed. Switching a provider between keyless and keyed fetching never asks the user
+to enter the same secret twice.
 
 ## What is not verified
 

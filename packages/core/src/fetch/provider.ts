@@ -205,8 +205,10 @@ const interpretParallelDocument = (
     const status = targetStatus(first?.http_status_code);
     const errorType = typeof first?.error_type === 'string' ? first.error_type.slice(0, 40) : undefined;
     if (status !== undefined) {
+      // The same rule both providers use: a target status the provider reported is the target's HTTP
+      // failure when it is 400 or above, and a provider-side failure only when it is not.
       return routeFailure(
-        status === 404 || status === 410 ? 'http-error' : 'provider-error',
+        status >= 400 ? 'http-error' : 'provider-error',
         { kind: status >= 400 ? 'http' : 'provider', message: `The target answered HTTP ${status} according to the provider.`, status },
         { statusCode: status, apiStatus, notes },
       );

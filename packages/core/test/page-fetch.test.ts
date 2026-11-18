@@ -1445,6 +1445,7 @@ test('the keyed Exa mode posts the documented Contents request and takes its Mar
   assert.equal(headers['content-type'], 'application/json');
   assert.deepEqual(JSON.parse(String(call.init.body)), { urls: ['https://example.com/page'], text: { maxCharacters: 50_000 } });
   assert.equal(calls.length, 1, 'one request, no retry and no second call');
+  assert.ok(result.notes.some(note => /resolved the target outside this process/.test(note)), 'the REST path carries the delegated trust note');
 });
 
 test('the keyed Parallel mode posts the documented Extract request and takes its Markdown as native', async () => {
@@ -1529,6 +1530,70 @@ test('an oversized keyed response is a fatal limit, not a partial page', async (
   assert.equal(result.markdown, undefined);
 });
 
+test('a REST exchange never follows a redirect, and a refused one is a sanitized network failure', async () => {
+  const { fetcher, calls } = fakeFetch(() => {
+    throw new TypeError('fetch failed: unexpected redirect');
+  });
+  const result = await fetchFromProvider(restRequest('exa', fetcher), callProviderTool);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.init.redirect, 'error', 'a provider API redirect is never followed silently');
+  assert.equal(result.outcome, 'network');
+  assert.doesNotMatch(result.error!.message, /unexpected redirect/, 'the transport detail is not echoed');
+});
+
+test('a target failure is an HTTP error for both providers, whichever transport reported it', async () => {
+  const payloads = {
+    exa: () => Response.json({ results: [], statuses: [{ id: 'https://example.com/page', status: 'error', error: { tag: 'CRAWL_UNKNOWN', httpStatusCode: 503 } }] }),
+    parallel: () => Response.json({ results: [], errors: [{ url: 'https://example.com/page', error_type: 'http_error', http_status_code: 503, content: null }] }),
+  } as const;
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher } = fakeFetch(payloads[providerId]);
+    const result = await fetchFromProvider(restRequest(providerId, fetcher), callProviderTool);
+    assert.equal(result.outcome, 'http-error', `${providerId}: a reported target status of 503 is an HTTP failure`);
+    assert.equal(result.error?.kind, 'http');
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.apiStatus, 200, 'the provider API still answered 200');
+  }
+
+  // The keyless Parallel MCP tool carries the same document, so it classifies identically.
+  const mcp = fakeProvider([() => ({ result: { structuredContent: { results: [], errors: [{ url: 'https://example.com/page', error_type: 'http_error', http_status_code: 503 }] } }, apiStatus: 200 })]);
+  const mcpConfig = pageConfig(page => {
+    page.providerId = 'parallel';
+    page.routes = [routeOf(page, 'provider')];
+    routeOf(page, 'provider').enabled = true;
+  });
+  const mcpResult = await engineFor(mcpConfig, { providerCall: mcp.call }).fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.equal(mcpResult.attempts[0]!.outcome, 'http-error');
+  assert.equal(mcpResult.attempts[0]!.statusCode, 503);
+  assert.equal(mcpResult.attempts[0]!.apiStatus, 200);
+});
+
+test('one error:http fallback rule matches a target failure for both providers', async () => {
+  const payloads = {
+    exa: () => Response.json({ results: [], statuses: [{ id: 'https://example.com/page', status: 'error', error: { httpStatusCode: 403 } }] }),
+    parallel: () => Response.json({ results: [], errors: [{ url: 'https://example.com/page', error_type: 'http_error', http_status_code: 403, content: null }] }),
+  } as const;
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(url => (url === 'https://example.com/page' ? htmlResponse('<html><body><p>http fallback served this</p></body></html>') : payloads[providerId]()));
+    const config = pageConfig((page, config) => {
+      page.providerId = providerId;
+      page.routes = [routeOf(page, 'provider'), routeOf(page, 'http')];
+      for (const route of page.routes) route.enabled = true;
+      routeOf(page, 'provider').rules = [rule('target-http', { type: 'error', kinds: ['http'] })];
+      config.backends[providerId]!.fetch.mode = 'key';
+      config.backends[providerId]!.fetch.endpoint = '';
+    });
+    const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => 'shared-search-key', fetcher, providerFetcher: fetcher });
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+    assert.equal(result.ok, true, `${providerId}: the same error:http rule continues the chain`);
+    assert.equal(result.contentRoute, 'http');
+    assert.equal(result.attempts[0]!.outcome, 'http-error');
+    assert.equal(result.attempts[0]!.statusCode, 403);
+    assert.deepEqual(result.attempts[0]!.rules, ['target-http']);
+    assert.equal(calls.length, 2, 'the provider call and the HTTP fallback, nothing else');
+  }
+});
+
 test('a keyed response that is not the documented JSON document is a sanitized protocol failure', async () => {
   const { fetcher } = fakeFetch(() => new Response('sorry, not json', { status: 200, headers: { 'content-type': 'text/plain' } }));
   const result = await fetchFromProvider(restRequest('exa', fetcher), callProviderTool);
@@ -1576,6 +1641,7 @@ test('a keyed fetch with no stored key is a non-fatal authentication attempt tha
     assert.equal(attempt.statusCode, undefined, 'no target status is invented');
     assert.equal(result.ok, false);
     assert.ok(result.notes.some(note => /credential is missing/.test(note)), 'the trace says the credential is missing');
+    assert.ok(result.notes.some(note => /resolved the target outside this process/.test(note)), 'the delegated trust note is kept even when no request was sent');
     assert.equal(calls.length, 0, 'no request may be sent to learn what the configuration already says');
   }
 });

@@ -54,8 +54,9 @@ between operations.
 | **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
 
 Search and page fetch render the same provider card. A backend's credential is one stored secret bound
-to one record: the input lives on the search card and the fetch card links to it, so the same key is
-never typed twice. Search caps never bound a page fetch: the fetch operation keeps its own access
+to one record: one input, on the search card, rendered whenever either operation needs the key — so a
+keyed fetch works while search stays keyless — and the fetch card links directly to that input. The
+same key is never typed twice. Search caps never bound a page fetch: the fetch operation keeps its own access
 mode, transport, endpoint, timeout and options, and the card says so — including which access modes
 were observed live and which are implemented from documentation only.
 

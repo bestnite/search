@@ -5,6 +5,7 @@ import { htmlToMarkdown } from './html.js';
 import { fetchOverHttp, type HttpTransportFactory } from './http.js';
 import { fetchWithBrowser, type BrowserFetcher } from './browser-route.js';
 import { callProviderTool, fetchFromProvider, type ProviderCall } from './provider.js';
+import { delegatedNote } from './notes.js';
 import { evaluateRules, type RuleInputs } from './rules.js';
 import { assertLiteralTargetPolicy, FetchPolicyError, parseTargetUrl, systemResolver, type AddressResolver } from './safety.js';
 import {
@@ -426,7 +427,9 @@ export class PageFetchEngine {
       return {
         outcome: 'authentication',
         error: { kind: 'authentication', message: `The ${provider.id} fetch mode needs a stored API key, and none is configured.` },
-        notes: ['The provider credential is missing, so no request was sent.'],
+        // The trust-boundary disclosure is part of every provider-route result, including one that
+        // stopped before a request: the route still resolves the target outside this process.
+        notes: [delegatedNote('provider'), 'The provider credential is missing, so no request was sent.'],
       };
     }
     const fetch = this.dependencies.providerCall;

@@ -11,8 +11,9 @@ The current settings page and save path, as built:
   cards themselves stay collapsed and only a click opens one: choosing a provider in the select never
   unfolds a card, and the selected state is shown by the card's badge and the summary line. The chosen
   provider's fetch operation settings live inside its card. The credential is one stored secret with
-  one input, on the search card; the fetch card shows configured/not-configured and links to that
-  control, so the same key is never entered twice. Search caps do not bound a fetch, and the card says
+  one input, on the search card, rendered whenever search or fetch needs the key (so keyless search
+  plus keyed fetch is enterable); the fetch card shows configured/not-configured and links straight to
+  that input, so the same key is never entered twice. Search caps do not bound a fetch, and the card says
   so.
 - **Browser tab**: owns the shared endpoint, endpoint token, session file, read timeout, per-site read
   cap, and the list of every enabled search/fetch feature that depends on them. Fetch-only context,

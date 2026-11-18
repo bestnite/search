@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply as productionApply, createPlugin, defaultConfig } from '../src/index.js';
-import { backendIdForPath, browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, readbackMatches, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
+import { backendIdForPath, browserGateIssues, classifySaveOutcome, credentialFieldId, fieldId, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, shouldResetBackendFilter, tabForPath } from '../src/presenter.js';
 import { catalog, parseConfig, revision } from '@nite07/search-core';
 import type { SearchConfig, VerificationConnect } from '@nite07/search-core';
 
@@ -130,6 +130,23 @@ test('an issue action target wins, so a browser-route rejection lands on the sha
   assert.deepEqual(focusForIssue({ path: 'backends.exa.fetch.mode' }), { tab: 'fetch', target: 'backends.exa.fetch.mode' });
 });
 
+test('the one credential control appears whenever either operation needs the key', () => {
+  const fetchModes = ['anonymous', 'key'] as const;
+  assert.equal(needsCredentialControl({ searchMode: 'anonymous', fetchMode: 'key', fetchModes }), true, 'keyless search with a keyed fetch is enterable');
+  assert.equal(needsCredentialControl({ searchMode: 'key', fetchMode: 'anonymous', fetchModes }), true, 'a keyed search keeps its control');
+  assert.equal(needsCredentialControl({ searchMode: 'anonymous', fetchMode: 'anonymous', fetchModes }), false, 'two keyless modes need no key');
+  assert.equal(needsCredentialControl({ searchMode: 'browser', fetchMode: 'browser', fetchModes: [] }), false, 'a browser-backed search uses the browser token, and a provider without a fetch operation is never keyed');
+  assert.equal(needsCredentialControl({ searchMode: 'key', fetchMode: 'key', fetchModes: [] }), true, 'a keyed search needs it even without a fetch operation');
+  assert.equal(needsCredentialControl({ searchMode: 'anonymous', fetchMode: 'key', fetchModes: [] }), false, 'an inert fetch record carrying a mode the operation never declared never asks for a key');
+  assert.equal(needsCredentialControl({ searchMode: 'browser', fetchMode: 'key', fetchModes }), true, 'a keyed fetch is enterable from a browser-backed search provider');
+});
+
+test('the one credential input is addressed by element id, not by a mode field', () => {
+  assert.equal(credentialFieldId('exa'), 'secret-exa');
+  assert.deepEqual(focusForPath(credentialFieldId('exa')), { tab: 'backends', target: 'secret-exa' }, 'a keyed fetch mode links to the search card credential input');
+  assert.deepEqual(focusForPath('backends.exa.fetch.mode'), { tab: 'fetch', target: 'backends.exa.fetch.mode' }, 'the fetch mode field keeps its own target');
+});
+
 test('the focus resolver walks to the closest mounted control and unfolds its details', () => {
   interface Node { id: string; parentElement: Node | null; details: Node | null; focused: boolean; scrolled: boolean; open?: boolean;
     closest(selector: string): Node | null;
@@ -148,7 +165,8 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   // A provider card that the user never opened: focusing one of its fields unfolds it, which is the
   // only thing that may open a card now that selection does not.
   const cardDetails = make('provider-card-details'); const mode = make(fieldId('backends.exa.fetch.mode')); mode.parentElement = cardDetails; mode.details = cardDetails;
-  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule], [mode.id, mode]]);
+  const searchCard = make('search-card-details'); const secret = make(credentialFieldId('exa')); secret.parentElement = searchCard; secret.details = searchCard;
+  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule], [mode.id, mode], [secret.id, secret]]);
   const doc = { getElementById: (id: string) => nodes.get(id) || null };
   const provider = focusRenderedControl(doc, 'pageFetch.providerId');
   assert.equal(provider, providerGroup, 'the provider radio group is addressable');
@@ -160,12 +178,18 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   const modeControl = focusRenderedControl(doc, 'backends.exa.fetch.mode');
   assert.equal(modeControl, mode, 'a field inside a collapsed provider card is addressable');
   assert.equal(cardDetails.open, true, 'focusing into a collapsed provider card unfolds it');
+  const secretControl = focusRenderedControl(doc, credentialFieldId('exa'));
+  assert.equal(secretControl, secret, 'the key input itself is the focus target of the fetch card link');
+  assert.equal(searchCard.open, true, 'the search card holding the input is unfolded');
+  assert.equal(secret.focused, true);
   assert.equal(focusRenderedControl(doc, 'pageFetch.routes.9.enabled'), undefined, 'an unmounted target is reported instead of throwing');
 });
 
 test('a backend filter is reset before focusing a hidden backend card', () => {
   assert.equal(backendIdForPath('backends.keenable.enabled'), 'keenable');
   assert.equal(backendIdForPath('pageFetch.routes.0.enabled'), undefined);
+  assert.equal(backendIdForPath(credentialFieldId('exa')), 'exa', 'a credential input belongs to its backend card');
+  assert.equal(shouldResetBackendFilter(credentialFieldId('exa'), 'keen', 'all'), true, 'a filtered-out card is shown again before its credential input is focused');
   assert.equal(shouldResetBackendFilter('backends.keenable.enabled', 'keen', 'all'), true);
   assert.equal(shouldResetBackendFilter('backends.keenable.enabled', '', 'enabled'), true);
   assert.equal(shouldResetBackendFilter('backends.keenable.enabled', '', 'all'), false);

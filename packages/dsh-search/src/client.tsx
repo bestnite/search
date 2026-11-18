@@ -12,7 +12,7 @@ import type {
   FetchRouteConfig, SearchConfig,
 } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
-import { browserGateIssues, classifySaveOutcome, fieldId, focusForIssue, focusForPath, focusRenderedControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
+import { browserGateIssues, classifySaveOutcome, credentialFieldId, fieldId, focusForIssue, focusForPath, focusRenderedControl, needsCredentialControl, readbackMatches, routeKindForPath, sameDraft, shouldResetBackendFilter } from './presenter';
 import type { SaveReadback, SaveResponse } from './presenter';
 import { feedbackAutoDismissMs, feedbackForSave, feedbackTakesFocus } from './feedback';
 import type { SaveFeedback } from './feedback';
@@ -269,6 +269,28 @@ export function createClient(React: any, ReactDOM?: any) {
           if (!enabledSaved.length) { if (testBackend) setTestBackend(''); return; }
           if (!enabledSaved.some(def => def.id === testBackend)) setTestBackend(enabledSaved[0]!.id);
         }, [snapshot]);
+        /** The access mode a provider's search row uses. */
+        const searchModeOf = (def: BackendDefinition): string => draft.backends[def.id]?.mode || def.modes[0]!.mode;
+        /** The access mode its fetch operation uses; a provider without one is keyless. */
+        const fetchModeOf = (def: BackendDefinition): string => draft.backends[def.id]?.fetch.mode || 'anonymous';
+        /** Whether the provider's search mode reads the stored credential. */
+        const searchUsesCredential = (def: BackendDefinition): boolean => searchModeOf(def) !== 'anonymous' && searchModeOf(def) !== 'browser';
+        /** Whether its fetch operation is a declared keyed mode; a provider without one is never keyed. */
+        const fetchNeedsKey = (def: BackendDefinition): boolean => {
+          const mode = fetchModeOf(def);
+          return (def.fetch?.modes ?? []).includes(mode as AccessMode) && mode !== 'anonymous';
+        };
+        /** Whether a key is needed by either operation; one control serves both. */
+        const needsCredential = (def: BackendDefinition): boolean =>
+          def.status === 'documented' && needsCredentialControl({ searchMode: searchModeOf(def), fetchMode: fetchModeOf(def), fetchModes: def.fetch?.modes ?? [] });
+        /** The evidence state of one fetch mode, as the page shows it. */
+        const modeEvidenceOf = (def: BackendDefinition, mode: string) => def.fetch?.evidence?.[mode as AccessMode];
+        const evidenceLabel = (def: BackendDefinition, mode: string): string => {
+          const evidence = modeEvidenceOf(def, mode);
+          return evidence?.evidence === 'documented'
+            ? tr('fetchEvidenceDocumented', { date: evidence.verifiedAt })
+            : tr('fetchEvidenceLive', { date: evidence?.verifiedAt ?? def.fetch?.verifiedAt ?? '' });
+        };
         function field(path: string, options: { type?: string; choices?: string[]; help?: string; customLabel?: string; disabled?: boolean; min?: number; max?: number } = {}) {
           const { type = 'text', choices, help, customLabel, disabled = false } = options;
           const value = get(draft, path); const id = fieldId(path); const errors = issues.filter((issue: ConfigIssue) => issue.path === path);
@@ -308,6 +330,12 @@ export function createClient(React: any, ReactDOM?: any) {
         const fetchProblems = snapshot ? fetchReadiness(draft, draftFetchRows) : [];
         const fetchReady = fetchProblems.length === 0;
         const selectedFetchProvider: FetchProviderInfo | undefined = fetchProviders.find((provider: FetchProviderInfo) => provider.id === draft.pageFetch.providerId);
+        // The summary names the evidence of the mode that is actually selected, never a generic date.
+        const selectedFetchEvidence = (() => {
+          if (!selectedFetchProvider) return '';
+          const definition = definitions.find(item => item.id === selectedFetchProvider.id);
+          return definition ? evidenceLabel(definition, draft.backends[selectedFetchProvider.id]?.fetch.mode || '') : '';
+        })();
         const browserRouteIndex = draft.pageFetch.routes.findIndex((route: FetchRouteConfig) => route.kind === 'browser');
         const browserRoute = browserRouteIndex >= 0 ? draft.pageFetch.routes[browserRouteIndex]! : undefined;
         const browserSearchDependents = definitions.filter(def => draft.backends[def.id]?.enabled && draft.backends[def.id]?.mode === 'browser');
@@ -549,10 +577,15 @@ export function createClient(React: any, ReactDOM?: any) {
           const disabledReason = pending ? t('credentialPending') : state && !state.writable ? t('credentialReadOnly') : '';
           const disabled = disabledReason !== '';
           const mode = def.modes.find(item => item.mode === (draft.backends[def.id]?.mode || def.modes[0]!.mode));
+          // The key this control stores is used by whichever operation needs it: a keyed search mode,
+          // or a keyed fetch mode while search stays keyless. The shape hint follows that mode.
+          const keyMode = def.modes.find(item => item.mode === 'key');
+          const shapeMode = mode && mode.mode !== 'anonymous' ? mode : keyMode;
           return <div className="ns-credential">
             <h5>{t('credentialTitle')}</h5>
             <p>{t(state?.configured ? 'credentialConfigured' : 'credentialMissing')} · {t('credentialHelp')}</p>
-            <p className="ns-credential-shape" aria-label={t('credentialShapeLabel')}><code>{mode?.credentialShape?.[lang] ?? t('credentialPlainKey')}</code></p>
+            {!searchUsesCredential(def) && <p>{t('credentialForFetch')}</p>}
+            <p className="ns-credential-shape" aria-label={t('credentialShapeLabel')}><code>{shapeMode?.credentialShape?.[lang] ?? t('credentialPlainKey')}</code></p>
             <label htmlFor={`secret-${def.id}`}>{t('credentialValue')}</label>
             <input id={`secret-${def.id}`} type="password" autoComplete="new-password" aria-describedby={`secret-${def.id}-why`} value={secrets[def.id] || ''} disabled={!!pending || disabled} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, [def.id]: event.target.value }))} />
             {disabledReason && <small id={`secret-${def.id}-why`} className="ns-warning">{disabledReason}</small>}
@@ -663,7 +696,7 @@ export function createClient(React: any, ReactDOM?: any) {
             <section className="ns-card" aria-labelledby="sec-fetch-routes"><h3 id="sec-fetch-routes">{t('fetchRoutesTitle')}</h3><p className="ns-muted">{t('fetchRoutesHelp')}</p><div id={fetchRoutesPath}>{fetchRouteRows()}</div></section>
             <section className="ns-card" aria-labelledby="sec-fetch-provider"><h3 id="sec-fetch-provider">{t('fetchProviderTitle')}</h3><p className="ns-muted">{t('fetchProviderHelp')}</p>
               {selectedFetchProvider && <div className="ns-provider-summary">
-                <p><strong>{selectedFetchProvider.title}</strong> · {tr('fetchProviderServes', { formats: selectedFetchProvider.serves.join(', ') })} · {t('fetchMode')}: {draft.backends[selectedFetchProvider.id]?.fetch.mode || t('notSpecified')}</p>
+                <p><strong>{selectedFetchProvider.title}</strong> · {tr('fetchProviderServes', { formats: selectedFetchProvider.serves.join(', ') })} · {t('fetchMode')}: {draft.backends[selectedFetchProvider.id]?.fetch.mode || t('notSpecified')}{selectedFetchEvidence ? <> · {selectedFetchEvidence}</> : null}</p>
                 <p className={selectedFetchProvider.credentialRequired && !selectedFetchProvider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{selectedFetchProvider.credentialRequired ? t(selectedFetchProvider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
                 <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(`backends.${selectedFetchProvider.id}.fetch.mode`)}>{t('openSetting')}</button><a href={selectedFetchProvider.docs} target="_blank" rel="noreferrer">{t('docs')}</a></div>
               </div>}
@@ -681,14 +714,19 @@ export function createClient(React: any, ReactDOM?: any) {
                 const backend = draft.backends[def.id]!;
                 const modeLabel = draft.backends[def.id]?.fetch.mode || '';
                 const selected = draft.pageFetch.providerId === def.id;
-                const modeEvidence = def.fetch?.evidence?.[modeLabel as AccessMode];
+                const modeEvidence = modeEvidenceOf(def, modeLabel);
                 // A provider card is never opened by selection: the summary says which provider is
                 // selected, and only the user's own click unfolds the settings of a card.
                 return <details className="ns-card ns-backend ns-provider-card" key={`fetch-${def.id}`}>
                   <summary>
                     <span className="ns-backend-title">{def.title}</span>
                     <span className="ns-chips">
-                      {provider.modes.map(mode => <span key={mode} className={`ns-chip ${mode === modeLabel ? 'is-on' : ''}`} title={t(`choice.${mode}`)}>{t(`choice.${mode}`)}</span>)}
+                      {/* The card is collapsed by default, so the evidence state has to be readable
+                          from the summary: a documented-only mode says so here, visibly. */}
+                      {provider.modes.map(mode => {
+                        const documented = modeEvidenceOf(def, mode)?.evidence === 'documented';
+                        return <span key={mode} className={`ns-chip ${mode === modeLabel ? 'is-on' : ''}`} title={`${t(`choice.${mode}`)} · ${evidenceLabel(def, mode)}`}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
+                      })}
                       <span className={`ns-dot ${snapshot?.credentials[def.id]?.configured ? 'is-on' : 'is-off'}`} aria-hidden="true" />
                       <span className={`ns-badge ${selected ? 'is-on' : ''}`}>{selected ? t('fetchProviderSelected') : t('fetchProviderNotSelected')}</span>
                     </span>
@@ -698,12 +736,10 @@ export function createClient(React: any, ReactDOM?: any) {
                         the operation's live date and never reads as "checked". */}
                     <p className="ns-quota">{tr('fetchProviderServes', { formats: provider.serves.join(', ') })} · <a href={provider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {modeEvidence?.evidence === 'documented' ? tr('fetchEvidenceDocumented', { date: modeEvidence.verifiedAt }) : <>{t('verifiedAt')} {provider.verifiedAt}</>}</p>
                     <p className="ns-chips ns-mode-evidence">{provider.modes.map(mode => {
-                      const evidence = def.fetch?.evidence?.[mode as AccessMode];
-                      const documented = evidence?.evidence === 'documented';
-                      const date = evidence?.verifiedAt ?? provider.verifiedAt;
+                      const documented = modeEvidenceOf(def, mode)?.evidence === 'documented';
                       // A documented-only mode says so in its visible label, not only in a tooltip:
                       // nothing here may read as if a keyed call had been observed live.
-                      return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={tr(documented ? 'fetchEvidenceDocumented' : 'fetchEvidenceLive', { date })}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
+                      return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={evidenceLabel(def, mode)}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
                     })}</p>
                     {modeEvidence?.evidence === 'documented' && <p className="ns-warning">{t('fetchModeDocumentedOnly')}{modeEvidence.source && <> <a href={modeEvidence.source} target="_blank" rel="noreferrer">{t('docs')}</a></>}</p>}
                     {provider.notes && <p className="ns-muted">{provider.notes[lang]}</p>}
@@ -721,7 +757,7 @@ export function createClient(React: any, ReactDOM?: any) {
                         asking for a second copy of the same key. */}
                     {modeLabel !== 'anonymous' && <div className="ns-credential-shared">
                       <p className="ns-muted">{t('fetchCredentialShared')}</p>
-                      <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(`backends.${def.id}.mode`)}>{t('openCredential')}</button></div>
+                      <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(credentialFieldId(def.id))}>{t('openCredential')}</button></div>
                     </div>}
                     <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot?.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot?.counters[def.id]?.day ?? t('noData')}</span></p>
                   </div>
@@ -796,9 +832,11 @@ export function createClient(React: any, ReactDOM?: any) {
                       <p className="ns-muted">{t('browserInheritedHint')}</p>
                       <details className="ns-advanced"><summary>{t('browserOverride')}</summary><p className="ns-muted">{t('browserOverrideHint')}</p><div className="ns-grid">{fields([`${base}.endpoint`])}</div></details>
                     </div>}
-                    {anonymous && !locked && <p className="ns-muted">{t('anonymousNoCredential')}</p>}
+                    {anonymous && !locked && <p className="ns-muted">{t(fetchNeedsKey(def) ? 'anonymousSearchKeyedFetch' : 'anonymousNoCredential')}</p>}
                     {def.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.options.map(option => field(`${base}.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], disabled: locked, min: option.min, max: option.max }))}</div></details>}
-                    {!anonymous && !locked && !readsThroughBrowser && credentialControl(def)}
+                    {/* One key, one control: it appears whenever any mode of this provider needs it, so a
+                        keyed fetch mode is enterable while search itself stays keyless. */}
+                    {needsCredential(def) && !locked && credentialControl(def)}
                     <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot.counters[def.id]?.day ?? t('noData')}</span></p>
                   </div>
                 </details>;
