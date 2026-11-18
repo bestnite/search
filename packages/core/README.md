@@ -91,6 +91,14 @@ empty list, and failures are never cached.
 `search(input, signal?, onlyBackend?, overrides?)` accepts per-call strategy overrides — `mode`,
 `backends`, `exclude`, `backend`, `compact`, `maxResults` — without touching the saved configuration.
 
+## MCP-backed backends
+
+`exa`, `parallel` and `you` have an anonymous mode that is a remote MCP endpoint. That protocol is
+served by [`@modelcontextprotocol/client`](https://ts.sdk.modelcontextprotocol.io/v2/): it negotiates
+the revision, replays `Mcp-Session-Id`, and parses both JSON and SSE answers. What stays in this
+package is what belongs to it — which tool to call, a pre-flight check of the parameters against the
+tool's schema, and the failure wording a search panel can show.
+
 ## Modes of access
 
 A backend is used in exactly the mode you selected: `anonymous`, `key`, `oauth`, `session` or

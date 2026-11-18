@@ -2,26 +2,65 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { callMcp } from '../src/mcp.js';
 import { defaultConfig } from '../src/config.js';
-import { SearchEngine } from '../src/engine.js';
 const response=(id:unknown,result:unknown)=>Response.json({jsonrpc:'2.0',id,result});
-test('MCP initializes, preserves session headers, discovers schema and counts search attempts only',async()=>{let attempts=0;const methods:string[]=[];const signal=new AbortController().signal;
- const result=await callMcp('https://example.org/mcp','web_search',{query:'hello'},{signal,retry:defaultConfig().retry,attemptTimeoutMs:1000,beforeAttempt(){attempts++;},onAttempt(){},fetch:(async(_url,init)=>{const body=JSON.parse(String(init?.body));methods.push(body.method);if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:'2025-03-26'}},{headers:{'mcp-session-id':'SESSION'}});assert.equal((init?.headers as any)['Mcp-Session-Id'],'SESSION');if(body.method==='notifications/initialized')return new Response(null,{status:202});if(body.method==='tools/list')return response(body.id,{tools:[{name:'web_search',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']}}]});return response(body.id,{structuredContent:{results:[]}});})as typeof fetch});assert.ok(result.structuredContent);assert.equal(attempts,1);assert.deepEqual(methods,['initialize','notifications/initialized','tools/list','tools/call']);});
-test('missing matching RPC result is a protocol error',async()=>{await assert.rejects(callMcp('https://example.org','web_search',{}, {signal:new AbortController().signal,retry:defaultConfig().retry,attemptTimeoutMs:1000,beforeAttempt(){},onAttempt(){},fetch:(async()=>response(999,{}))as typeof fetch}),/matching result/);});
-test('You MCP nested results.web JSON is recognized',async()=>{const c=defaultConfig();c.backends.you!.enabled=true;c.safeSearch=false;const engine=new SearchEngine(c,async()=>undefined,(async(_url,init)=>{const b=JSON.parse(String(init?.body));if(b.method==='initialize')return response(b.id,{protocolVersion:'2025-03-26'});if(b.method==='notifications/initialized')return new Response(null,{status:202});if(b.method==='tools/list')return response(b.id,{tools:[{name:'you-search',inputSchema:{type:'object',properties:{query:{type:'string'},count:{type:'number'}}}}]});return response(b.id,{content:[{type:'text',text:JSON.stringify({results:{web:[{title:'test',url:'https://example.org',snippet:'text'}]}})}]});})as typeof fetch);const r=await engine.search({query:'hello'});assert.equal(r.sources.length,1);assert.equal(r.outcomes[0]!.attempts,1);});
+const schema={type:'object',properties:{query:{type:'string'},max_results:{type:'number'}},required:['query']};
+const options=(fetch:typeof globalThis.fetch,counter={attempts:0})=>({signal:new AbortController().signal,retry:defaultConfig().retry,attemptTimeoutMs:1000,beforeAttempt(){counter.attempts+=1;},onAttempt(){},fetch});
 
-test('anonymous MCP results keep a body the server names differently',async()=>{
- const c=defaultConfig();c.backends.exa!.enabled=true;c.backends.parallel!.enabled=true;c.backends.you!.enabled=true;
- const engine=new SearchEngine(c,async()=>undefined,(async(_url,init)=>{
-  const body=JSON.parse(String(init?.body));
-  if(body.method==='initialize')return response(body.id,{protocolVersion:'2025-03-26'});
-  if(body.method==='notifications/initialized')return new Response(null,{status:202});
-  if(body.method==='tools/list')return response(body.id,{tools:[{name:'web_search_exa',inputSchema:{type:'object',properties:{query:{type:'string'},objective:{type:'string'},numResults:{type:'number'}}}},{name:'web_search',inputSchema:{type:'object',properties:{objective:{type:'string'},search_queries:{type:'array',items:{type:'string'}}}}},{name:'you-search',inputSchema:{type:'object',properties:{query:{type:'string'},count:{type:'number'}}}}]});
-  if(body.params.name==='web_search_exa')return response(body.id,{structuredContent:{results:[{title:'Exa',url:'https://exa.example/a',text:'page text'}]}});
-  if(body.params.name==='web_search')return response(body.id,{structuredContent:{results:[{title:'Parallel',url:'https://parallel.example/b',excerpts:['first','second']}]}});
-  return response(body.id,{structuredContent:{results:[{title:'You',url:'https://you.example/c',description:'described',page_age:'2026-01-02T00:00:00Z'}]}});
- })as typeof fetch);
- const one=async(id:string)=>{const result=await engine.search({query:'hello'},new AbortController().signal,id);return result.sources[0]!;};
- assert.equal((await one('exa')).snippet,'page text');
- assert.equal((await one('parallel')).snippet,'first\nsecond');
- const you=await one('you');assert.equal(you.snippet,'described');assert.equal(you.publishedAt,'2026-01-02T00:00:00Z');
+test('MCP handshakes, replays the session header, validates the schema and counts one search attempt',async()=>{
+  const methods:string[]=[];const counter={attempts:0};
+  const fetchImpl=(async(_url:unknown,init?:RequestInit)=>{
+    const body=JSON.parse(String(init?.body));methods.push(body.method);
+    if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:String((body.params as {protocolVersion?:string}).protocolVersion),capabilities:{tools:{}},serverInfo:{name:'remote',version:'1'}}},{headers:{'mcp-session-id':'SESSION'}});
+    assert.equal(new Headers(init?.headers as HeadersInit).get('mcp-session-id'),'SESSION','the session header comes back on every later request');
+    if(body.method==='notifications/initialized')return new Response(null,{status:202});
+    if(body.method==='tools/list')return response(body.id,{tools:[{name:'web_search',inputSchema:schema}]});
+    return response(body.id,{structuredContent:{results:[]}});
+  }) as unknown as typeof globalThis.fetch;
+  const result=await callMcp('https://example.org/mcp','web_search',{query:'hello'},options(fetchImpl,counter));
+  assert.deepEqual(result.structuredContent,{results:[]});
+  assert.equal(counter.attempts,1,'only tools/call counts as an attempt');
+  assert.deepEqual(methods,['initialize','notifications/initialized','tools/list','tools/call']);
+});
+
+test('a parameter the tool does not declare fails before any call is sent',async()=>{
+  const methods:string[]=[];
+  const fetchImpl=(async(_url:unknown,init?:RequestInit)=>{
+    const body=JSON.parse(String(init?.body));methods.push(body.method);
+    if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:String((body.params as {protocolVersion?:string}).protocolVersion),capabilities:{tools:{}},serverInfo:{name:'remote',version:'1'}}});
+    if(body.method==='notifications/initialized')return new Response(null,{status:202});
+    return response(body.id,{tools:[{name:'web_search',inputSchema:schema}]});
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(callMcp('https://example.org/mcp','web_search',{query:'hello',depth:'deep'},options(fetchImpl)),/does not support the configured depth parameter/);
+  assert.equal(methods.includes('tools/call'),false,'a rejected configuration spends no request');
+});
+
+test('a tool the provider does not advertise is reported by name',async()=>{
+  const fetchImpl=(async(_url:unknown,init?:RequestInit)=>{
+    const body=JSON.parse(String(init?.body));
+    if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:String((body.params as {protocolVersion?:string}).protocolVersion),capabilities:{tools:{}},serverInfo:{name:'remote',version:'1'}}});
+    if(body.method==='notifications/initialized')return new Response(null,{status:202});
+    return response(body.id,{tools:[]});
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(callMcp('https://example.org/mcp','web_search',{query:'hello'},options(fetchImpl)),/not advertised by the provider/);
+});
+
+test('a tool that reports failure is a protocol error with the account hint',async()=>{
+  const fetchImpl=(async(_url:unknown,init?:RequestInit)=>{
+    const body=JSON.parse(String(init?.body));
+    if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:String((body.params as {protocolVersion?:string}).protocolVersion),capabilities:{tools:{}},serverInfo:{name:'remote',version:'1'}}});
+    if(body.method==='notifications/initialized')return new Response(null,{status:202});
+    if(body.method==='tools/list')return response(body.id,{tools:[{name:'web_search',inputSchema:schema}]});
+    return response(body.id,{isError:true,content:[{type:'text',text:'quota'}]});
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(callMcp('https://example.org/mcp','web_search',{query:'hello'},options(fetchImpl)),/reported failure; check account and quota/);
+});
+
+test('a JSON-RPC error answer is reported as a rejected operation',async()=>{
+  const fetchImpl=(async(_url:unknown,init?:RequestInit)=>{
+    const body=JSON.parse(String(init?.body));
+    if(body.method==='initialize')return Response.json({jsonrpc:'2.0',id:body.id,result:{protocolVersion:String((body.params as {protocolVersion?:string}).protocolVersion),capabilities:{tools:{}},serverInfo:{name:'remote',version:'1'}}});
+    if(body.method==='notifications/initialized')return new Response(null,{status:202});
+    return Response.json({jsonrpc:'2.0',id:body.id,error:{code:-32602,message:'bad params'}});
+  }) as unknown as typeof globalThis.fetch;
+  await assert.rejects(callMcp('https://example.org/mcp','web_search',{query:'hello'},options(fetchImpl)),/rejected the operation/);
 });

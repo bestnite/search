@@ -1,6 +1,6 @@
 {
   "name": "@nite07/search-core",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Provider-agnostic multi-backend search engine: backend catalog, adapters, transport and honest failure reporting. No DSH dependency.",
   "license": "MIT",
   "author": "nite07",
@@ -53,6 +53,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "patchright-core": "1.64.3"
   }
 }

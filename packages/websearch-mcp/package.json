@@ -1,6 +1,6 @@
 {
   "name": "@nite07/websearch-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for multi-backend web search plus Reddit and X thread reading, built on @nite07/search-core.",
   "license": "MIT",
   "author": "nite07",
@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",
-    "@nite07/search-core": "0.1.7"
+    "@nite07/search-core": "0.1.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

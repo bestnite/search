@@ -81,6 +81,13 @@ result.outcomes;  // 每个后端的细节：ok、错误类型、耗时、尝试
 
 `search(input, signal?, onlyBackend?, overrides?)` 支持单次调用的策略覆盖：`mode`、`backends`、`exclude`、`backend`、`compact`、`maxResults`，不改动已保存的配置。
 
+## 走 MCP 的后端
+
+`exa`、`parallel`、`you` 的匿名模式连的是远端 MCP 端点。那套协议交给
+[`@modelcontextprotocol/client`](https://ts.sdk.modelcontextprotocol.io/v2/)：版本协商、`Mcp-Session-Id`
+回放、JSON 与 SSE 两种应答的解析都在库里。留在这个包里的只有属于它自己的东西——调哪个工具、
+按工具 schema 做一次调用前校验、以及搜索面板能显示的错误文案。
+
 ## 接入模式
 
 后端只按你选定的模式工作：`anonymous`、`key`、`oauth`、`session` 或 `browser`。模式、密钥、端点之间都不会自动切换，重试也留在同一家、同一模式。只重试配置里列出的 HTTP 状态码，`Retry-After` 会被遵守，重试不会换服务商。
