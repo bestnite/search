@@ -51,12 +51,13 @@ between operations.
 | **Test & diagnostics** | One explicit backend test against saved settings, recent outcomes, import/export |
 | **Search** | The backend catalog: access mode, cost chips, search endpoint and credential |
 | **Browser** | The shared Playwright endpoint, endpoint token, session file, per-site read cap, and every enabled search or fetch feature that depends on it |
-| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed radio choice including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
+| **Page fetch** | Routes, fallback rules, the fetch provider (a fixed select including **none**), fetch-operation settings, and the fetch-only browser context/settle/selector options |
 
 Search and page fetch render the same provider card. A backend's credential is one stored secret bound
-to one record, so the same control appears in both views without asking for the value a second time.
-Search caps never bound a page fetch: the fetch operation keeps its own access mode, endpoint, timeout
-and options, and the card says so.
+to one record: the input lives on the search card and the fetch card links to it, so the same key is
+never typed twice. Search caps never bound a page fetch: the fetch operation keeps its own access
+mode, transport, endpoint, timeout and options, and the card says so — including which access modes
+were observed live and which are implemented from documentation only.
 
 ## Saving and the browser gate
 
@@ -189,10 +190,15 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   (↑/↓ buttons, keyboard reachable) and fallback rules. Rules are OR, conditions inside one rule are
   AND, and a condition is true/false/unavailable; a missing field is never an empty string. Presets
   add an ordinary editable status rule or a heuristic challenge-page rule.
-- **Provider** — the verified fetch-capable providers only (Exa and Parallel in this release), with
-  the formats each one can return, its own fetch access mode, endpoint, timeout and options. Both
-  return native Markdown; asking for HTML skips that route without a request and the next enabled
-  route serves the page instead.
+- **Provider** — the fetch-capable providers only (Exa and Parallel in this release), each with the
+  formats it can return, its own fetch access mode, transport, endpoint, timeout and options. Every
+  provider card stays collapsed and only a click opens it; selecting a provider in the select never
+  unfolds a card, the badge says which one is selected. Both providers offer a keyless MCP mode and a
+  keyed REST mode: the keyless modes were observed live, the keyed modes are documented-only (no paid
+  call was made) and the card labels them that way. A keyed fetch uses the provider's one stored
+  search key; with no stored key the fetch is refused as a configuration problem before any request.
+  Both return native Markdown; asking for HTML skips that route without a request and the next
+  enabled route serves the page instead.
 - **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan
   width and the public-only/private-network policy. A browser or provider route resolves the target
   itself, so switching that route on is the delegated-fetching decision; there is no separate switch,

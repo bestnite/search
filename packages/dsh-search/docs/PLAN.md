@@ -7,10 +7,13 @@ The current settings page and save path, as built:
 - **Tabs**: Search behavior, Reliability, Test & diagnostics, Search, Browser, Page fetch. All edit one
   draft; tab switches never save or discard, and search vs fetch values stay in their own records.
 - **Provider cards**: search and page fetch use the same card anatomy, chips, credential control and
-  body spacing. The fetch provider is a fixed radio choice including **none**, never a dropdown; the
-  chosen provider's fetch operation settings live inside its card. The credential is one stored secret
-  shown by the same control in both views, so it is never entered twice. Search caps do not bound a
-  fetch, and the card says so.
+  body spacing. The fetch provider is a fixed select including **none**, never a free-text field. The
+  cards themselves stay collapsed and only a click opens one: choosing a provider in the select never
+  unfolds a card, and the selected state is shown by the card's badge and the summary line. The chosen
+  provider's fetch operation settings live inside its card. The credential is one stored secret with
+  one input, on the search card; the fetch card shows configured/not-configured and links to that
+  control, so the same key is never entered twice. Search caps do not bound a fetch, and the card says
+  so.
 - **Browser tab**: owns the shared endpoint, endpoint token, session file, read timeout, per-site read
   cap, and the list of every enabled search/fetch feature that depends on them. Fetch-only context,
   settle and selector options stay on the Page fetch tab. A manual **Check connection** runs the same

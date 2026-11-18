@@ -36,7 +36,9 @@ export type {
   FetchFormat,
   FetchMatchOperator,
   FetchOperationDefinition,
+  FetchModeEvidence,
   FetchRouteConfig,
   FetchRouteKind,
+  FetchTransport,
   PageFetchConfig,
 } from './fetch/types.js';

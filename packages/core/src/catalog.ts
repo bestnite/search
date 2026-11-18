@@ -33,36 +33,77 @@ export const catalog: BackendDefinition[] = [
 export const backendById = (id: string): BackendDefinition | undefined => catalog.find(item => item.id === id);
 
 /**
- * Fetch operations, declared only for providers whose contract was verified live.
+ * Fetch operations, declared for providers whose contract was established from official documentation.
  *
  * The metadata is a capability statement, not a user toggle: a provider without this entry can never
- * be selected for a page fetch, and its search behaviour is untouched. Both verified providers return
- * native Markdown and neither can serve page HTML, which the engine records as an `unsupported-format`
- * skip before any request is sent. See docs/PAGE-FETCH-PROVIDERS.md.
+ * be selected for a page fetch, and its search behaviour is untouched. An access mode carries its own
+ * transport, endpoint and evidence, because one provider can fetch keylessly over MCP and with a key
+ * over a REST API. Both providers return native Markdown and neither can serve page HTML, which the
+ * engine records as an `unsupported-format` skip before any request is sent. See
+ * docs/PAGE-FETCH-PROVIDERS.md.
  */
 const fetchOption = (key: string, type: OptionField['type'], label: string, zh: string, value: string | number | boolean, help: string, helpZh: string): OptionField => ({ key, type, label: text(label, zh), help: text(help, helpZh), default: value });
 
+/** The documented REST endpoint of Exa's Contents operation; its search endpoint is a different URL. */
+const EXA_CONTENTS_ENDPOINT = 'https://api.exa.ai/contents';
+
+/**
+ * The documented REST endpoint of Parallel's Extract operation. The GA path is `/v1/extract`: the
+ * provider's own documentation says `/v1beta/extract` is for existing integrations only, and the two
+ * differ in request shape (`full_content` moved inside `advanced_settings`).
+ */
+const PARALLEL_EXTRACT_ENDPOINT = 'https://api.parallel.ai/v1/extract';
+
 const exaFetch: FetchOperationDefinition = {
   tool: 'web_fetch_exa',
-  modes: ['anonymous'],
+  modes: ['anonymous', 'key'],
+  // Keyless access is the MCP tool; a stored key uses the documented REST API instead of asking the
+  // keyless broker to fetch on the account's behalf.
+  transport: { key: 'rest' },
+  endpoints: { key: EXA_CONTENTS_ENDPOINT },
+  evidence: {
+    key: {
+      evidence: 'documented',
+      verifiedAt: '2026-11-18',
+      source: 'https://github.com/exa-labs/openapi-spec/blob/master/exa-openapi-spec.yaml',
+      notes: text(
+        'Implemented from the official OpenAPI spec (POST /contents, x-api-key). No call with a real API key was made from this deployment, so this mode is documented only, not live-verified.',
+        '依据官方 OpenAPI 规范实现（POST /contents，x-api-key）。本部署没有用真实 API Key 发起过调用，因此该模式只有文档核实，没有实测。',
+      ),
+    },
+  },
   serves: ['markdown'],
   representation: 'provider-markdown',
   options: [fetchOption('maxCharacters', 'number', 'Characters per page', '每页字符上限', 50000, 'Characters the provider may return per page. Its own default is 3000; a page fetch asks for more because the page itself is the result.', '供应商每页最多返回的字符数。其默认值是 3000；页面抓取要的是整页内容，所以这里请求更多。')],
   characterOption: { key: 'maxCharacters', default: 50000 },
   docs: 'https://exa.ai/docs/get-started/exa-mcp',
   verifiedAt: '2026-11-18',
-  notes: text('Returns native Markdown; no page title and no target HTTP status are reported.', '返回原生 Markdown；不提供页面标题与目标 HTTP 状态码。'),
+  notes: text('Returns native Markdown. The keyless MCP mode reports no page title and no target HTTP status; the keyed REST mode reports both. Markdown only: HTML is skipped before any request. Text costs $1/1,000 pages in the keyed mode.', '返回原生 Markdown。无 Key 的 MCP 模式不提供页面标题与目标 HTTP 状态码；有 Key 的 REST 模式两者都会返回。仅支持 Markdown：请求 HTML 时不会发出请求而是直接跳过。有 Key 模式下正文按 $1/千页计费。'),
 };
 
 const parallelFetch: FetchOperationDefinition = {
   tool: 'web_fetch',
-  modes: ['anonymous'],
+  modes: ['anonymous', 'key'],
+  // The keyless mode is the MCP tool; a stored key uses the documented REST Extract operation.
+  transport: { key: 'rest' },
+  endpoints: { key: PARALLEL_EXTRACT_ENDPOINT },
+  evidence: {
+    key: {
+      evidence: 'documented',
+      verifiedAt: '2026-11-18',
+      source: 'https://docs.parallel.ai/api-reference/extract/extract.md',
+      notes: text(
+        'Implemented from the official Extract API reference (POST /v1/extract, x-api-key, full_content inside advanced_settings). No call with a real API key was made from this deployment, so this mode is documented only, not live-verified.',
+        '依据官方 Extract API 参考实现（POST /v1/extract，x-api-key，full_content 位于 advanced_settings 内）。本部署没有用真实 API Key 发起过调用，因此该模式只有文档核实，没有实测。',
+      ),
+    },
+  },
   serves: ['markdown'],
   representation: 'provider-markdown',
   options: [fetchOption('full_content', 'boolean', 'Full page content', '返回整页正文', true, 'Ask for the complete page rather than objective-focused excerpts. Excerpt mode is cheaper but is not the page.', '请求完整页面，而不是按目标筛选的摘要。摘要模式更省，但不是整页。')],
   docs: 'https://docs.parallel.ai/integrations/mcp/quickstart',
   verifiedAt: '2026-11-18',
-  notes: text('Returns native Markdown with a page title; target status is reported only when the target itself failed.', '返回原生 Markdown 与页面标题；只有目标页面失败时才报告目标状态码。'),
+  notes: text('Returns native Markdown with a page title. Target status is reported only when the target itself failed, in both modes. Markdown only: HTML is skipped before any request. The keyed Extract API costs $1/1,000 URLs.', '返回原生 Markdown 与页面标题。两种模式下，只有目标页面失败时才报告目标状态码。仅支持 Markdown：请求 HTML 时不会发出请求而是直接跳过。有 Key 的 Extract API 按 $1/千个 URL 计费。'),
 };
 
 const fetchOperations: Record<string, FetchOperationDefinition> = { exa: exaFetch, parallel: parallelFetch };
@@ -71,7 +112,10 @@ for (const definition of catalog) {
   const operation = fetchOperations[definition.id];
   if (!operation) continue;
   definition.fetch = operation;
-  // The verified fetch endpoint of an access mode is the endpoint it was observed on, never a
-  // string replacement of the search URL.
-  for (const mode of definition.modes) if (operation.modes.includes(mode.mode)) mode.fetchEndpoint = mode.endpoint;
+  // The verified fetch endpoint of an access mode is declared by the operation itself, never derived
+  // from the search endpoint by string rewriting: searching and fetching are different operations.
+  for (const mode of definition.modes) {
+    if (!operation.modes.includes(mode.mode)) continue;
+    mode.fetchEndpoint = operation.endpoints?.[mode.mode] ?? mode.endpoint;
+  }
 }

@@ -88,6 +88,27 @@ Loading old config must preserve search enabled flags, mode, endpoints, options,
 
 Prefer additive changes and no package/version bump unless repository tooling actually requires one. Do not change package names or provider IDs.
 
+### 4.4 Access-mode transports, per-mode evidence and the shared key
+
+The access mode, not the provider, owns the transport. Declare `transport` per mode — `mcp` for one
+JSON-RPC tool call, `rest` for the provider's documented HTTP operation — together with that mode's
+own fetch endpoint. The engine reads the transport from the saved mode and passes it to the single
+provider route. The MCP path never guesses a transport from an endpoint shape, a mode without an
+adapter for its transport is refused instead of rerouted, and adding a REST mode never forks a second
+provider route.
+
+Evidence is per access mode. `live` means this deployment observed the contract; `documented` means
+the mode was implemented from the provider's official API reference and no call was made — for
+example because it would cost money and no spending was authorized. A documented mode carries its own
+evidence date and has to be labelled as documented-only wherever it is shown; it must never inherit
+the keyless mode's "checked" date or be described as verified. Its contract tests use fixtures built
+from the documentation, and the evidence document says plainly what that does and does not prove.
+
+One credential per provider stays the rule for keyed fetch modes: the fetch uses
+`backendCredentialRef(providerId)`, exactly the reference the provider's search mode uses. No second
+credential name and no second input box is introduced; the fetch card shows configured/not-configured
+and links to the one credential control on the search card.
+
 ## 5. Route execution
 
 Store exactly one instance of each route in a user-reorderable array. Enabled is independent of position. Skip disabled routes. Execute one at a time, never in parallel, including providers. There is no scan or automatic failover among provider records.
@@ -101,7 +122,7 @@ Defaults:
 - No implicit retries layered over the route chain in v1.
 - No page cache in v1; never reuse the search result cache.
 
-Reject all-routes-disabled configurations. Enabling the browser route requires a configured usable endpoint shape; enabling provider requires a selected fetch-capable provider. Credential availability can change at runtime and must be reported honestly.
+Reject all-routes-disabled configurations. Enabling the browser route requires a configured usable endpoint shape; enabling provider requires a selected fetch-capable provider. Credential availability can change at runtime and must be reported honestly: a keyed fetch mode with no stored key is a configuration failure refused before any route runs, never an unauthenticated request, and the settings page reports the same fact as a readiness problem before a test is attempted.
 
 Preflight request format compatibility before sending a route request. A Markdown-only provider cannot satisfy HTML: record `unsupported-format`, skip its request, and continue to the next enabled route. This is a capability skip, not a fabricated successful fetch or a switch to another provider.
 
@@ -216,7 +237,11 @@ Search tab filters to search-capable entries and preserves existing behavior. Fe
 1. Ordered route rows with independent toggles and keyboard-accessible move-up/down actions (drag optional, never exclusive).
 2. Route-specific configuration and fallback rule editor using OR rule groups and AND conditions.
 3. Fixed provider selector showing readiness and native/effective formats.
-4. Fetch-capable provider settings, with shared credential/configuration indicators.
+4. Fetch-capable provider settings, with shared credential/configuration indicators. Selecting a
+   provider in the fixed selector must never unfold its card: the card stays collapsed, the selection
+   is visible through its badge and the summary line, and only the user's own click opens the details.
+   A keyed mode shows the status of the one shared credential and a link to the single credential
+   control instead of a second key input.
 5. Explicit test URL + required HTML/Markdown selector; test result and attempt trace. Paid/network tests are user-triggered, not automatic on render/save.
 
 Shared settings use one authoritative draft across tabs. Switching tabs retains edits. Explain shared-field effects, distinguish search enabled from fetch selected, and never make changing the selected fetch provider toggle search participation.
@@ -229,7 +254,7 @@ On narrow screens use stacked controls and contained code previews, without hori
 
 Before writing adapters, inspect official documentation and, when permitted without using stored paid credentials, verify live anonymous schemas. Record exact endpoints, operation/mode, request format, native outputs, target/API status distinction, credential reuse, pricing/quotas, evidence dates, and limitations in a repository document.
 
-Prefer existing search providers to minimize new concepts. Candidate names from earlier discussion are not verified commitments. Choose two suitable providers from evidence; HTML-only or Markdown-only is allowed. Adding a fetch-only provider is acceptable if it materially improves coverage and does not require unrelated auth/UI redesign. If only one can be verified, implement one and explicitly report the unmet target; do not fabricate a second adapter. Mock contract tests do not count as live verification. Do not make paid calls, harvest existing profile credentials, or change deployment configuration to satisfy testing.
+Prefer existing search providers to minimize new concepts. Candidate names from earlier discussion are not verified commitments. Choose two suitable providers from evidence; HTML-only or Markdown-only is allowed. Adding a fetch-only provider is acceptable if it materially improves coverage and does not require unrelated auth/UI redesign. If only one can be verified, implement one and explicitly report the unmet target; do not fabricate a second adapter. Mock contract tests do not count as live verification. Do not make paid calls, harvest existing profile credentials, or change deployment configuration to satisfy testing. When a keyed mode can only be implemented from documentation because no paid call is authorized, record it as `documented` with its own date, keep the anonymous mode's live evidence separate, and state in the evidence document exactly what was not observed.
 
 ## 14. Verification and acceptance
 

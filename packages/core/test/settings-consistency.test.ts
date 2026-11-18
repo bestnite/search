@@ -86,12 +86,27 @@ test('provider fetch operation issues name the provider, mode and endpoint field
   const config = defaultConfig() as unknown as Record<string, any>;
   config.pageFetch.routes[2].enabled = true;
   config.pageFetch.providerId = 'exa';
-  config.backends.exa.fetch.mode = 'key';
+  // Exa fetches in anonymous and key modes; `oauth` is a search mode it never declared for fetching.
+  config.backends.exa.fetch.mode = 'oauth';
   const issue = validateConfig(config).find(item => item.path === 'backends.exa.fetch.mode');
-  assert.ok(issue, 'a fetch mode the provider never verified is rejected at its own path');
+  assert.ok(issue, 'a fetch mode the provider never declared is rejected at its own path');
   assert.equal(issue.code, 'backend.fetch.mode.unsupported');
   assert.equal(issue.params?.provider, 'exa');
-  assert.match(String(issue.params?.mode), /key/);
+  assert.match(String(issue.params?.mode), /oauth/);
+});
+
+test('both documented keyed fetch modes are valid and keep their own REST endpoint', () => {
+  const config = defaultConfig() as unknown as Record<string, any>;
+  config.pageFetch.routes[2].enabled = true;
+  for (const [id, endpoint] of [['exa', 'https://api.exa.ai/contents'], ['parallel', 'https://api.parallel.ai/v1/extract']] as const) {
+    config.pageFetch.providerId = id;
+    config.backends[id].fetch.mode = 'key';
+    // A saved row that still carries the earlier anonymous endpoint keeps validating: the endpoint is
+    // only defaulted from the declared fetch endpoint, never required to match it.
+    config.backends[id].fetch.endpoint = '';
+    assert.deepEqual(validateConfig(config).filter(item => item.path.startsWith(`backends.${id}.fetch`)), [], `${id} key mode validates`);
+    assert.equal(catalog.find(item => item.id === id)!.modes.find(mode => mode.mode === 'key')!.fetchEndpoint, endpoint);
+  }
 });
 
 test('malformed saves are reported as paths, never as raw TypeErrors', () => {

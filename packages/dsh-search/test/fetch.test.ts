@@ -91,12 +91,13 @@ test('the settings snapshot carries fetch providers and readiness without spendi
   const config = defaultConfig();
   await apply(h.ctx, config);
   const snapshot: any = await h.tool('search_manage').execute({ action: 'settings' }, { signal: signal() });
-  assert.deepEqual(snapshot.fetch.providers.map((provider: any) => provider.id).sort(), ['exa', 'parallel'], 'only verified fetch providers are offered');
+  assert.deepEqual(snapshot.fetch.providers.map((provider: any) => provider.id).sort(), ['exa', 'parallel'], 'only providers with a declared fetch operation are offered');
+  const endpoints: Record<string, string> = { exa: 'https://mcp.exa.ai/mcp', parallel: 'https://mcp.parallel.ai/mcp' };
   for (const provider of snapshot.fetch.providers) {
     assert.deepEqual(provider.serves, ['markdown'], 'both providers return native Markdown only');
-    assert.deepEqual(provider.modes, ['anonymous']);
-    assert.equal(provider.credentialRequired, false);
-    assert.ok(provider.endpoint.startsWith('https://'), 'the verified fetch endpoint is reported');
+    assert.deepEqual(provider.modes, ['anonymous', 'key'], 'each provider offers a keyless and a documented keyed mode');
+    assert.equal(provider.credentialRequired, false, 'the default mode is the keyless one');
+    assert.equal(provider.endpoint, endpoints[provider.id], 'the default endpoint is the keyless MCP one');
     assert.match(provider.verifiedAt, /^\d{4}-\d{2}-\d{2}$/);
   }
   assert.equal(snapshot.fetch.providerId, '');
@@ -111,7 +112,7 @@ test('the settings snapshot carries fetch providers and readiness without spendi
 test('readiness reasons are the same keys the page localizes, with English text for the agent', () => {
   const config = defaultConfig();
   const providers = [
-    { id: 'exa', title: 'Exa', serves: ['markdown'], modes: ['anonymous'], options: [], endpoint: 'https://mcp.exa.ai/mcp', docs: '', verifiedAt: '2026-11-18', credentialRequired: false, credentialConfigured: true },
+    { id: 'exa', title: 'Exa', serves: ['markdown'], modes: ['anonymous', 'key'], options: [], endpoint: 'https://mcp.exa.ai/mcp', docs: '', verifiedAt: '2026-11-18', credentialRequired: false, credentialConfigured: true },
   ];
   assert.deepEqual(fetchReadiness(config, providers), []);
 
@@ -131,9 +132,17 @@ test('readiness reasons are the same keys the page localizes, with English text 
   assert.deepEqual(fetchReadiness(providerRoute, providers).map(problem => problem.key), ['fetchProviderMissing']);
 
   providerRoute.pageFetch.providerId = 'exa';
-  providerRoute.backends.exa!.fetch.mode = 'key';
+  // Exa fetches keylessly and with a key; `oauth` is a search mode it never declared for fetching.
+  providerRoute.backends.exa!.fetch.mode = 'oauth';
   assert.deepEqual(fetchReadiness(providerRoute, providers).map(problem => problem.key), ['fetchProviderMode']);
-  assert.match(fetchProblemText({ key: 'fetchProviderMode', vars: { provider: 'Exa', mode: 'key' } }), /Exa cannot fetch in key/);
+  assert.match(fetchProblemText({ key: 'fetchProviderMode', vars: { provider: 'Exa', mode: 'oauth' } }), /Exa cannot fetch in oauth/);
+
+  // A declared keyed mode is ready once the shared credential exists, and not before.
+  providerRoute.backends.exa!.fetch.mode = 'key';
+  const unkeyed = providers.map(provider => ({ ...provider, credentialRequired: true, credentialConfigured: false }));
+  assert.deepEqual(fetchReadiness(providerRoute, unkeyed).map(problem => problem.key), ['fetchProviderCredential']);
+  const keyed = providers.map(provider => ({ ...provider, credentialRequired: true, credentialConfigured: true }));
+  assert.deepEqual(fetchReadiness(providerRoute, keyed), [], 'a keyed mode with a stored key is ready');
 
   providerRoute.backends.exa!.fetch.mode = 'anonymous';
   const endpointless = providers.map(provider => ({ ...provider, endpoint: '' }));
@@ -181,6 +190,7 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'fetchRemoveCondition', 'fetchAddStatusPreset', 'fetchAddCloudflarePreset', 'fetchRestoreDefaultRules', 'fetchPresetsHelp',
     'fetchProviderTitle', 'fetchProviderHelp', 'fetchProviderSelect', 'fetchProviderNone', 'fetchProviderServes',
     'fetchProviderMarkdownOnly', 'fetchMode', 'fetchModeHelp', 'fetchEndpoint', 'fetchEndpointHelp', 'fetchProviderTimeoutHelp',
+    'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchModeDocumentedOnly', 'fetchCredentialShared', 'openCredential',
     'fetchLimitsTitle', 'fetchTestTitle', 'fetchTestHelp', 'fetchTestUrl', 'fetchTestFormat', 'fetchTestResult',
     'fetchFormat.markdown', 'fetchFormat.html', 'fetchConditionType', 'fetchConditionStatuses', 'fetchConditionField',
     'fetchConditionOperator', 'fetchConditionValue', 'fetchConditionCase', 'credentialNotRequired',
@@ -200,6 +210,18 @@ test('every fetch label the page uses exists in both locales, and the readiness 
       assert.ok(String(table[key]).trim() !== '', `${lang} supplies a non-empty ${key}`);
     }
   }
+});
+
+test('the fetch provider card is never opened by selection, and shows the selection through its badge', async () => {
+  const client = await readFile(new URL('../src/client.tsx', import.meta.url), 'utf8');
+  // Selection may never drive the details element: choosing a provider in the select must not unfold
+  // its card, so the card carries no `open` attribute at all and only a user click opens it.
+  assert.doesNotMatch(client, /open=\{/, 'no card is opened from state');
+  assert.doesNotMatch(client, /ns-provider-card[^>]*open/, 'the provider card has no open prop');
+  assert.match(client, /<details className="ns-card ns-backend ns-provider-card" key=\{`fetch-\$\{def\.id\}`\}>/, 'the provider card is a plain details element');
+  assert.match(client, /selected \? t\('fetchProviderSelected'\) : t\('fetchProviderNotSelected'\)/, 'the selected state stays visible on the badge');
+  assert.match(client, /ns-mode-evidence/, 'each mode carries its own evidence marker');
+  assert.match(client, /modeEvidence\?\.evidence === 'documented'/, 'a documented-only mode is called out');
 });
 
 test('the fetch tab is wired to the shared draft and never to a second store', async () => {

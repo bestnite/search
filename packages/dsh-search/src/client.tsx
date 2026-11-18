@@ -8,7 +8,7 @@ import {
   STATUS_ERROR_PRESET, defaultConfig, fetchReadiness, fetchReadinessProviders, parseBrowserEndpoint, validateConfig,
 } from '@nite07/search-core/static';
 import type {
-  BackendDefinition, ConfigIssue, FetchConditionField, FetchFallbackCondition, FetchFallbackRule, FetchMatchOperator,
+  AccessMode, BackendDefinition, ConfigIssue, FetchConditionField, FetchFallbackCondition, FetchFallbackRule, FetchMatchOperator,
   FetchRouteConfig, SearchConfig,
 } from '@nite07/search-core/static';
 import type { BackendOutcome } from '@nite07/search-core';
@@ -172,6 +172,18 @@ export function createClient(React: any, ReactDOM?: any) {
               const definition = definitions.find(def => def.id === match[1]);
               const endpoint = definition?.modes.find(mode => mode.mode === value)?.endpoint;
               if (endpoint) next = set(next, `backends.${match[1]}.endpoint`, endpoint);
+            }
+            // A fetch access mode declares its own endpoint, so switching the mode adopts that
+            // endpoint instead of keeping the previous mode's one (an MCP URL would never serve a
+            // keyed REST mode). A typed custom endpoint is the user's to keep, so only the declared
+            // endpoints are replaced, never an arbitrary URL.
+            const fetchMode = /^backends\.([^.]+)\.fetch\.mode$/.exec(path);
+            if (fetchMode) {
+              const definition = definitions.find(def => def.id === fetchMode[1]);
+              const current = get(next, `backends.${fetchMode[1]}.fetch.endpoint`);
+              const declared = definition?.modes.map(mode => mode.fetchEndpoint).filter((item): item is string => !!item) ?? [];
+              const endpoint = definition?.modes.find(mode => mode.mode === value)?.fetchEndpoint;
+              if (endpoint && (!current || declared.includes(String(current)))) next = set(next, `backends.${fetchMode[1]}.fetch.endpoint`, endpoint);
             }
             return next;
           });
@@ -669,8 +681,10 @@ export function createClient(React: any, ReactDOM?: any) {
                 const backend = draft.backends[def.id]!;
                 const modeLabel = draft.backends[def.id]?.fetch.mode || '';
                 const selected = draft.pageFetch.providerId === def.id;
-                const fetchMode = def.fetch?.modes.find(item => item === modeLabel);
-                return <details className="ns-card ns-backend ns-provider-card" key={`fetch-${def.id}`} open={selected || undefined}>
+                const modeEvidence = def.fetch?.evidence?.[modeLabel as AccessMode];
+                // A provider card is never opened by selection: the summary says which provider is
+                // selected, and only the user's own click unfolds the settings of a card.
+                return <details className="ns-card ns-backend ns-provider-card" key={`fetch-${def.id}`}>
                   <summary>
                     <span className="ns-backend-title">{def.title}</span>
                     <span className="ns-chips">
@@ -681,6 +695,13 @@ export function createClient(React: any, ReactDOM?: any) {
                   </summary>
                   <div className="ns-backend-body">
                     <p className="ns-quota">{tr('fetchProviderServes', { formats: provider.serves.join(', ') })} · <a href={provider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {t('verifiedAt')} {provider.verifiedAt}</p>
+                    <p className="ns-chips ns-mode-evidence">{provider.modes.map(mode => {
+                      const evidence = def.fetch?.evidence?.[mode as AccessMode];
+                      const documented = evidence?.evidence === 'documented';
+                      const date = evidence?.verifiedAt ?? provider.verifiedAt;
+                      return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={tr(documented ? 'fetchEvidenceDocumented' : 'fetchEvidenceLive', { date })}>{t(`choice.${mode}`)}</span>;
+                    })}</p>
+                    {modeEvidence?.evidence === 'documented' && <p className="ns-warning">{t('fetchModeDocumentedOnly')}{modeEvidence.source && <> <a href={modeEvidence.source} target="_blank" rel="noreferrer">{t('docs')}</a></>}</p>}
                     {provider.notes && <p className="ns-muted">{provider.notes[lang]}</p>}
                     <p className={provider.credentialRequired && !provider.credentialConfigured ? 'ns-warning' : 'ns-muted'}>{provider.credentialRequired ? t(provider.credentialConfigured ? 'credentialConfigured' : 'credentialMissing') : t('credentialNotRequired')}</p>
                     {!provider.serves.includes('html') && <p className="ns-muted">{t('fetchProviderMarkdownOnly')}</p>}
@@ -691,7 +712,13 @@ export function createClient(React: any, ReactDOM?: any) {
                       {field(`backends.${def.id}.fetch.timeoutMs`, { type: 'number', customLabel: t('fetchTimeout'), help: t('fetchProviderTimeoutHelp'), min: FETCH_BOUNDS.routeTimeoutMs.min, max: FETCH_BOUNDS.routeTimeoutMs.max })}
                     </div>
                     {def.fetch && def.fetch.options.length > 0 && <details className="ns-advanced"><summary>{t('advancedOptions')}</summary><div className="ns-grid">{def.fetch.options.map(option => field(`backends.${def.id}.fetch.options.${option.key}`, { type: option.type === 'boolean' ? 'checkbox' : option.type === 'number' ? 'number' : 'text', choices: option.choices, help: option.help[lang], customLabel: option.label[lang], min: option.min, max: option.max }))}</div></details>}
-                    {fetchMode !== 'anonymous' && credentialControl(def)}
+                    {/* One credential per provider: a keyed fetch uses the same stored secret as the
+                        provider's search mode, so the fetch tab links to that control instead of
+                        asking for a second copy of the same key. */}
+                    {modeLabel !== 'anonymous' && <div className="ns-credential-shared">
+                      <p className="ns-muted">{t('fetchCredentialShared')}</p>
+                      <div className="ns-actions"><button type="button" className="ns-link" onClick={() => focusPath(`backends.${def.id}.mode`)}>{t('openCredential')}</button></div>
+                    </div>}
                     <p className="ns-meta"><span>{t('attemptsToday')} <strong>{snapshot?.counters[def.id]?.attempts ?? 0}</strong></span><span aria-hidden="true">·</span><span>{snapshot?.counters[def.id]?.day ?? t('noData')}</span></p>
                   </div>
                 </details>;

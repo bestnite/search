@@ -145,7 +145,10 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   const wrapper = make('wrapper'); body.details = null; wrapper.parentElement = body;
   const providerGroup = make(fieldId('pageFetch.providerId')); providerGroup.parentElement = body;
   const ruleDetails = make('rule-details'); const rule = make(fieldId('pageFetch.routes.0.rules.0')); rule.parentElement = ruleDetails; rule.details = ruleDetails;
-  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule]]);
+  // A provider card that the user never opened: focusing one of its fields unfolds it, which is the
+  // only thing that may open a card now that selection does not.
+  const cardDetails = make('provider-card-details'); const mode = make(fieldId('backends.exa.fetch.mode')); mode.parentElement = cardDetails; mode.details = cardDetails;
+  const nodes = new Map([[providerGroup.id, providerGroup], [rule.id, rule], [mode.id, mode]]);
   const doc = { getElementById: (id: string) => nodes.get(id) || null };
   const provider = focusRenderedControl(doc, 'pageFetch.providerId');
   assert.equal(provider, providerGroup, 'the provider radio group is addressable');
@@ -154,6 +157,9 @@ test('the focus resolver walks to the closest mounted control and unfolds its de
   const deepRule = focusRenderedControl(doc, 'pageFetch.routes.0.rules.0.conditions.2.value');
   assert.equal(deepRule, rule, 'a deep condition path falls back to the rule container');
   assert.equal(ruleDetails.open, true, 'the closed rules details is unfolded');
+  const modeControl = focusRenderedControl(doc, 'backends.exa.fetch.mode');
+  assert.equal(modeControl, mode, 'a field inside a collapsed provider card is addressable');
+  assert.equal(cardDetails.open, true, 'focusing into a collapsed provider card unfolds it');
   assert.equal(focusRenderedControl(doc, 'pageFetch.routes.9.enabled'), undefined, 'an unmounted target is reported instead of throwing');
 });
 
@@ -496,7 +502,11 @@ test('the settings client keeps all provider cards and a separate select choice'
   assert.match(client, /id=\{fieldId\('pageFetch\.providerId'\)\}/, 'the fetch provider group is a focus target');
   assert.match(client, /ns-provider-summary/, 'the selected provider has a summary');
   assert.doesNotMatch(client, /id="ns-fetch-provider"/, 'the old dropdown editor is gone');
-  assert.equal((client.match(/credentialControl\(def\)/g) || []).length >= 2, true, 'search and fetch cards share the credential control');
+  // One credential per provider: the input lives on the search card, and the fetch card links to it
+  // instead of asking for a second copy of the same key.
+  assert.equal((client.match(/credentialControl\(def\)/g) || []).length, 1, 'the credential input exists once per provider');
+  assert.match(client, /fetchCredentialShared/, 'the fetch card explains the shared credential');
+  assert.match(client, /t\('openCredential'\)/, 'the fetch card links to that one credential control');
   assert.match(client, /sec-browser-dependents/);
   assert.match(client, /pageFetch\.browser\.context/, 'fetch-only browser options stay on the fetch tab');
 });

@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defaultConfig, parseConfig, validateConfig } from '../src/config.js';
+import { backendCredentialRef, defaultConfig, parseConfig, validateConfig } from '../src/config.js';
 import { createPageFetchEngine } from '../src/fetch/engine.js';
 import { utf8ByteLength } from '../src/fetch/bytes.js';
 import { callProviderTool, fetchFromProvider, type ProviderRouteRequest } from '../src/fetch/provider.js';
@@ -898,7 +898,8 @@ test('invalid new values fail validation instead of being reset', () => {
     // The retired delegated-fetching switch is not a field any more: a hand-edited file carrying it is
     // rejected, while `parseConfig()` drops it from an older save (see the migration test below).
     ['pageFetch.allowDelegatedFetching', config => { config.pageFetch.allowDelegatedFetching = true; }],
-    ['backends.exa.fetch.mode', config => { config.backends.exa.fetch.mode = 'key'; }],
+    // 'oauth' is a search access mode Exa never declared for fetching, so it is still refused.
+    ['backends.exa.fetch.mode', config => { config.backends.exa.fetch.mode = 'oauth'; }],
     ['backends.exa.fetch.options.unknown', config => { config.backends.exa.fetch.options.unknown = 1; }],
     ['pageFetch.overallTimeoutMs', config => { config.pageFetch.overallTimeoutMs = 10; }],
   ];
@@ -1263,6 +1264,7 @@ const providerRequest = (providerId: string, tool: string, fetcher: typeof fetch
   providerId,
   url: 'https://example.com/page',
   format: 'markdown',
+  transport: 'mcp',
   endpoint: 'https://fixture.local/mcp',
   tool,
   options: providerId === 'parallel' ? { full_content: true } : { maxCharacters: 50_000 },
@@ -1371,6 +1373,259 @@ test('the shared transport byte guard becomes a fatal limit on the fetch path, n
   assert.equal(result.ok, false);
   assert.equal(result.attempts[0]!.outcome, 'limit');
   assert.equal(result.attempts.length, 1, 'a limit never falls back');
+});
+
+// --- keyed REST fetch modes -------------------------------------------------------------------
+
+/** A REST fetch request for one provider, as the engine builds it for a keyed access mode. */
+const restRequest = (
+  providerId: 'exa' | 'parallel',
+  fetcher: typeof fetch,
+  overrides: Partial<ProviderRouteRequest> = {},
+): ProviderRouteRequest => ({
+  providerId,
+  url: 'https://example.com/page',
+  format: 'markdown',
+  transport: 'rest',
+  endpoint: providerId === 'exa' ? 'https://api.exa.ai/contents' : 'https://api.parallel.ai/v1/extract',
+  tool: providerId === 'exa' ? 'web_fetch_exa' : 'web_fetch',
+  options: providerId === 'exa' ? { maxCharacters: 50_000 } : { full_content: true },
+  routeTimeoutMs: 5_000,
+  signal: new AbortController().signal,
+  maxChars: 100_000,
+  credential: 'stored-provider-key',
+  fetcher,
+  ...overrides,
+});
+
+/** A page-fetch config with one keyed provider route and no other route. */
+function keyedFetchConfig(providerId: 'exa' | 'parallel', change: (config: SearchConfig) => void = () => undefined): SearchConfig {
+  return pageConfig((_page, config) => {
+    config.pageFetch.providerId = providerId;
+    config.pageFetch.routes = [routeOf(config.pageFetch, 'provider')];
+    routeOf(config.pageFetch, 'provider').enabled = true;
+    // The mode switch resets the endpoint to the mode's own declared fetch endpoint; an empty saved
+    // endpoint means "use that declared one".
+    config.backends[providerId]!.fetch.mode = 'key';
+    config.backends[providerId]!.fetch.endpoint = '';
+    change(config);
+  });
+}
+
+const exaContentsPayload = (native: string) => ({
+  requestId: 'req_1',
+  results: [{ url: 'https://example.com/final', title: 'Example Page', text: native }],
+  statuses: [{ id: 'https://example.com/page', status: 'success', source: 'crawled' }],
+});
+
+const parallelExtractPayload = (native: string) => ({
+  extract_id: 'extract_1',
+  results: [{ url: 'https://example.com/final', title: 'Example Page', full_content: native, excerpts: ['an excerpt'] }],
+  errors: [],
+  session_id: 'session_1',
+});
+
+test('the keyed Exa mode posts the documented Contents request and takes its Markdown as native', async () => {
+  const native = '# Title\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```js\nconst x = 1;\n```';
+  const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload(native)));
+  const result = await fetchFromProvider(restRequest('exa', fetcher), callProviderTool);
+
+  assert.equal(result.outcome, 'ok');
+  assert.equal(result.markdown, native, 'results[0].text is returned verbatim, never reconverted');
+  assert.equal(result.representation, 'provider-markdown');
+  assert.equal(result.title, 'Example Page', 'results[0].title is captured when present');
+  assert.equal(result.finalUrl, 'https://example.com/final');
+  assert.equal(result.apiStatus, 200);
+
+  const call = calls[0]!;
+  assert.equal(call.url, 'https://api.exa.ai/contents');
+  assert.equal(call.init.method, 'POST');
+  const headers = call.init.headers as Record<string, string>;
+  assert.equal(headers['x-api-key'], 'stored-provider-key', 'the stored credential is the x-api-key header');
+  assert.equal(headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(String(call.init.body)), { urls: ['https://example.com/page'], text: { maxCharacters: 50_000 } });
+  assert.equal(calls.length, 1, 'one request, no retry and no second call');
+});
+
+test('the keyed Parallel mode posts the documented Extract request and takes its Markdown as native', async () => {
+  const native = '# Title\n\nbody from extract';
+  const { fetcher, calls } = fakeFetch(() => Response.json(parallelExtractPayload(native)));
+  const result = await fetchFromProvider(restRequest('parallel', fetcher), callProviderTool);
+
+  assert.equal(result.outcome, 'ok');
+  assert.equal(result.markdown, native);
+  assert.equal(result.title, 'Example Page');
+  assert.equal(result.apiStatus, 200);
+
+  const call = calls[0]!;
+  assert.equal(call.url, 'https://api.parallel.ai/v1/extract', 'the GA Extract path, not the legacy v1beta one');
+  assert.equal(call.init.method, 'POST');
+  assert.equal((call.init.headers as Record<string,string>)['x-api-key'], 'stored-provider-key');
+  assert.deepEqual(JSON.parse(String(call.init.body)), { urls: ['https://example.com/page'], advanced_settings: { full_content: true } });
+});
+
+test('both keyed modes keep the target error status apart from the provider API status', async () => {
+  const exa = fakeFetch(() => Response.json({
+    results: [],
+    statuses: [{ id: 'https://example.com/page', status: 'error', error: { tag: 'CRAWL_NOT_FOUND', httpStatusCode: 404 } }],
+  }));
+  const exaResult = await fetchFromProvider(restRequest('exa', exa.fetcher), callProviderTool);
+  assert.equal(exaResult.outcome, 'http-error');
+  assert.equal(exaResult.statusCode, 404, 'the target status comes from statuses[0].error.httpStatusCode');
+  assert.equal(exaResult.apiStatus, 200, 'the provider API itself answered 200 and stays separate');
+  assert.ok(exaResult.notes.some(note => /CRAWL_NOT_FOUND/.test(note)), 'the machine code is kept as a note');
+  assert.doesNotMatch(exaResult.error!.message, /CRAWL_NOT_FOUND/);
+
+  const parallel = fakeFetch(() => Response.json({
+    results: [],
+    errors: [{ url: 'https://example.com/page', error_type: 'http_error', http_status_code: 500, content: 'upstream exploded' }],
+  }));
+  const parallelResult = await fetchFromProvider(restRequest('parallel', parallel.fetcher), callProviderTool);
+  assert.equal(parallelResult.statusCode, 500);
+  assert.equal(parallelResult.apiStatus, 200);
+  assert.doesNotMatch(parallelResult.error!.message, /upstream exploded/, 'the provider error body is not echoed');
+});
+
+test('a keyed fetch API rejection maps 401/402/429 to their own kinds and never echoes the key or body', async () => {
+  const cases: Array<[number, string, string]> = [
+    [401, 'authentication', 'authentication'],
+    [402, 'provider-error', 'provider'],
+    [429, 'provider-error', 'provider'],
+    [500, 'provider-error', 'provider'],
+  ];
+  for (const [status, outcome, kind] of cases) {
+    const { fetcher, calls } = fakeFetch(() => new Response(`{"error":"the key stored-provider-key is wrong at ${status}"}`, { status, headers: { 'content-type': 'application/json' } }));
+    const result = await fetchFromProvider(restRequest('exa', fetcher), callProviderTool);
+    assert.equal(result.outcome, outcome, `HTTP ${status} maps to a ${outcome} outcome`);
+    assert.equal(result.error?.kind, kind, `HTTP ${status} maps to a ${kind} failure kind`);
+    assert.equal(result.apiStatus, status, 'the observed API status is preserved');
+    assert.equal(result.statusCode, undefined, 'an API failure never invents a target status');
+    const surfaced = JSON.stringify({ message: result.error?.message, notes: result.notes });
+    assert.doesNotMatch(surfaced, /stored-provider-key/, 'the API key never reaches a message or a note');
+    assert.doesNotMatch(surfaced, /is wrong at/, 'the provider error body is not echoed');
+    assert.equal(calls.length, 1, 'an API rejection is never retried');
+  }
+});
+
+test('a keyed mode without a stored key fails before any request is built', async () => {
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# never')));
+    const result = await fetchFromProvider(restRequest(providerId, fetcher, { credential: undefined }), callProviderTool);
+    assert.equal(result.outcome, 'authentication');
+    assert.equal(result.error?.kind, 'configuration', 'a missing key is a configuration failure, not a provider reply');
+    assert.equal(calls.length, 0, `${providerId} sends nothing without a key`);
+  }
+});
+
+test('an oversized keyed response is a fatal limit, not a partial page', async () => {
+  const huge = Response.json(exaContentsPayload(`# Page\n\n${'x'.repeat(80_000)}`));
+  const { fetcher } = fakeFetch(() => huge);
+  const result = await fetchFromProvider(restRequest('exa', fetcher, { maxChars: 256 }), callProviderTool);
+  assert.equal(result.outcome, 'limit');
+  assert.equal(result.fatal, true);
+  assert.equal(result.markdown, undefined);
+});
+
+test('a keyed response that is not the documented JSON document is a sanitized protocol failure', async () => {
+  const { fetcher } = fakeFetch(() => new Response('sorry, not json', { status: 200, headers: { 'content-type': 'text/plain' } }));
+  const result = await fetchFromProvider(restRequest('exa', fetcher), callProviderTool);
+  assert.equal(result.outcome, 'protocol');
+  assert.doesNotMatch(result.error!.message, /sorry, not json/);
+});
+
+test('both keyed modes reuse the provider search credential and the declared REST transport', async () => {
+  const native = '# Keyed\n\nnative markdown';
+  const payloads = { exa: exaContentsPayload(native), parallel: parallelExtractPayload(native) } as const;
+  const endpoints = { exa: 'https://api.exa.ai/contents', parallel: 'https://api.parallel.ai/v1/extract' } as const;
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(() => Response.json(payloads[providerId]));
+    const refs: string[] = [];
+    const engine = createPageFetchEngine(keyedFetchConfig(providerId), {
+      resolver: publicResolver,
+      resolveCredential: async ref => { refs.push(ref); return 'shared-search-key'; },
+      providerFetcher: fetcher,
+    });
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+    assert.equal(result.ok, true);
+    assert.equal(result.content, native, `${providerId}: native provider Markdown is the page, not a conversion of it`);
+    assert.equal(result.representation, 'provider-markdown');
+    assert.equal(result.contentProvider, providerId);
+    assert.equal(result.attempts[0]!.apiStatus, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, endpoints[providerId], `${providerId}: the keyed mode posts to its declared REST endpoint`);
+    assert.equal((calls[0]!.init.headers as Record<string,string>)['x-api-key'], 'shared-search-key');
+    assert.deepEqual(refs, [backendCredentialRef(providerId)], `${providerId}: one fixed credential reference is shared with search`);
+  }
+});
+
+test('the engine refuses a keyed fetch with no stored key before any request', async () => {
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# never')));
+    const engine = createPageFetchEngine(keyedFetchConfig(providerId), {
+      resolver: publicResolver,
+      resolveCredential: async () => undefined,
+      providerFetcher: fetcher,
+    });
+    await assert.rejects(
+      () => engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' }),
+      (error: unknown) => error instanceof PageFetchError && error.kind === 'configuration',
+      `${providerId} key mode without a stored key is a configuration failure`,
+    );
+    assert.equal(calls.length, 0, 'no request may be sent to learn what the configuration already says');
+  }
+});
+
+test('a keyed mode still preflights the format: HTML is skipped without a request', async () => {
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# never')));
+    const engine = createPageFetchEngine(keyedFetchConfig(providerId), {
+      resolver: publicResolver,
+      resolveCredential: async () => 'shared-search-key',
+      providerFetcher: fetcher,
+    });
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'html' });
+    assert.equal(result.stopReason, 'exhausted');
+    assert.equal(result.attempts[0]!.outcome, 'unsupported-format');
+    assert.equal(calls.length, 0, `${providerId} sends nothing for a format it cannot serve`);
+  }
+});
+
+test('a key that is missing only for a route this call skips does not fail an HTML fetch', async () => {
+  const { fetcher } = fakeFetch(() => htmlResponse('<html><body><p>http served this</p></body></html>'));
+  for (const providerId of ['exa', 'parallel'] as const) {
+    // The provider route comes first and the HTTP route still serves the page after the skip.
+    const config = pageConfig((page, config) => {
+      page.providerId = providerId;
+      page.routes = [routeOf(page, 'provider'), routeOf(page, 'http')];
+      for (const route of page.routes) route.enabled = true;
+      config.backends[providerId]!.fetch.mode = 'key';
+      config.backends[providerId]!.fetch.endpoint = '';
+    });
+    const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => undefined, fetcher });
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'html' });
+    assert.equal(result.ok, true, `${providerId}: a missing key does not fail a format the provider cannot serve`);
+    assert.equal(result.contentRoute, 'http');
+    assert.equal(result.attempts[0]!.outcome, 'unsupported-format', 'the provider route is skipped, not failed');
+  }
+});
+
+test('the anonymous mode keeps the MCP transport: no REST request is made', async () => {
+  const provider = fakeProvider([exaMarkdown('# MCP\n\nbody')]);
+  const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# REST must not be used')));
+  const config = pageConfig((page, config) => {
+    page.providerId = 'exa';
+    page.routes = [routeOf(page, 'provider')];
+    routeOf(page, 'provider').enabled = true;
+    config.backends.exa!.fetch.mode = 'anonymous';
+  });
+  const engine = createPageFetchEngine(config, { resolver: publicResolver, providerCall: provider.call, providerFetcher: fetcher });
+  const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.equal(result.ok, true);
+  assert.equal(result.content, '# MCP\n\nbody');
+  assert.equal(provider.calls.length, 1);
+  assert.equal((provider.calls[0] as { tool?: string }).tool, 'web_fetch_exa', 'the anonymous mode still calls its MCP tool');
+  assert.equal((provider.calls[0] as { endpoint?: string }).endpoint, 'https://mcp.exa.ai/mcp');
+  assert.equal(calls.length, 0, 'the REST path is never taken for an MCP mode');
 });
 
 test('the search path keeps its contract: a tool-level error is still a protocol failure', async () => {

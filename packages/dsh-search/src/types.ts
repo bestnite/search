@@ -18,7 +18,7 @@ export interface FetchProviderInfo {
   id: string; title: string;
   /** Formats this provider can satisfy for a caller. */
   serves: string[];
-  /** Access modes in which its fetch operation was verified. */
+  /** Access modes its fetch operation declares; a keyed mode may be documented-only, not live. */
   modes: string[];
   options: OptionField[];
   /** Configured fetch endpoint, which is deliberately separate from the search endpoint. */

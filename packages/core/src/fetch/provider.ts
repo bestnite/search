@@ -2,33 +2,40 @@ import { callMcp } from '../mcp.js';
 import { utf8ByteLength } from './bytes.js';
 import type { TransportOptions } from '../transport.js';
 import { SearchError } from '../transport.js';
-import type { FetchFormat } from './types.js';
+import type { FetchFormat, FetchTransport } from './types.js';
 import { routeFailure, routeOk, type RouteResult } from './acquisition.js';
 import { DEFAULT_MAX_OUTPUT_CHARS } from './limits.js';
 import { delegatedNote } from './notes.js';
+import { postProviderJson } from './rest.js';
 
 /** Byte allowance for the JSON-RPC envelope around a page representation. */
 export const PROVIDER_PROTOCOL_OVERHEAD_BYTES = 64 * 1024;
 
 /**
- * The provider route: one fetch-capable provider, one MCP tool, one request.
+ * The provider route: one fetch-capable provider, one request, over the transport its access mode
+ * declares.
  *
  * Only the target URL leaves this process. No cookies, no session state and no page HTML are
  * forwarded, and the provider endpoint is trusted operator configuration rather than a caller input.
  * The target document status and the provider API status are kept apart: a provider that answers 200
  * while the target page was 404 is not a successful fetch, and an unknown target status is never
  * invented as 200.
+ *
+ * The transport is explicit, per access mode: `mcp` is one JSON-RPC tool call, `rest` is the
+ * provider's documented HTTP operation. The MCP path never guesses and never becomes generic.
  */
 export interface ProviderRouteRequest {
   providerId: string;
   url: string;
   format: FetchFormat;
+  /** Transport the saved access mode declares; the adapter table declares one per mode. */
+  transport: FetchTransport;
   endpoint: string;
   tool: string;
   options: Record<string, string | number | boolean>;
   routeTimeoutMs: number;
   signal: AbortSignal;
-  /** Key for providers whose access mode uses one; the anonymous endpoints take none. */
+  /** Key for modes that use one; the anonymous endpoints take none and are refused one anyway. */
   credential?: string;
   /** Acquisition bound in UTF-8 bytes for the returned representation; exceeding it is fatal. */
   maxChars: number;
@@ -137,80 +144,189 @@ const providerCode = (text: string | undefined): string | undefined => {
 
 // --- adapters ---------------------------------------------------------------------------------
 
-interface AdapterShape {
+/** An adapter that speaks the provider's MCP tool. */
+interface McpAdapterShape {
   arguments: (request: ProviderRouteRequest) => Record<string, unknown>;
   interpret: (result: Record<string, unknown>, request: ProviderRouteRequest, apiStatus: number | undefined, notes: string[]) => RouteResult;
 }
 
-const adapters: Record<string, AdapterShape> = {
-  // Exa's keyless MCP: web_fetch_exa returns clean Markdown per URL and no target status or title.
+/** An adapter that speaks the provider's documented REST operation. */
+interface RestAdapterShape {
+  /** Headers and JSON body for one target URL. The credential is read from the request, never logged. */
+  request: (request: ProviderRouteRequest) => { headers: Record<string, string>; body: Record<string, unknown> };
+  interpret: (payload: Record<string, unknown>, request: ProviderRouteRequest, apiStatus: number | undefined, notes: string[]) => RouteResult;
+}
+
+/** One provider's adapters by transport. A mode with no adapter is refused, never rerouted. */
+interface ProviderAdapters {
+  mcp?: McpAdapterShape;
+  rest?: RestAdapterShape;
+}
+
+const records = (value: unknown): Array<Record<string, unknown>> =>
+  Array.isArray(value) ? value.map(record).filter((item): item is Record<string, unknown> => !!item) : [];
+
+/** A provider tag such as CRAWL_NOT_FOUND is safe to name; the provider's body is not echoed. */
+const providerTag = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(value) && /[A-Za-z]/.test(value) ? value : undefined;
+
+/** A target HTTP status reported by a provider, or undefined when it reported none. */
+const targetStatus = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599 ? value : undefined;
+
+/** A JSON document carried as text, for the transports that mirror their payload that way. */
+const jsonDocument = (text: string | undefined): Record<string, unknown> | undefined => {
+  if (!text) return undefined;
+  try {
+    return record(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The Parallel Extract document: `{results: [...], errors: [...]}`.
+ *
+ * Both transports return it — the keyless MCP tool as `structuredContent`, the keyed REST operation
+ * as the response body — so the interpretation lives in one place. `results[0].full_content` is
+ * native Markdown; `errors[0].http_status_code` is the target's status while the API itself answered
+ * 200, and the two are never folded together.
+ */
+const interpretParallelDocument = (
+  document: Record<string, unknown>,
+  request: ProviderRouteRequest,
+  apiStatus: number | undefined,
+  notes: string[],
+): RouteResult => {
+  const results = records(document.results);
+  const errors = records(document.errors);
+  if (!results.length) {
+    const first = errors[0];
+    const status = targetStatus(first?.http_status_code);
+    const errorType = typeof first?.error_type === 'string' ? first.error_type.slice(0, 40) : undefined;
+    if (status !== undefined) {
+      return routeFailure(
+        status === 404 || status === 410 ? 'http-error' : 'provider-error',
+        { kind: status >= 400 ? 'http' : 'provider', message: `The target answered HTTP ${status} according to the provider.`, status },
+        { statusCode: status, apiStatus, notes },
+      );
+    }
+    notes.push(errorType ? `The provider reported ${errorType}.` : 'The provider returned no page and no target status.');
+    return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
+  }
+  const page = results[0]!;
+  const markdown = typeof page.full_content === 'string' && page.full_content !== ''
+    ? page.full_content
+    : (Array.isArray(page.excerpts) ? page.excerpts.filter((item): item is string => typeof item === 'string').join('\n\n') : '');
+  if (!markdown) {
+    return routeFailure('unsupported-content', { kind: 'unsupported-content', message: 'The provider returned no page content for this URL.' }, { apiStatus, notes });
+  }
+  const title = typeof page.title === 'string' && page.title.trim() !== '' ? page.title.trim() : undefined;
+  const finalUrl = typeof page.url === 'string' && page.url !== '' ? page.url : request.url;
+  return routeOk({ representation: 'provider-markdown', markdown, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
+};
+
+const adapters: Record<string, ProviderAdapters> = {
+  // Exa fetches in two documented ways. The keyless MCP tool returns clean Markdown per URL and no
+  // target status or title; the keyed REST operation returns Markdown, a title and a per-URL status.
   exa: {
-    arguments: request => {
-      const cap = numberOrDefault(request.options.maxCharacters, DEFAULT_MAX_OUTPUT_CHARS);
-      return { urls: [request.url], maxCharacters: cap };
-    },
-    interpret: (result, request, apiStatus, notes) => {
-      const body = contentText(result);
-      if (result.isError === true) {
-        const code = providerCode(body);
-        notes.push(code ? `The provider reported ${code}.` : 'The provider could not fetch this URL.');
-        return routeFailure(
-          'provider-error',
-          { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' },
-          { apiStatus, notes },
-        );
-      }
-      if (!body) {
-        return routeFailure('protocol', { kind: 'protocol', message: 'The provider returned no text for this URL.' }, { apiStatus, notes });
-      }
-      return routeOk({ representation: 'provider-markdown', markdown: body, finalUrl: request.url, apiStatus, notes });
-    },
-  },
-  // Parallel's keyless MCP: web_fetch returns Markdown per URL, the page title, and target status on failure.
-  parallel: {
-    arguments: request => {
-      const fullContent = request.options.full_content !== false;
-      return { urls: [request.url], full_content: fullContent };
-    },
-    interpret: (result, request, apiStatus, notes) => {
-      const structured = record(result.structuredContent) ?? (() => {
-        const text = contentText(result);
-        if (!text) return undefined;
-        try {
-          return record(JSON.parse(text));
-        } catch {
-          return undefined;
-        }
-      })();
-      if (!structured) {
-        return routeFailure('protocol', { kind: 'protocol', message: 'The provider response was not the documented JSON document.' }, { apiStatus, notes });
-      }
-      const results = Array.isArray(structured.results) ? structured.results.map(record).filter((item): item is Record<string, unknown> => !!item) : [];
-      const errors = Array.isArray(structured.errors) ? structured.errors.map(record).filter((item): item is Record<string, unknown> => !!item) : [];
-      if (!results.length) {
-        const first = errors[0];
-        const status = typeof first?.http_status_code === 'number' ? first.http_status_code : undefined;
-        const errorType = typeof first?.error_type === 'string' ? first.error_type.slice(0, 40) : undefined;
-        if (status !== undefined) {
+    mcp: {
+      arguments: request => {
+        const cap = numberOrDefault(request.options.maxCharacters, DEFAULT_MAX_OUTPUT_CHARS);
+        return { urls: [request.url], maxCharacters: cap };
+      },
+      interpret: (result, request, apiStatus, notes) => {
+        const body = contentText(result);
+        if (result.isError === true) {
+          const code = providerCode(body);
+          notes.push(code ? `The provider reported ${code}.` : 'The provider could not fetch this URL.');
           return routeFailure(
-            status === 404 || status === 410 ? 'http-error' : 'provider-error',
-            { kind: status >= 400 ? 'http' : 'provider', message: `The target answered HTTP ${status} according to the provider.`, status },
-            { statusCode: status, apiStatus, notes },
+            'provider-error',
+            { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' },
+            { apiStatus, notes },
           );
         }
-        notes.push(errorType ? `The provider reported ${errorType}.` : 'The provider returned no page and no target status.');
-        return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
-      }
-      const page = results[0]!;
-      const markdown = typeof page.full_content === 'string' && page.full_content !== ''
-        ? page.full_content
-        : (Array.isArray(page.excerpts) ? page.excerpts.filter((item): item is string => typeof item === 'string').join('\n\n') : '');
-      if (!markdown) {
-        return routeFailure('unsupported-content', { kind: 'unsupported-content', message: 'The provider returned no page content for this URL.' }, { apiStatus, notes });
-      }
-      const title = typeof page.title === 'string' && page.title.trim() !== '' ? page.title.trim() : undefined;
-      const finalUrl = typeof page.url === 'string' && page.url !== '' ? page.url : request.url;
-      return routeOk({ representation: 'provider-markdown', markdown, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
+        if (!body) {
+          return routeFailure('protocol', { kind: 'protocol', message: 'The provider returned no text for this URL.' }, { apiStatus, notes });
+        }
+        return routeOk({ representation: 'provider-markdown', markdown: body, finalUrl: request.url, apiStatus, notes });
+      },
+    },
+    rest: {
+      // POST https://api.exa.ai/contents with x-api-key. `includeHtmlTags` is deliberately not sent:
+      // it returns lightweight tags inside the Markdown text, not a page HTML document.
+      request: request => {
+        const cap = numberOrDefault(request.options.maxCharacters, DEFAULT_MAX_OUTPUT_CHARS);
+        return {
+          headers: { 'x-api-key': request.credential ?? '' },
+          body: { urls: [request.url], text: { maxCharacters: cap } },
+        };
+      },
+      interpret: (payload, request, apiStatus, notes) => {
+        const results = records(payload.results);
+        const statuses = records(payload.statuses);
+        const status = statuses[0];
+        if (status?.status === 'error') {
+          const error = record(status.error);
+          const tag = providerTag(error?.tag);
+          const target = targetStatus(error?.httpStatusCode);
+          notes.push(tag ? `The provider reported ${tag}.` : 'The provider could not fetch this URL.');
+          if (target !== undefined) {
+            // The target's status, reported by the provider: the API itself answered 200.
+            return routeFailure(
+              target >= 400 ? 'http-error' : 'provider-error',
+              {
+                kind: target >= 400 ? 'http' : 'provider',
+                message: `The target answered HTTP ${target} according to the provider.`,
+                status: target,
+              },
+              { statusCode: target, apiStatus, notes },
+            );
+          }
+          return routeFailure('provider-error', { kind: 'provider', message: 'The provider could not fetch this URL; it reported no target status.' }, { apiStatus, notes });
+        }
+        const page = results[0];
+        if (!page) {
+          return routeFailure('protocol', { kind: 'protocol', message: 'The provider returned no result for this URL.' }, { apiStatus, notes });
+        }
+        // `results[0].text` is native Markdown; it is never reconverted.
+        const markdown = typeof page.text === 'string' ? page.text : '';
+        if (!markdown) {
+          return routeFailure('unsupported-content', { kind: 'unsupported-content', message: 'The provider returned no page content for this URL.' }, { apiStatus, notes });
+        }
+        const title = typeof page.title === 'string' && page.title.trim() !== '' ? page.title.trim() : undefined;
+        const finalUrl = typeof page.url === 'string' && page.url !== '' ? page.url : request.url;
+        return routeOk({ representation: 'provider-markdown', markdown, finalUrl, apiStatus, ...(title ? { title } : {}), notes });
+      },
+    },
+  },
+  // Parallel fetches over its MCP tool keylessly and over its documented REST Extract operation with
+  // a key. Both return the same document, so only the exchange differs.
+  parallel: {
+    mcp: {
+      arguments: request => {
+        const fullContent = request.options.full_content !== false;
+        return { urls: [request.url], full_content: fullContent };
+      },
+      interpret: (result, request, apiStatus, notes) => {
+        const document = record(result.structuredContent) ?? jsonDocument(contentText(result));
+        if (!document) {
+          return routeFailure('protocol', { kind: 'protocol', message: 'The provider response was not the documented JSON document.' }, { apiStatus, notes });
+        }
+        return interpretParallelDocument(document, request, apiStatus, notes);
+      },
+    },
+    rest: {
+      // POST https://api.parallel.ai/v1/extract with x-api-key. On the GA endpoint `full_content`
+      // lives inside `advanced_settings`; the v1beta top-level form answers 422.
+      request: request => {
+        const fullContent = request.options.full_content !== false;
+        return {
+          headers: { 'x-api-key': request.credential ?? '' },
+          body: { urls: [request.url], advanced_settings: { full_content: fullContent } },
+        };
+      },
+      interpret: (payload, request, apiStatus, notes) => interpretParallelDocument(payload, request, apiStatus, notes),
     },
   },
 };
@@ -232,7 +348,13 @@ const fromSearchError = (error: SearchError, apiStatus: number | undefined, note
     return routeFailure('authentication', { kind: 'authentication', message: 'The provider rejected the credential for this operation.', ...(status === undefined ? {} : { status }) }, { apiStatus: status, notes });
   }
   if (origin.kind === 'http' || origin.kind === 'rate-limit' || origin.kind === 'quota') {
-    return routeFailure('provider-error', { kind: 'provider', message: `The provider API answered HTTP ${status ?? 'an error'} for this fetch.`, ...(status === undefined ? {} : { status }) }, { apiStatus: status, notes });
+    // The transport authors these messages itself and they never carry the provider's body, so the
+    // specific one ("balance exhausted" vs "rate-limited") is kept instead of a generic status line.
+    return routeFailure(
+      'provider-error',
+      { kind: 'provider', message: origin.message || `The provider API answered HTTP ${status ?? 'an error'} for this fetch.`, ...(status === undefined ? {} : { status }) },
+      { apiStatus: status, notes },
+    );
   }
   if (origin.kind === 'network') {
     return routeFailure('network', { kind: 'network', message: 'The provider could not be reached.' }, { apiStatus: status, notes });
@@ -241,14 +363,51 @@ const fromSearchError = (error: SearchError, apiStatus: number | undefined, note
 };
 
 export const fetchFromProvider: ProviderFetcher = async (request, call) => {
-  const adapter = adapters[request.providerId];
+  const providerAdapters = adapters[request.providerId];
   // The provider resolves the target on its own side, so the local public-only policy cannot prove
   // its destination. Enabling the route is the decision; every result still says what was not proven.
   const notes: string[] = [delegatedNote('provider')];
-  if (!adapter) {
+  if (!providerAdapters) {
     return routeFailure('unsupported-format', { kind: 'protocol', message: `No fetch adapter exists for ${request.providerId}.` }, { notes });
   }
-  const args = adapter.arguments(request);
+  if (request.transport === 'rest') {
+    const rest = providerAdapters.rest;
+    if (!rest) {
+      return routeFailure('protocol', { kind: 'protocol', message: `"${request.providerId}" has no REST fetch operation.` }, { notes });
+    }
+    // A keyed mode is refused before the request is built: an unauthenticated call would spend a wire
+    // round-trip to be told what the configuration already says.
+    if (!request.credential) {
+      return routeFailure(
+        'authentication',
+        { kind: 'configuration', message: `The ${request.providerId} fetch mode needs a stored API key, and none is configured.` },
+        { notes },
+      );
+    }
+    const { headers, body } = rest.request(request);
+    return postProviderJson({
+      endpoint: request.endpoint,
+      headers,
+      body,
+      timeoutMs: request.routeTimeoutMs,
+      signal: request.signal,
+      // A REST answer wraps the representation in a JSON document, so it gets the same explicit
+      // envelope allowance the MCP wire bound uses.
+      maxResponseBytes: request.maxChars + PROVIDER_PROTOCOL_OVERHEAD_BYTES,
+      ...(request.fetcher ? { fetcher: request.fetcher } : {}),
+    }).then(
+      ({ payload, apiStatus }) => boundResult(rest.interpret(payload, request, apiStatus, notes), request),
+      (error: unknown) => {
+        if (error instanceof SearchError) return fromSearchError(error, undefined, notes);
+        return routeFailure('network', { kind: 'network', message: 'The provider call failed before a response arrived.' }, { notes });
+      },
+    );
+  }
+  const mcp = providerAdapters.mcp;
+  if (!mcp) {
+    return routeFailure('protocol', { kind: 'protocol', message: `"${request.providerId}" has no MCP fetch tool.` }, { notes });
+  }
+  const args = mcp.arguments(request);
   return call({
     endpoint: request.endpoint,
     tool: request.tool,
@@ -259,7 +418,7 @@ export const fetchFromProvider: ProviderFetcher = async (request, call) => {
     maxChars: request.maxChars,
     ...(request.fetcher ? { fetcher: request.fetcher } : {}),
   }).then(
-    ({ result, apiStatus }) => boundResult(adapter.interpret(result, request, apiStatus, notes), request),
+    ({ result, apiStatus }) => boundResult(mcp.interpret(result, request, apiStatus, notes), request),
     (error: unknown) => {
       if (error instanceof SearchError) return fromSearchError(error, undefined, notes);
       return routeFailure('network', { kind: 'network', message: 'The provider call failed before a response arrived.' }, { notes });
@@ -280,7 +439,7 @@ function boundResult(result: RouteResult, request: ProviderRouteRequest): RouteR
   );
 }
 
-/** Build the adapter request for one provider definition; used by the settings test path too. */
+/** Build the MCP tool arguments for one provider definition; a REST mode has no tool arguments. */
 export function providerArguments(providerId: string, request: ProviderRouteRequest): Record<string, unknown> | undefined {
-  return adapters[providerId]?.arguments(request);
+  return adapters[providerId]?.mcp?.arguments(request);
 }

@@ -22,14 +22,49 @@ export type FetchMatchOperator = (typeof FETCH_MATCH_OPERATORS)[number];
 export type FetchBrowserContextMode = (typeof FETCH_BROWSER_CONTEXT_MODES)[number];
 
 /**
+ * How one fetch access mode talks to the provider: the shared MCP tool call, or a plain REST POST to
+ * the mode's own endpoint. The transport is declared per mode rather than guessed from the endpoint,
+ * so one provider can offer both without a second provider route.
+ */
+export type FetchTransport = 'mcp' | 'rest';
+
+/**
+ * What is actually known about one fetch access mode.
+ *
+ * `live` was observed from this deployment; `documented` was implemented from the provider's official
+ * contract and no call was made, because that would have needed a paid credential. A documented-only
+ * mode is still selectable, and every surface that shows it has to say which of the two it is.
+ */
+export interface FetchModeEvidence {
+  evidence: 'live' | 'documented';
+  /** Date the contract was observed live, or the date the documentation was read for a documented mode. */
+  verifiedAt: string;
+  /** Where a documented mode's contract was read. */
+  source?: string;
+  notes?: Localized;
+}
+
+/**
  * What one catalog entry can do for a page fetch. This is metadata, not a user toggle: a provider is
  * fetch-capable because its contract says so, and a search-only provider cannot be selected for it.
  */
 export interface FetchOperationDefinition {
-  /** The one MCP tool this adapter calls. There is no scan and no failover between tools. */
+  /** The MCP tool this operation calls. A `rest` mode posts to its endpoint instead. */
   tool: string;
-  /** Access modes in which the operation was verified. Selecting any other mode is a config error. */
+  /** Access modes declared for fetching. Selecting any other mode is a configuration error. */
   modes: AccessMode[];
+  /**
+   * Transport per access mode. An absent entry is the MCP tool call, so a saved mode keeps the
+   * behaviour it had before a REST mode was added.
+   */
+  transport?: Partial<Record<AccessMode, FetchTransport>>;
+  /**
+   * Fetch endpoint per access mode, when it differs from that mode's search endpoint. Set explicitly:
+   * a search URL is never string-rewritten into a fetch endpoint.
+   */
+  endpoints?: Partial<Record<AccessMode, string>>;
+  /** Evidence per access mode. An absent entry was observed live and shares the operation's `verifiedAt`. */
+  evidence?: Partial<Record<AccessMode, FetchModeEvidence>>;
   /** Formats the operation can satisfy for a caller. A Markdown-only provider cannot serve HTML. */
   serves: FetchFormat[];
   /** The representation its response is labelled with. */

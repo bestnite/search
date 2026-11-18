@@ -28,6 +28,7 @@ import {
   type FetchOutcomeKind,
   type FetchRouteKind,
   type FetchStopReason,
+  type FetchTransport,
   type PageFetchInput,
   type PageFetchResult,
 } from './types.js';
@@ -58,6 +59,7 @@ export interface PageFetchDependencies {
 interface ProviderSetup {
   id: string;
   tool: string;
+  transport: FetchTransport;
   endpoint: string;
   mode: string;
   options: Record<string, string | number | boolean>;
@@ -119,6 +121,19 @@ export class PageFetchEngine {
     if (!routes.length) throw new PageFetchError('configuration', 'Every page-fetch route is disabled, so no fetch can run.');
     const provider = routes.some(route => route.kind === 'provider') ? this.providerSetup() : undefined;
     const browserEndpoint = routes.some(route => route.kind === 'browser') ? this.browserEndpoint() : undefined;
+    // A keyed fetch mode that this call would actually use is refused before any route runs. The mode
+    // is a saved configuration choice and the store already reports the missing key as a readiness
+    // problem, so this is a configuration failure: it must not cost a request to be told what the
+    // configuration says. A format the provider cannot serve never reaches it, so that skip is not a
+    // reason to fail the call (see the format preflight in the route loop). The same fixed credential
+    // reference the provider's search mode uses is resolved exactly once.
+    let providerCredential: string | undefined;
+    if (provider && provider.mode !== 'anonymous' && providerServes(provider.id, format)) {
+      providerCredential = await this.resolve(backendCredentialRef(provider.id));
+      if (!providerCredential) {
+        throw new PageFetchError('configuration', `"${provider.id}" fetches in ${provider.mode} mode, which needs a stored API key; none is configured.`);
+      }
+    }
 
     const maxBodyBytes = clamp(settings.maxBodyBytes, MAX_FETCH_BODY_BYTES, DEFAULT_MAX_BODY_BYTES);
     const maxOutputChars = clamp(settings.maxOutputChars, MAX_FETCH_OUTPUT_CHARS, DEFAULT_MAX_OUTPUT_CHARS);
@@ -197,6 +212,7 @@ export class PageFetchEngine {
           allowPrivateNetworks: settings.allowPrivateNetworks,
           resolver,
           provider,
+          providerCredential,
           browserEndpoint,
           settings,
         });
@@ -343,9 +359,19 @@ export class PageFetchEngine {
     const endpoint = fetchConfig.endpoint || definition.modes.find(mode => mode.mode === fetchConfig.mode)?.fetchEndpoint || '';
     if (!endpoint) throw new PageFetchError('configuration', `"${id}" has no fetch endpoint configured.`);
     if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
-      throw new PageFetchError('configuration', `The fetch endpoint for "${id}" must be an HTTP(S) MCP endpoint.`);
+      throw new PageFetchError('configuration', `The fetch endpoint for "${id}" must be an HTTP(S) endpoint.`);
     }
-    return { id, tool: operation.tool, endpoint, mode: fetchConfig.mode, options: fetchConfig.options, timeoutMs: fetchConfig.timeoutMs };
+    // The access mode names its transport; an MCP tool call stays the default so a saved mode keeps
+    // the behaviour it had before a REST mode existed.
+    return {
+      id,
+      tool: operation.tool,
+      transport: operation.transport?.[fetchConfig.mode] ?? 'mcp',
+      endpoint,
+      mode: fetchConfig.mode,
+      options: fetchConfig.options,
+      timeoutMs: fetchConfig.timeoutMs,
+    };
   }
 
   private async runRoute(
@@ -359,6 +385,8 @@ export class PageFetchEngine {
       allowPrivateNetworks: boolean;
       resolver: AddressResolver;
       provider: ProviderSetup | undefined;
+      /** Resolved once for the run, through the provider's own fixed credential reference. */
+      providerCredential: string | undefined;
       browserEndpoint: string | undefined;
       settings: SearchConfig['pageFetch'];
     },
@@ -396,19 +424,13 @@ export class PageFetchEngine {
       });
     }
     const provider = context.provider!;
-    const credential = provider.mode === 'anonymous' ? undefined : await this.resolve(backendCredentialRef(provider.id));
-    if (provider.mode !== 'anonymous' && !credential) {
-      return {
-        outcome: 'authentication',
-        error: { kind: 'authentication', message: 'The provider credential is missing for the configured access mode.' },
-        notes: [],
-      };
-    }
+    const credential = provider.mode === 'anonymous' ? undefined : context.providerCredential;
     const fetch = this.dependencies.providerCall;
     const request = {
       providerId: provider.id,
       url: target.href,
       format,
+      transport: provider.transport,
       endpoint: provider.endpoint,
       tool: provider.tool,
       options: provider.options,

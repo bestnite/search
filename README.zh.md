@@ -38,7 +38,10 @@ web_extract(url, format)   format 必填：markdown 用来读，html 用来看�
 
 一次只抓一个页面，不做爬取；路由串行执行、不并行；结果会列出每次尝试的目标状态码、服务商 API 状态码、
 命中的规则与脱敏后的错误。默认只允许公网目标，并把连接绑定到已校验的地址；浏览器或服务商在别处解析
-目标地址，所以这类路由必须显式打开「委托抓取」。详见[设计文档](docs/PAGE-FETCH-DESIGN.md)、
+目标地址，所以这类路由必须显式打开「委托抓取」。两家抓取服务商（Exa 与 Parallel）各有无 Key 的 MCP
+模式和有 Key 的 REST 模式：无 Key 模式经过实测，有 Key 模式依据官方 API 文档实现，标注为「仅文档核实」，
+因为本机没有做过付费的有 Key 调用。有 Key 抓取复用该服务商唯一的那份搜索密钥；两家都只返回原生 Markdown，
+请求 HTML 时该路由会被直接跳过、不发请求。详见[设计文档](docs/PAGE-FETCH-DESIGN.md)、
 [服务商证据](docs/PAGE-FETCH-PROVIDERS.md)与[依赖证据](docs/PAGE-FETCH-DEPENDENCIES.md)。
 
 ## 从这里开始

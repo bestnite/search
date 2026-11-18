@@ -207,10 +207,17 @@ address policy cannot prove its destination: enabling such a route is that decis
 switch to keep in step with it, and every result such a route produces carries the trust-boundary note.
 Literal private and local targets are still refused before a route runs.
 
-Fetch adapters are catalog metadata, not user toggles: this release ships Exa (`web_fetch_exa`) and
-Parallel (`web_fetch`), both returning native Markdown. Asking a Markdown-only provider for HTML skips
-it without a request and continues to the next enabled route. See
-[docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md) for the evidence.
+Fetch adapters are catalog metadata, not user toggles: this release ships Exa and Parallel, each with
+a keyless MCP mode (`web_fetch_exa` / `web_fetch`) and a keyed REST mode (`POST /contents`,
+`POST /v1/extract`). The transport is declared per access mode, so the provider route is still one
+route: `mcp` calls the tool, `rest` posts to the mode's documented endpoint. All four modes return
+native Markdown; asking a Markdown-only provider for HTML skips it without a request and continues to
+the next enabled route. The keyless modes were observed live; the keyed modes are implemented from
+the providers' official API references and are recorded as documented-only evidence, since no paid
+keyed call was made. A keyed fetch resolves the same fixed credential reference as the provider's
+search mode, and a missing key is a configuration failure before any request. See
+[docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md) for the evidence and the list of
+what was not verified.
 
 ## Field mapping
 
