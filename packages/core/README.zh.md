@@ -101,6 +101,11 @@ config.backends.xiaohongshu!.mode = 'browser';
 
 会话、代际和回收的内部机制见 [docs/BROWSER-SESSIONS.md](../../docs/BROWSER-SESSIONS.md)。
 
+## 字段映射
+
+每个适配器读哪个响应字段、对着官方文档核实过的结果，以及哪些缺口不算 bug，都记在
+[docs/FIELD-MAPPING.md](docs/FIELD-MAPPING.md)。
+
 ## 许可
 
 MIT。

@@ -207,3 +207,37 @@ test('the configured per-site read cap reaches the browser reader',async()=>{
     assert.deepEqual(seen,[2,3],'both the default and a non-default cap are handed to the browser reader');
   }finally{browserBackends.xiaohongshu=original;}
 });
+
+test('vendor fields follow the documented names, including fallback bodies and numeric dates',async()=>{
+ const opts=(fetchImpl:typeof fetch)=>({signal:new AbortController().signal,retry:config().retry,attemptTimeoutMs:1000,beforeAttempt(){},onAttempt(){},fetch:fetchImpl});
+ const run=async(id:string,body:unknown)=>{
+  const c=config();const b=c.backends[id]!;b.enabled=true;b.mode='key';
+  return runAdapter(id,{query:'q',maxResults:5,config:c,backend:b,key:'secret',signal:new AbortController().signal},opts(mock(()=>Response.json(body))));
+ };
+
+ // open-websearch: the daemon nests its rows under data.results
+ const ow=await run('open-websearch',{status:'ok',data:{query:'q',totalResults:1,results:[{title:'Self',url:'https://example.org/s',description:'daemon text',source:'bing',engine:'bing'}]}});
+ assert.equal(ow.sources.length,1);assert.equal(ow.sources[0]!.snippet,'daemon text');assert.equal(ow.sources[0]!.publishedAt,undefined);
+
+ // baidu: the documented example populates content and omits snippet
+ const baidu=await run('baidu',{references:[{title:'百度',url:'https://example.org/b',content:'正文'}]});
+ assert.equal(baidu.sources[0]!.snippet,'正文');
+
+ // doubao: Summary is the documented body for model input, Snippet is the short fallback
+ const doubao=await run('doubao',{Result:{WebResults:[{Title:'豆包',Url:'https://example.org/d',Snippet:'short',Summary:'longer summary'}]}});
+ assert.equal(doubao.sources[0]!.snippet,'longer summary');
+ const doubaoShort=await run('doubao',{Result:{WebResults:[{Title:'豆包',Url:'https://example.org/d',Snippet:'short'}]}});
+ assert.equal(doubaoShort.sources[0]!.snippet,'short');
+
+ // zhihu: only numeric timestamps exist, and they must survive as ISO dates
+ const zhihu=await run('zhihu-web',{Code:0,Data:{Items:[{Title:'知乎',Url:'https://example.org/z',ContentText:'摘要',EditTime:1700000000}]}});
+ assert.equal(zhihu.sources[0]!.publishedAt,new Date(1700000000*1000).toISOString());
+
+ // anthropic: a result block carries no page text, so no snippet is invented
+ const anthropic=await run('anthropic',{content:[{type:'web_search_tool_result',content:[{type:'web_search_result',title:'Anthropic',url:'https://example.org/a',page_age:'2 days ago'}]}]});
+ assert.equal(anthropic.sources[0]!.snippet,undefined);assert.equal(anthropic.sources[0]!.publishedAt,'2 days ago');
+
+ // serpex and anysearch document no date field, so none is fabricated
+ const serpex=await run('serpex',{results:[{title:'Serpex',url:'https://example.org/x',snippet:'s'}]});
+ assert.equal(serpex.sources[0]!.publishedAt,undefined);
+});

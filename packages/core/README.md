@@ -119,6 +119,11 @@ Direct readers are exported for hosts that want one call without the engine: `se
 
 How sessions, generations and recycling work internally: [docs/BROWSER-SESSIONS.md](../../docs/BROWSER-SESSIONS.md).
 
+## Field mapping
+
+Which response key each adapter reads, verified against the vendor docs, is recorded in
+[docs/FIELD-MAPPING.md](docs/FIELD-MAPPING.md) along with the gaps that are not bugs.
+
 ## License
 
 MIT.
