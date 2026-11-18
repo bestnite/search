@@ -1,0 +1,5 @@
+# Nothing here is part of the image, and a .env must never enter a build context.
+.env
+env.example
+README.md
+.dockerignore
