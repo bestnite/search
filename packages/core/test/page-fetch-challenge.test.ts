@@ -86,6 +86,8 @@ function runInPage(fn: (argument: unknown) => unknown, argument: unknown, docume
 function browserFixture(scenario: Scenario): Fixture {
   const page: PageState = { loads: 0, clicks: 0, closed: false, clickedSelectors: [] };
   let step = 0;
+  // Bumped whenever the fixture replaces the document, the way a real navigation changes timeOrigin.
+  let documentGeneration = 1;
   let current = scenario.steps[0]!.document;
   let status = scenario.steps[0]!.status;
   let contextClosed = false;
@@ -112,6 +114,7 @@ function browserFixture(scenario: Scenario): Fixture {
       if (!scenario.renderDelayMs) {
         current = scenario.afterClick;
         status = scenario.afterClickStatus ?? 200;
+        documentGeneration += 1;
         return;
       }
       // The click landed; the document stays a shell until the application boots.
@@ -120,6 +123,7 @@ function browserFixture(scenario: Scenario): Fixture {
       setTimeout(() => {
         current = ready;
         status = resolvedStatus;
+        documentGeneration += 1;
       }, scenario.renderDelayMs);
     },
   };
@@ -138,6 +142,7 @@ function browserFixture(scenario: Scenario): Fixture {
     waitForFunction: async (): Promise<void> => undefined,
     evaluate: async (fn: (argument: unknown) => unknown, argument: unknown): Promise<unknown> => {
       if (typeof fn === 'function' && String(fn).includes('getEntriesByType')) return status;
+      if (typeof fn === 'function' && String(fn).includes('timeOrigin')) return documentGeneration;
       return runInPage(fn, argument, current);
     },
     close: async (): Promise<void> => {
@@ -541,4 +546,20 @@ test('a document that only carries a generic challenge script is not a Cloudflar
   });
   assert.equal(generic.challenge, false, 'challenge-platform alone is not evidence of Cloudflare');
   assert.deepEqual(generic.markers, []);
+});
+
+test('a challenge that answers the press with a fresh challenge is recognised as a loop and not pressed again', async () => {
+  // Both the demo and the scraping-practice page behave this way: the press reloads straight back into
+  // another challenge. A second press cannot help, so the attempt stops and says what it saw.
+  const fixture = browserFixture({
+    steps: [{ status: 403, document: challengeDocument() }],
+    afterClick: challengeDocument(),
+  });
+  const started = Date.now();
+  const result = await fixture.fetcher(request({ routeTimeoutMs: 20_000 }));
+  const elapsed = Date.now() - started;
+  assert.equal(fixture.page.clicks, 1, 'exactly one press: the reload is the answer, not a reason to press again');
+  assert.equal(result.statusCode, 403, 'the refusal is still what the target answered');
+  assert.ok(result.notes.some(note => /answered the press with a fresh challenge instead of the page/.test(note)));
+  assert.ok(elapsed < 8_000, `the loop is detected instead of waiting out the window (${elapsed}ms)`);
 });

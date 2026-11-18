@@ -173,7 +173,7 @@ interface Judged {
 }
 
 /** How one automatic challenge attempt ended. Only `cleared` earns a retried navigation. */
-type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout'; clicks: number };
+type SolveOutcome = { status: 'cleared' | 'frame-missing' | 'click-failed' | 'timeout' | 'looped'; clicks: number };
 
 /**
  * The one element worth pressing. The Turnstile widget renders a loading state first and only then
@@ -384,6 +384,21 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
        * challenge identification over that same capture.
        */
       /**
+       * A number that changes when the page is replaced by a new navigation and stays the same within
+       * one document. Reading it is how the route tells "the page is still working" from "the page threw
+       * the challenge away and started over".
+       */
+      const documentIdentity = async (page: Page): Promise<number | undefined> => {
+        try {
+          const value = await untilAborted(page.evaluate(() => performance.timeOrigin));
+          return typeof value === 'number' ? value : undefined;
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          return undefined;
+        }
+      };
+
+      /**
        * Wait, within a bounded window, until the document holds text a reader could see. Returns false
        * when the window closed with the page still looking like a shell, so the caller can say so
        * instead of silently returning nothing.
@@ -573,6 +588,10 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
         let frameSeen = false;
         let clicks = 0;
         let nextClickAt = 0;
+        // Identity of the document the press happened in. A challenge that answers a press with a fresh
+        // challenge page reloads itself; pressing again only repeats the cycle, and the loop is
+        // detectable from the fact that the document was replaced while the challenge stayed.
+        let pressedDocument: number | undefined;
         while (Date.now() < deadline) {
           const frame = challengeFrame(activePage);
           if (frame) {
@@ -583,8 +602,12 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
             // a single early click used to be the whole attempt.
             const ready = await waitForChallengeCheckbox(frame, Math.min(CLICK_WAIT_MS, Math.max(500, deadline - Date.now())));
             if (ready && clicks < CHALLENGE_MAX_CLICKS && Date.now() >= nextClickAt) {
+              // Record the document the press happens in, before the press: the reload it may trigger
+              // replaces the document immediately.
+              const beforePress = await documentIdentity(activePage);
               if (await clickChallengeWidget(frame, Math.min(2_000, Math.max(500, deadline - Date.now())))) {
                 clicks += 1;
+                pressedDocument = beforePress;
                 nextClickAt = Date.now() + CHALLENGE_CLICK_INTERVAL_MS;
                 // A pressed widget needs longer than the plain solve window: the platform verifies, sets
                 // its clearance cookie and reloads the page, and a forum behind it boots afterwards.
@@ -596,6 +619,12 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
           if (clicks > 0) {
             const live = await liveChallenge();
             if (live !== 'unknown' && !live.challenge) return { status: 'cleared', clicks };
+            // The page the press happened in was replaced, and the replacement is still a challenge:
+            // this is the self-reloading loop, not a page that is about to render.
+            const now = await documentIdentity(activePage);
+            if (live !== 'unknown' && now !== undefined && pressedDocument !== undefined && now !== pressedDocument) {
+              return { status: 'looped', clicks };
+            }
           }
           await abortableWait(Math.max(0, Math.min(CHALLENGE_POLL_INTERVAL_MS, deadline - Date.now())), request.signal);
         }
@@ -663,7 +692,9 @@ export function createBrowserFetcher(connect: BrowserConnect = defaultBrowserCon
           notes.push('The navigation budget was already spent, so the automatic challenge attempt did not run.');
         } else {
           const solved = await solveChallenge();
-          if (solved.status === 'frame-missing') {
+          if (solved.status === 'looped') {
+            notes.push('The challenge page answered the press with a fresh challenge instead of the page, so the attempt stopped: pressing again only repeats that cycle.');
+          } else if (solved.status === 'frame-missing') {
             notes.push('No frame pointed at challenges.cloudflare.com, so the automatic challenge attempt sent no click; the challenge was not cleared.');
           } else if (solved.status === 'click-failed') {
             notes.push('The challenge widget never became clickable, so the automatic attempt sent no click; the challenge was not cleared.');
