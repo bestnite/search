@@ -1,6 +1,6 @@
 {
   "name": "@nite07/search-core",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Provider-agnostic multi-backend search engine: backend catalog, adapters, transport and honest failure reporting. No DSH dependency.",
   "license": "MIT",
   "author": "nite07",
