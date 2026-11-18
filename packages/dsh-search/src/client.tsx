@@ -8,7 +8,10 @@ import type { BackendOutcome } from '@nite07/search-core';
 import { blockersOf, visible } from './visibility';
 import type { SettingsSnapshot } from './types';
 
-const API = '/api/nite-search';
+// Resolve against document.baseURI instead of hard-coding "/api/nite-search": when the
+// host UI is mounted behind a reverse-proxy sub-path (e.g. /app/deepseek-harness/fngateway/)
+// an absolute path escapes that prefix and hits the outer site, which answers with HTML.
+const API = new URL('api/nite-search', document.baseURI).pathname.replace(/\/+$/, '');
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS] };
@@ -30,6 +33,8 @@ function redact(config: SearchConfig): SearchConfig {
 async function request(path: string, body?: unknown): Promise<any> {
   const response = await fetch(`${API}/${path}`, { credentials: 'same-origin', cache: 'no-store', ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const type = response.headers.get('content-type') ?? '';
+  if (!type.includes('application/json')) throw new Error(`Unexpected response from ${API}/${path} (${type || 'no content-type'})`);
   return response.json();
 }
 
