@@ -142,3 +142,83 @@ test('Reddit and X readers use the same fixed-name environment-first credentials
   assert.deepEqual(seen[0]!.credentials,{clientId:'env-id',clientSecret:'env-secret'});assert.deepEqual(seen[1]!.credentials,{authToken:'env-auth',ct0:'env-csrf'});
  }finally{if(oldX===undefined)delete process.env.DSH_SEARCH_X_KEY;else process.env.DSH_SEARCH_X_KEY=oldX;if(oldReddit===undefined)delete process.env.DSH_SEARCH_REDDIT_KEY;else process.env.DSH_SEARCH_REDDIT_KEY=oldReddit;}
 });
+
+/** A Xiaohongshu note reader that records what it was asked for. */
+function stubNotes(comments: Array<Record<string, unknown>> = []) {
+  const seen: Array<Record<string, unknown>> = [];
+  const note = {
+    id: 'n1', title: '标题', desc: '正文内容', author: '作者', likes: '10', collects: '2', comments: '3', shares: '1',
+    tags: ['标签'], imageUrls: [], url: 'https://www.xiaohongshu.com/explore/n1',
+  };
+  return {
+    seen,
+    readers: {
+      note: (async (input: Record<string, unknown>) => { seen.push({ kind: 'note', ...input }); return note; }) as never,
+      comments: (async (input: Record<string, unknown>) => { seen.push({ kind: 'comments', ...input }); return { comments, hasMore: true }; }) as never,
+    },
+  };
+}
+
+function xhsConfig(): ServerConfig {
+  const config = configWith(['xiaohongshu']);
+  config.search.backends.xiaohongshu!.mode = 'browser';
+  config.search.browser.endpoint = 'ws://127.0.0.1:3000/ws';
+  return config;
+}
+
+test('xiaohongshu_note is registered and reads a note without touching the search engine', async () => {
+  const { engine } = stubEngine();
+  const { readers, seen } = stubNotes();
+  const tools = createTools(xhsConfig(), identity, engine, undefined, readers);
+  const tool = tools.find(item => item.name === 'xiaohongshu_note');
+  assert.ok(tool, 'xiaohongshu_note should be registered');
+  const value = await tool.call({ url: 'https://www.xiaohongshu.com/explore/n1?xsec_token=abc' }, new AbortController().signal) as Record<string, any>;
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.kind, 'note');
+  assert.equal(value.note.title, '标题');
+  assert.equal(value.note.stats.likes, '10');
+  assert.match(String(value.text), /标题/);
+  assert.match(String(value.text), /作者/);
+});
+
+test('xiaohongshu_note reads comments only when asked, within the documented bound', async () => {
+  const { engine } = stubEngine();
+  const { readers, seen } = stubNotes([{ id: 'c1', author: '甲', content: '说点什么', likes: '2', replies: '0' }]);
+  const tools = createTools(xhsConfig(), identity, engine, undefined, readers);
+  const tool = tools.find(item => item.name === 'xiaohongshu_note')!;
+  const plain = await tool.call({ id: 'n1' }, new AbortController().signal) as Record<string, any>;
+  assert.equal(plain.comments, undefined);
+  assert.equal(seen.filter(item => item.kind === 'comments').length, 0);
+  const withComments = await tool.call({ id: 'n1', withComments: true, commentLimit: 99 }, new AbortController().signal) as Record<string, any>;
+  assert.equal(withComments.comments.length, 1);
+  assert.equal(withComments.commentsTruncated, true);
+  assert.equal(seen.filter(item => item.kind === 'comments').length, 1);
+  assert.equal((seen.find(item => item.kind === 'comments') as Record<string, unknown>).limit, 50);
+});
+
+test('xiaohongshu_note names the missing prerequisite instead of returning an empty note', async () => {
+  const signal = new AbortController().signal;
+  const { engine } = stubEngine();
+  const { readers } = stubNotes();
+  const tool = (config: ServerConfig) => createTools(config, identity, engine, undefined, readers).find(item => item.name === 'xiaohongshu_note')!;
+
+  await assert.rejects(tool(xhsConfig()).call({}, signal), /share link or a note id/);
+
+  const disabled = xhsConfig();
+  disabled.search.backends.xiaohongshu!.enabled = false;
+  await assert.rejects(tool(disabled).call({ id: 'n1' }, signal), /disabled/);
+
+  const wrongMode = xhsConfig();
+  wrongMode.search.backends.xiaohongshu!.mode = 'key';
+  await assert.rejects(tool(wrongMode).call({ id: 'n1' }, signal), /browser mode/);
+
+  const noEndpoint = xhsConfig();
+  noEndpoint.search.browser.endpoint = '';
+  noEndpoint.search.backends.xiaohongshu!.endpoint = '';
+  await assert.rejects(tool(noEndpoint).call({ id: 'n1' }, signal), /browser endpoint/);
+});
+
+test('the tool list names every capability the server offers', () => {
+  const tools = createTools(configWith(['exa']), identity, stubEngine().engine);
+  assert.deepEqual(tools.map(item => item.name), ['web_search', 'read_thread', 'xiaohongshu_note', 'list_backends']);
+});

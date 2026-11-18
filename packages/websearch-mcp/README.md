@@ -2,7 +2,8 @@
 
 English | [中文](README.zh.md)
 
-An MCP server for multi-backend web search, plus discussion reading for Reddit and X. Works with any
+An MCP server for multi-backend web search, plus discussion reading for Reddit and X and note reading
+for Xiaohongshu. Works with any
 MCP client: Claude Code, Codex, DeepSeek Harness, or your own.
 
 ## Why another search server
@@ -99,7 +100,11 @@ it from [packages/core/image](../core/image/README.md), sign in over VNC, then p
 The endpoint token goes in `DSH_SEARCH_BROWSER_TOKEN`, or in `credentials.browser` inside the file.
 `maxConcurrentReads` (1–8) caps how many reads run on the site at once; the default is a conservative
 local value, not a site quota. `statePath` must be the file the container writes, otherwise every read
-starts signed out. This server exposes Xiaohongshu search, not note reading.
+starts signed out.
+
+Searching needs only the endpoint. Reading a note goes through the same browser, so the backend
+must be enabled in browser mode; `xiaohongshu_note` then takes the share link from the app (it
+carries the token the read needs) or a note id an earlier search returned.
 
 ## Tools
 
@@ -107,6 +112,10 @@ starts signed out. This server exposes Xiaohongshu search, not note reading.
 | --- | --- |
 | `web_search` | Search across the enabled backends. Takes `query`, plus optional `mode`, `backends`, `allBackends`, `exclude`, `backend`, `compact` and `maxResults`. Anything that cannot be honoured is named in the report rather than silently dropped. |
 | `read_thread` | Read one discussion, with the pictures a post carries returned as MCP image content (bounded by count, per-file size and a per-call budget, with every link listed): `source: "reddit"` for a post with its comment tree (`sort`, `limit`, `depth` caps), or `source: "x"` for a post with its replies (needs the X backend in session mode). Comment text is untrusted user content. |
+| `xiaohongshu_note` | Read one note: text, author, engagement counts, tags, pictures as image
+content, and optionally its top-level comments (depth is one level, `commentLimit` 1–50). Needs the
+Xiaohongshu backend in browser mode plus a browser endpoint; a disabled backend, a missing endpoint
+or a missing note token is reported instead of an empty note. |
 | `list_backends` | Every backend with its modes, cost tier, enabled state and whether a credential is present. It never enables anything. |
 
 `compact: true` returns URL, title and date only, which is usually the difference between a usable

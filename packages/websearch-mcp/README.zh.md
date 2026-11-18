@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个多后端网页搜索的 MCP 服务，另外能读 Reddit 和 X 的讨论帖。任何 MCP 客户端都能用：Claude Code、Codex、DeepSeek Harness，或者你自己写的。
+一个多后端网页搜索的 MCP 服务，另外能读 Reddit 和 X 的讨论帖，以及小红书的笔记。任何 MCP 客户端都能用：Claude Code、Codex、DeepSeek Harness，或者你自己写的。
 
 ## 为什么还要一个搜索 MCP
 
@@ -83,7 +83,7 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 }
 ```
 
-端点令牌写在 `DSH_SEARCH_BROWSER_TOKEN`，或者文件里的 `credentials.browser`。`maxConcurrentReads`（1–8）限制同一个站点上同时跑几个读取，默认值是保守的本地取值，不代表站点额度。`statePath` 必须是容器写的那个文件，否则每次读回来都是未登录。这个服务只提供小红书搜索，不提供笔记读取。
+端点令牌写在 `DSH_SEARCH_BROWSER_TOKEN`，或者文件里的 `credentials.browser`。`maxConcurrentReads`（1–8）限制同一个站点上同时跑几个读取，默认值是保守的本地取值，不代表站点额度。`statePath` 必须是容器写的那个文件，否则每次读回来都是未登录。只要端点配好就能搜索；读笔记走的是同一个浏览器，所以后端必须启用为 browser 模式，`xiaohongshu_note` 吃 App 里复制的分享链接（里面带着读取要用的 token），或者之前搜索返回的笔记 id。
 
 ## 工具
 
@@ -91,6 +91,7 @@ websearch-mcp --print-config > ~/.config/websearch-mcp/config.json
 | --- | --- |
 | `web_search` | 在已启用的后端里搜索。参数 `query`，可选 `mode`、`backends`、`allBackends`、`exclude`、`backend`、`compact`、`maxResults`。没法满足的选项会在报告里点名，不会被悄悄忽略。 |
 | `read_thread` | 读一个讨论帖，图片以 MCP 图片内容返回（按张数、单文件大小和单次预算限制，所有链接都会列出）：`source: "reddit"` 读帖子及评论树（可设 `sort`、`limit`、`depth`），`source: "x"` 读推文及回复（需要 X 后端处于会话模式）。评论内容是用户生成的，不可信。 |
+| `xiaohongshu_note` | 读一篇笔记：正文、作者、赞藏评转、标签、配图（以图片内容返回），需要的话再读一层评论（只有一层，`commentLimit` 1–50）。需要小红书后端处于 browser 模式且浏览器端点已配置；后端没开、端点没配、缺笔记 token 都会直说，不会回一篇空笔记。 |
 | `list_backends` | 列出每个后端的模式、费用档、启用状态和凭证是否就位。不会启用任何东西。 |
 
 `compact: true` 只回 URL、标题和日期，通常就是一个还能用的上下文和一个被灌满的上下文的区别。
