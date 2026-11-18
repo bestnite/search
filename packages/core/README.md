@@ -3,6 +3,7 @@
 English | [中文](README.zh.md)
 
 [![npm](https://img.shields.io/npm/v/@nite07/search-core?label=npm&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
+[![downloads](https://img.shields.io/npm/dm/@nite07/search-core?label=downloads&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
 [![node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square)](package.json)
 
 A provider-agnostic multi-backend web search engine in TypeScript. It ships the backend catalog, the

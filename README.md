@@ -2,6 +2,7 @@
 
 English | [简体中文](README.zh.md)
 
+[![ci](https://github.com/bestnite/search/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bestnite/search/actions/workflows/ci.yml)
 [![dsh-search](https://img.shields.io/npm/v/@nite07/dsh-search?label=dsh-search&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/dsh-search)
 [![websearch-mcp](https://img.shields.io/npm/v/@nite07/websearch-mcp?label=websearch-mcp&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/websearch-mcp)
 [![search-core](https://img.shields.io/npm/v/@nite07/search-core?label=search-core&style=flat-square&color=cb3837)](https://www.npmjs.com/package/@nite07/search-core)
