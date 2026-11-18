@@ -1507,12 +1507,15 @@ test('a keyed fetch API rejection maps 401/402/429 to their own kinds and never 
   }
 });
 
-test('a keyed mode without a stored key fails before any request is built', async () => {
+test('a keyed mode without a stored key is an authentication failure before any request is built', async () => {
   for (const providerId of ['exa', 'parallel'] as const) {
     const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# never')));
     const result = await fetchFromProvider(restRequest(providerId, fetcher, { credential: undefined }), callProviderTool);
     assert.equal(result.outcome, 'authentication');
-    assert.equal(result.error?.kind, 'configuration', 'a missing key is a configuration failure, not a provider reply');
+    assert.equal(result.error?.kind, 'authentication', 'a missing key is an operational authentication failure, not a provider reply');
+    assert.equal(result.fatal, undefined, 'a missing key is never fatal, so a fallback rule may match it');
+    assert.ok(result.notes.some(note => /missing/.test(note)), 'the note says the credential is missing');
+    assert.doesNotMatch(JSON.stringify(result.notes), /key=|secret|Bearer/, 'no credential material is invented or echoed');
     assert.equal(calls.length, 0, `${providerId} sends nothing without a key`);
   }
 });
@@ -1558,7 +1561,7 @@ test('both keyed modes reuse the provider search credential and the declared RES
   }
 });
 
-test('the engine refuses a keyed fetch with no stored key before any request', async () => {
+test('a keyed fetch with no stored key is a non-fatal authentication attempt that sends nothing', async () => {
   for (const providerId of ['exa', 'parallel'] as const) {
     const { fetcher, calls } = fakeFetch(() => Response.json(exaContentsPayload('# never')));
     const engine = createPageFetchEngine(keyedFetchConfig(providerId), {
@@ -1566,13 +1569,67 @@ test('the engine refuses a keyed fetch with no stored key before any request', a
       resolveCredential: async () => undefined,
       providerFetcher: fetcher,
     });
-    await assert.rejects(
-      () => engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' }),
-      (error: unknown) => error instanceof PageFetchError && error.kind === 'configuration',
-      `${providerId} key mode without a stored key is a configuration failure`,
-    );
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+    const attempt = result.attempts[0]!;
+    assert.equal(attempt.outcome, 'authentication', `${providerId}: the missing key is an authentication outcome`);
+    assert.equal(attempt.error?.kind, 'authentication');
+    assert.equal(attempt.statusCode, undefined, 'no target status is invented');
+    assert.equal(result.ok, false);
+    assert.ok(result.notes.some(note => /credential is missing/.test(note)), 'the trace says the credential is missing');
     assert.equal(calls.length, 0, 'no request may be sent to learn what the configuration already says');
   }
+});
+
+test('a missing key matches an authentication fallback rule and the chain continues to the next route', async () => {
+  for (const providerId of ['exa', 'parallel'] as const) {
+    const { fetcher, calls } = fakeFetch(() => htmlResponse('<html><body><p>http fallback served this</p></body></html>'));
+    // The provider route comes first; an authentication rule lets the HTTP route take over.
+    const config = pageConfig((page, config) => {
+      page.providerId = providerId;
+      page.routes = [routeOf(page, 'provider'), routeOf(page, 'http')];
+      for (const route of page.routes) route.enabled = true;
+      routeOf(page, 'provider').rules = [rule('no-key', { type: 'error', kinds: ['authentication'] })];
+      config.backends[providerId]!.fetch.mode = 'key';
+      config.backends[providerId]!.fetch.endpoint = '';
+    });
+    const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => undefined, fetcher });
+    const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+    assert.equal(result.ok, true, `${providerId}: the chain falls back instead of failing`);
+    assert.equal(result.contentRoute, 'http');
+    assert.deepEqual(result.attempts.map(attempt => attempt.route), ['provider', 'http']);
+    assert.equal(result.attempts[0]!.outcome, 'authentication');
+    assert.deepEqual(result.attempts[0]!.rules, ['no-key'], 'the authentication rule matched');
+    assert.equal(calls.length, 1, 'only the HTTP route sent a request');
+    assert.equal(calls[0]!.url, 'https://example.com/page');
+  }
+});
+
+test('a matched authentication rule with no later route is exhausted, not a hard failure', async () => {
+  const { fetcher, calls } = fakeFetch(() => htmlResponse('<html><body>unused</body></html>'));
+  const config = keyedFetchConfig('exa', config => {
+    routeOf(config.pageFetch, 'provider').rules = [rule('no-key', { type: 'error', kinds: ['authentication'] })];
+  });
+  const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => undefined, providerFetcher: fetcher });
+  const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.equal(result.ok, false);
+  assert.equal(result.stopReason, 'exhausted', 'the rule matched and nothing else could serve the page');
+  assert.equal(calls.length, 0);
+  assert.equal(result.attempts.length, 1);
+  assert.equal(result.attempts[0]!.outcome, 'authentication');
+});
+
+test('without a matching rule the missing key simply stops the chain', async () => {
+  const { fetcher, calls } = fakeFetch(() => htmlResponse('<html><body>unused</body></html>'));
+  const config = keyedFetchConfig('exa', config => {
+    // The default rules cover network errors and timeouts only, so authentication matches nothing.
+    routeOf(config.pageFetch, 'provider').rules = DEFAULT_FALLBACK_RULES;
+  });
+  const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => undefined, providerFetcher: fetcher });
+  const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'markdown' });
+  assert.equal(result.ok, false);
+  assert.equal(result.stopReason, 'stopped-on-error', 'no rule matched, so the chain stops on that error');
+  assert.equal(result.attempts[0]!.outcome, 'authentication');
+  assert.equal(calls.length, 0);
 });
 
 test('a keyed mode still preflights the format: HTML is skipped without a request', async () => {
@@ -1603,7 +1660,7 @@ test('a key that is missing only for a route this call skips does not fail an HT
     });
     const engine = createPageFetchEngine(config, { resolver: publicResolver, resolveCredential: async () => undefined, fetcher });
     const result = await engine.fetchPage({ url: 'https://example.com/page', format: 'html' });
-    assert.equal(result.ok, true, `${providerId}: a missing key does not fail a format the provider cannot serve`);
+    assert.equal(result.ok, true, `${providerId}: a missing key does not affect a format the provider cannot serve`);
     assert.equal(result.contentRoute, 'http');
     assert.equal(result.attempts[0]!.outcome, 'unsupported-format', 'the provider route is skipped, not failed');
   }

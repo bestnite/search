@@ -312,6 +312,7 @@
   "fetchModeHelp": "只能选择服务商声明支持抓取的接入模式。抓取使用的模式与端点可以和搜索不同；有 Key 的模式可能只是文档核实，而非实测验证。",
   "fetchEvidenceLive": "{{date}} 实测",
   "fetchEvidenceDocumented": "仅文档核实，未实测（{{date}}）",
+  "fetchEvidenceBadge": "仅文档",
   "fetchEndpoint": "抓取端点",
   "fetchEndpointHelp": "与搜索端点分开保存。已有搜索 URL 不会被改写成抓取 URL。",
   "fetchProviderTimeoutHelp": "单次服务商调用的上限，并受路由超时约束。",

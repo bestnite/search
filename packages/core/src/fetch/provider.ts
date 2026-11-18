@@ -376,11 +376,13 @@ export const fetchFromProvider: ProviderFetcher = async (request, call) => {
       return routeFailure('protocol', { kind: 'protocol', message: `"${request.providerId}" has no REST fetch operation.` }, { notes });
     }
     // A keyed mode is refused before the request is built: an unauthenticated call would spend a wire
-    // round-trip to be told what the configuration already says.
+    // round-trip to be told what the configuration already says. The outcome is a normal
+    // authentication failure, never a fatal error, so a caller's fallback rules still apply.
     if (!request.credential) {
+      notes.push('The provider credential is missing, so no request was sent.');
       return routeFailure(
         'authentication',
-        { kind: 'configuration', message: `The ${request.providerId} fetch mode needs a stored API key, and none is configured.` },
+        { kind: 'authentication', message: `The ${request.providerId} fetch mode needs a stored API key, and none is configured.` },
         { notes },
       );
     }

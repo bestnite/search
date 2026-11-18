@@ -694,12 +694,16 @@ export function createClient(React: any, ReactDOM?: any) {
                     </span>
                   </summary>
                   <div className="ns-backend-body">
-                    <p className="ns-quota">{tr('fetchProviderServes', { formats: provider.serves.join(', ') })} · <a href={provider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {t('verifiedAt')} {provider.verifiedAt}</p>
+                    {/* The date names its own evidence: a selected documented-only mode never borrows
+                        the operation's live date and never reads as "checked". */}
+                    <p className="ns-quota">{tr('fetchProviderServes', { formats: provider.serves.join(', ') })} · <a href={provider.docs} target="_blank" rel="noreferrer">{t('docs')}</a> · {modeEvidence?.evidence === 'documented' ? tr('fetchEvidenceDocumented', { date: modeEvidence.verifiedAt }) : <>{t('verifiedAt')} {provider.verifiedAt}</>}</p>
                     <p className="ns-chips ns-mode-evidence">{provider.modes.map(mode => {
                       const evidence = def.fetch?.evidence?.[mode as AccessMode];
                       const documented = evidence?.evidence === 'documented';
                       const date = evidence?.verifiedAt ?? provider.verifiedAt;
-                      return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={tr(documented ? 'fetchEvidenceDocumented' : 'fetchEvidenceLive', { date })}>{t(`choice.${mode}`)}</span>;
+                      // A documented-only mode says so in its visible label, not only in a tooltip:
+                      // nothing here may read as if a keyed call had been observed live.
+                      return <span key={mode} className={`ns-chip ${documented ? 'ns-chip--off' : 'is-on'}`} title={tr(documented ? 'fetchEvidenceDocumented' : 'fetchEvidenceLive', { date })}>{t(`choice.${mode}`)}{documented ? ` · ${t('fetchEvidenceBadge')}` : ''}</span>;
                     })}</p>
                     {modeEvidence?.evidence === 'documented' && <p className="ns-warning">{t('fetchModeDocumentedOnly')}{modeEvidence.source && <> <a href={modeEvidence.source} target="_blank" rel="noreferrer">{t('docs')}</a></>}</p>}
                     {provider.notes && <p className="ns-muted">{provider.notes[lang]}</p>}

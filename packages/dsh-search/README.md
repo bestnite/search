@@ -196,7 +196,8 @@ The same settings page has a **Page fetch** tab beside **Search**, editing the s
   unfolds a card, the badge says which one is selected. Both providers offer a keyless MCP mode and a
   keyed REST mode: the keyless modes were observed live, the keyed modes are documented-only (no paid
   call was made) and the card labels them that way. A keyed fetch uses the provider's one stored
-  search key; with no stored key the fetch is refused as a configuration problem before any request.
+  search key; with no stored key it sends nothing and reports an authentication attempt, which a
+  fallback rule can match so the next enabled route still serves the page.
   Both return native Markdown; asking for HTML skips that route without a request and the next
   enabled route serves the page instead.
 - **Safety and limits** — overall deadline, redirect cap, acquisition and output limits, rule scan

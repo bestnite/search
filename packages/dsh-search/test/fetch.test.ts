@@ -190,7 +190,7 @@ test('every fetch label the page uses exists in both locales, and the readiness 
     'fetchRemoveCondition', 'fetchAddStatusPreset', 'fetchAddCloudflarePreset', 'fetchRestoreDefaultRules', 'fetchPresetsHelp',
     'fetchProviderTitle', 'fetchProviderHelp', 'fetchProviderSelect', 'fetchProviderNone', 'fetchProviderServes',
     'fetchProviderMarkdownOnly', 'fetchMode', 'fetchModeHelp', 'fetchEndpoint', 'fetchEndpointHelp', 'fetchProviderTimeoutHelp',
-    'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchModeDocumentedOnly', 'fetchCredentialShared', 'openCredential',
+    'fetchEvidenceLive', 'fetchEvidenceDocumented', 'fetchEvidenceBadge', 'fetchModeDocumentedOnly', 'fetchCredentialShared', 'openCredential',
     'fetchLimitsTitle', 'fetchTestTitle', 'fetchTestHelp', 'fetchTestUrl', 'fetchTestFormat', 'fetchTestResult',
     'fetchFormat.markdown', 'fetchFormat.html', 'fetchConditionType', 'fetchConditionStatuses', 'fetchConditionField',
     'fetchConditionOperator', 'fetchConditionValue', 'fetchConditionCase', 'credentialNotRequired',
@@ -222,6 +222,18 @@ test('the fetch provider card is never opened by selection, and shows the select
   assert.match(client, /selected \? t\('fetchProviderSelected'\) : t\('fetchProviderNotSelected'\)/, 'the selected state stays visible on the badge');
   assert.match(client, /ns-mode-evidence/, 'each mode carries its own evidence marker');
   assert.match(client, /modeEvidence\?\.evidence === 'documented'/, 'a documented-only mode is called out');
+  // The warning has to be explicit: a documented-only mode must never read as if it had been checked.
+  assert.match(client, /t\('fetchEvidenceBadge'\)/, 'the documented mode carries a visible badge, not only a tooltip');
+  const en = JSON.parse(await readFile(new URL('../locale/en.json', import.meta.url), 'utf8'));
+  const zh = JSON.parse(await readFile(new URL('../locale/zh.json', import.meta.url), 'utf8'));
+  assert.match(en.fetchModeDocumentedOnly, /no call with a real API key was made/i);
+  assert.match(en.fetchModeDocumentedOnly, /not live-verified/i);
+  assert.match(zh.fetchModeDocumentedOnly, /没有用真实 API Key 发起过调用/);
+  assert.match(zh.fetchModeDocumentedOnly, /不是实测验证/);
+  assert.match(en.fetchEvidenceDocumented, /Documented only, no live call/);
+  assert.match(zh.fetchEvidenceDocumented, /仅文档核实，未实测/);
+  assert.match(en.fetchEvidenceBadge, /^documented$/);
+  assert.match(zh.fetchEvidenceBadge, /文档/);
 });
 
 test('the fetch tab is wired to the shared draft and never to a second store', async () => {

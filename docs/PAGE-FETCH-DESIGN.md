@@ -122,7 +122,7 @@ Defaults:
 - No implicit retries layered over the route chain in v1.
 - No page cache in v1; never reuse the search result cache.
 
-Reject all-routes-disabled configurations. Enabling the browser route requires a configured usable endpoint shape; enabling provider requires a selected fetch-capable provider. Credential availability can change at runtime and must be reported honestly: a keyed fetch mode with no stored key is a configuration failure refused before any route runs, never an unauthenticated request, and the settings page reports the same fact as a readiness problem before a test is attempted.
+Reject all-routes-disabled configurations. Enabling the browser route requires a configured usable endpoint shape; enabling provider requires a selected fetch-capable provider. Credential availability can change at runtime and must be reported honestly: a keyed fetch mode with no stored key never sends an unauthenticated request. It reports an `authentication` attempt instead — a normal operational failure, not a configuration error and not fatal — so the route's own fallback rules decide whether the chain continues; the saved configuration stays valid, and the settings page reports the same gap as a readiness problem before a test is attempted.
 
 Preflight request format compatibility before sending a route request. A Markdown-only provider cannot satisfy HTML: record `unsupported-format`, skip its request, and continue to the next enabled route. This is a capability skip, not a fabricated successful fetch or a switch to another provider.
 

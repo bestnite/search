@@ -312,6 +312,7 @@
   "fetchModeHelp": "Only fetch modes the provider declares can be selected. Fetching may use a different mode and endpoint than searching, and a keyed mode may be documented-only rather than live-verified.",
   "fetchEvidenceLive": "Checked live {{date}}",
   "fetchEvidenceDocumented": "Documented only, no live call ({{date}})",
+  "fetchEvidenceBadge": "documented",
   "fetchEndpoint": "Fetch endpoint",
   "fetchEndpointHelp": "Deliberately separate from the search endpoint. An existing search URL is never rewritten into a fetch URL.",
   "fetchProviderTimeoutHelp": "Bound on one provider call, capped by the route timeout.",

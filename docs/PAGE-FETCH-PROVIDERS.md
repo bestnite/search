@@ -141,9 +141,15 @@ and a mode with no adapter for its transport is refused instead of being reroute
 `401` → `authentication`; `402` → the quota/balance kind; `429` → the rate-limit kind; any other
 non-2xx → the HTTP kind. The provider API status is preserved on the attempt as `apiStatus`, separate
 from the target status (`statusCode`). The provider's error body is never read into a message, a note
-or a diagnostic, and the stored key never appears in any user-visible string. A missing key is refused
-before any request is built: the engine reports a configuration failure, and the provider transport
-independently refuses to build the request, so an unauthenticated call cannot be sent by accident.
+or a diagnostic, and the stored key never appears in any user-visible string.
+
+A missing key is an ordinary `authentication` attempt, not a fatal error: both the engine and the
+provider transport refuse to build the request, and the attempt carries a note saying the credential
+is missing instead of a request being sent. Because the outcome is non-fatal, the route's fallback
+rules decide what happens next — a rule on the authentication failure continues to the next enabled
+route, and with no later route the chain ends `exhausted` (or `stopped-on-error` when no rule matches,
+like any other unmatched failure). The saved configuration stays valid: an unconfigured key is allowed
+at save time and is reported as a readiness problem in the settings page.
 
 ## The credential is the search credential
 
@@ -190,7 +196,8 @@ enter the same secret twice.
   (`DSH_SEARCH_<ID>_KEY`) through the same resolver. Keyless modes need none. The fetch endpoint,
   transport and options are stored separately, because sharing a provider does not imply sharing an
   endpoint.
-- A keyed fetch mode with no stored key is a configuration failure before any route runs; the
-  settings page reports the same fact as a readiness problem before a test is even attempted.
+- A keyed fetch mode with no stored key sends no request and reports an `authentication` attempt that
+  a fallback rule can match, so a chain with a later HTTP or browser route still serves the page. The
+  settings page reports the same gap as a readiness problem before a test is even attempted.
 - Only the target URL is sent to a provider. Browser cookies, rendered HTML and local session state
   are never forwarded.

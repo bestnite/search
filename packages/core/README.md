@@ -215,7 +215,8 @@ native Markdown; asking a Markdown-only provider for HTML skips it without a req
 the next enabled route. The keyless modes were observed live; the keyed modes are implemented from
 the providers' official API references and are recorded as documented-only evidence, since no paid
 keyed call was made. A keyed fetch resolves the same fixed credential reference as the provider's
-search mode, and a missing key is a configuration failure before any request. See
+search mode; a missing key sends no request but is an ordinary `authentication` attempt, so a fallback
+rule can match it and the next route can serve the page. See
 [docs/PAGE-FETCH-PROVIDERS.md](../../docs/PAGE-FETCH-PROVIDERS.md) for the evidence and the list of
 what was not verified.
 

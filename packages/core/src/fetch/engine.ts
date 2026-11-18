@@ -121,19 +121,13 @@ export class PageFetchEngine {
     if (!routes.length) throw new PageFetchError('configuration', 'Every page-fetch route is disabled, so no fetch can run.');
     const provider = routes.some(route => route.kind === 'provider') ? this.providerSetup() : undefined;
     const browserEndpoint = routes.some(route => route.kind === 'browser') ? this.browserEndpoint() : undefined;
-    // A keyed fetch mode that this call would actually use is refused before any route runs. The mode
-    // is a saved configuration choice and the store already reports the missing key as a readiness
-    // problem, so this is a configuration failure: it must not cost a request to be told what the
-    // configuration says. A format the provider cannot serve never reaches it, so that skip is not a
-    // reason to fail the call (see the format preflight in the route loop). The same fixed credential
-    // reference the provider's search mode uses is resolved exactly once.
-    let providerCredential: string | undefined;
-    if (provider && provider.mode !== 'anonymous' && providerServes(provider.id, format)) {
-      providerCredential = await this.resolve(backendCredentialRef(provider.id));
-      if (!providerCredential) {
-        throw new PageFetchError('configuration', `"${provider.id}" fetches in ${provider.mode} mode, which needs a stored API key; none is configured.`);
-      }
-    }
+    // The provider route resolves its credential once, through the same fixed reference its search
+    // mode uses. A missing key is not a configuration error and is not fatal: the route reports an
+    // authentication failure without sending anything, and the configured fallback rules decide
+    // whether the chain continues (see `runRoute`).
+    const providerCredential = provider && provider.mode !== 'anonymous'
+      ? await this.resolve(backendCredentialRef(provider.id))
+      : undefined;
 
     const maxBodyBytes = clamp(settings.maxBodyBytes, MAX_FETCH_BODY_BYTES, DEFAULT_MAX_BODY_BYTES);
     const maxOutputChars = clamp(settings.maxOutputChars, MAX_FETCH_OUTPUT_CHARS, DEFAULT_MAX_OUTPUT_CHARS);
@@ -425,6 +419,16 @@ export class PageFetchEngine {
     }
     const provider = context.provider!;
     const credential = provider.mode === 'anonymous' ? undefined : context.providerCredential;
+    if (provider.mode !== 'anonymous' && !credential) {
+      // No request is built without a key, and nothing about the missing key is fatal: the outcome is
+      // an ordinary authentication failure a fallback rule can match. The saved configuration is
+      // still valid; the settings page reports the same gap as a readiness problem.
+      return {
+        outcome: 'authentication',
+        error: { kind: 'authentication', message: `The ${provider.id} fetch mode needs a stored API key, and none is configured.` },
+        notes: ['The provider credential is missing, so no request was sent.'],
+      };
+    }
     const fetch = this.dependencies.providerCall;
     const request = {
       providerId: provider.id,
