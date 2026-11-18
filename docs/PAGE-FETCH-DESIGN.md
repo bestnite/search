@@ -241,41 +241,89 @@ nothing about the shield page in front of it, so a caller could not tell an inte
 that really answered 403.
 
 **What is identified.** The browser route judges the main-document status, the document title, the
-captured DOM and the frame URLs the driver knows about. Several independent markers are checked and
-any one of them is enough: title patterns (`Just a moment`, `Attention Required`,
-`Verifying you are human`, `Checking your browser`, `请稍候`, `正在验证`); DOM markers (`cf-chl-`,
-`challenge-platform`, `challenges.cloudflare.com`, `__cf_chl_`, `cf_chl_opt`, `cf-turnstile`); and a
-frame whose host is `challenges.cloudflare.com`, compared by parsed host rather than substring. The
-bare word "cloudflare" is deliberately not a marker, because a normal page may mention the company,
-load its insights script or link to its dashboard. Identification adds one bounded English note
-(`The page looked like a Cloudflare challenge after the main document answered HTTP 403 (…markers…).`)
-and changes nothing else: the outcome, the status and the failure kind stay what the route observed. A
-plain 404 page is not identified.
+captured DOM and the frame URLs the driver knows about. Markers are graded, because a normal page can
+carry a challenge platform's files without being a challenge at all — `linux.do` answers 200, renders
+its forum and still loads `challenge-platform` plus a `challenges.cloudflare.com` Turnstile frame for
+its own login form, and treating that as a challenge turned a healthy page into a failed fetch.
+
+- *Decisive* markers claim a challenge on their own: a challenge title (`Just a moment`,
+  `Attention Required`, `Verifying you are human`, `Checking your browser`, `请稍候`, `正在验证`), or an
+  interstitial-only DOM marker (`cf_chl_opt`, `__cf_chl_`, `cf-chl-`).
+- *Supporting* markers only count together with a refusal (403, 429 or 5xx): `challenges.cloudflare.com`,
+  `cf-turnstile`, and a frame whose host is exactly `challenges.cloudflare.com`.
+- `challenge-platform` alone claims nothing; it appears on ordinary pages and on other vendors' pages.
+
+Identification adds one bounded English note naming the markers that matched, and changes nothing else:
+the outcome, the status and the failure kind stay what the route observed. A plain 404 is never a
+challenge, and the bare word "cloudflare" is never a marker.
+
+**Another vendor's interstitial is named, not fought.** G2 answers with a DataDome page
+(`geo.captcha-delivery.com`), not Cloudflare. When a refusal carries a frame from a known other
+interstitial host (DataDome, PerimeterX, hCaptcha, reCAPTCHA, Arkose), the note names that product and
+says nothing was attempted: the solver knows Turnstile, and pressing a stranger's widget helps nobody.
 
 **What the one attempt does.** `pageFetch.browser.challengeSolver` sits beside the other browser-route
 options of the Page fetch tab, defaults to `auto`, and `off` disables the behaviour completely. With
-`auto`, and only when a challenge was identified, the route makes exactly one attempt: it finds the
-frame served from `challenges.cloudflare.com` and clicks the widget through the driver, because a page
-script cannot reach a cross-origin frame while the driver holds that frame's handle. The widget's
-internal markup changes between Cloudflare releases, so the click tries a real `input[type=checkbox]`
-first, then the `#challenge-stage` wrapper, then the frame body, using a fixed offset inside the widget
-box for the two container shapes. It then polls every 500 ms for at most 10 seconds — always clipped by
-the route timeout and the overall deadline, since the route signal already carries the caller, the route
-timeout and the deadline — for the markers to disappear from the main document. Success is decided only
-by the markers disappearing. On success the route navigates once more and that answer decides the
-outcome; on failure the observed refusal stays the outcome and the notes say the attempt did not clear
-the challenge, that no challenge frame was found, or that the widget could not be clicked. The existing
-"a 4xx that rendered a real page" retry is unchanged and still runs; both share one cap of three
-navigations per fetch, so neither can stack on the other into an unbounded loop. Nothing in this path
-waits for a person, and every wait in it is cancellable.
+`auto`, and only when a challenge was identified:
+
+1. The route waits for the widget to be *laid out and stable*: the Turnstile iframe is in the document
+   well before it has a size, and a managed challenge runs an invisible pass first and then refreshes
+   into the interactive one. A press during that churn lands on empty space — and, in the original code,
+   still counted as the attempt, which is how a real widget was observed to be "pressed three times"
+   without ever being pressed.
+2. It presses `input[type=checkbox]` only, after moving the pointer into it. Wrapper and body shapes are
+   not clicked at all: for a cross-origin frame only the driver holds a handle, and a click that appears
+   from nowhere is exactly what a managed challenge scores as automation.
+3. It waits up to 15 seconds for the challenge to clear, with at most two presses three seconds apart. A
+   pressed widget stops offering its checkbox while it verifies, so a second press only happens when the
+   platform served a fresh widget.
+4. **It never reloads the challenge page.** Reloading at that moment throws away a passing verification
+   and asks Cloudflare for a new challenge; this was observed live, and it is the single most damaging
+   thing the route used to do. When the markers clear, the route waits — within the render window — for
+   the page to finish by itself and reads the new document's status from its navigation timing entry.
+   If that status cannot be read, the status is reported as unknown rather than carrying the refusal
+   into a page that resolved.
+5. On failure the observed refusal stays the outcome, and the note says whether no frame was found, the
+   widget never became clickable, or the challenge was still present after N presses.
+
+Nothing in this path waits for a person, and every wait in it is cancellable and clipped by the route
+timeout and the overall deadline.
+
+**Live evidence (2026-11-18).** Verified against real sites, not only fixtures:
+
+| Site | Result |
+| --- | --- |
+| glassdoor.com, indeed.com | 403 → challenge identified → one press → page resolved itself → 200 with the real document; no reload |
+| quora.com | challenge served, two presses, not cleared → next route; a later run answered a plain 403 with no challenge markers at all |
+| nopecha.com demo, scrapingcourse.com | challenge identified, pressed, never cleared → next route |
+| g2.com | DataDome named, nothing attempted, refusal kept |
+| linux.do | 200 with an embedded Turnstile is fetched, not challenged; when Cloudflare does challenge it, the attempt fails honestly |
 
 **What it cannot do.** It does not defeat an interactive managed challenge, a challenge that demands
-human confirmation, a site key only a person can satisfy, a fingerprint the remote browser does not
-have, or a page that keeps its marker after the widget was pressed. It is not a FlareSolverr-style
-service and never proxies a browser to the caller. The click itself is a heuristic against markup this
-repository does not control. The demo page used to reproduce the problem exists to demonstrate a
-solvable widget; the automated attempt against it was not verified live in this change, and no live
-browser run was performed (see the completion report).
+human confirmation, a site key only a person can satisfy, or a fingerprint the remote browser does not
+have. Passing an interactive challenge by hand in the keeper window does not transfer to a fetch: the
+fetch opens its own context, and only the saved session cookies travel. It is not a FlareSolverr-style
+service and never proxies a browser to the caller. The click is a heuristic against markup this
+repository does not control.
+
+### Empty content is a named failure, and a reason to continue (2026-11-18)
+
+A client-rendered site answers a plain HTTP request with a shell: `reddit.com` returned 200 with no
+readable text, the conversion produced an empty string, and the engine stopped with `ok: false` and no
+explanation — which reads as "the page had nothing", a different and false claim.
+
+- The browser route now waits, in the page and with `raf` polling, until the document holds readable
+  text (≥200 characters), for at most five seconds; if it never does, a note says the capture may hold
+  an unrendered shell.
+- An `ok` result whose converted content is empty becomes `unsupported-content` with the message
+  "The target answered HTTP 200, but it rendered no readable content at capture time."
+- The default rules gained an `empty-content` rule (`error` condition, kind `unsupported-content`) that
+  continues to the next route, because a shell is not an answer to return. A saved configuration from
+  before this rule existed receives it once on load; a configuration that already names the rule —
+  enabled or disabled — is left exactly as saved.
+
+Measured: `reddit.com` now runs HTTP (empty) → browser (200, rendered) and returns content, where it
+previously returned nothing at all.
 
 ## 11. Safety and privacy
 
