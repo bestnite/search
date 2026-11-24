@@ -4,7 +4,7 @@ import en from '../locale/en.json';
 import zh from '../locale/zh.json';
 import {
   catalog, CLOUDFLARE_CHALLENGE_PRESET, DEFAULT_FALLBACK_RULES, FETCH_BOUNDS, FETCH_CONDITION_FIELDS, FETCH_CONDITION_TYPES,
-  FETCH_FAILURE_KINDS, FETCH_MATCH_OPERATORS, LANGUAGES, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS, REGIONS,
+  FETCH_FAILURE_KINDS, FETCH_MATCH_OPERATORS, LANGUAGES, MAX_CONCURRENT_READS, MAX_POOLED_TABS, MIN_MAX_CONCURRENT_READS, MIN_POOLED_TABS, REGIONS,
   STATUS_ERROR_PRESET, defaultConfig, fetchReadiness, fetchReadinessProviders, parseBrowserEndpoint, validateConfig,
 } from '@nite07/search-core/static';
 import type {
@@ -26,7 +26,7 @@ const FEEDBACK_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 /** The served configuration and the draft are the same configuration when their values agree. */
 const same = (a: unknown, b: unknown) => sameDraft(a as SearchConfig, b as SearchConfig);
-const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS] };
+const ranges: Record<string, [number, number]> = { maxResults: [1, 50], concurrency: [1, 20], overallTimeoutMs: [1000, 180000], 'retry.maxRetries': [0, 5], 'retry.initialDelayMs': [0, 60000], 'retry.maxDelayMs': [0, 120000], 'cache.ttlSeconds': [1, 86400], 'cache.maxEntries': [1, 1000], 'breaker.threshold': [1, 100], 'breaker.cooldownMs': [1000, 3600000], 'diagnostics.maxEntries': [1, 500], 'backend.timeoutMs': [1000, 120000], 'backend.rateLimitPerMinute': [0, 100000], 'backend.dailyAttemptLimit': [0, 1000000], 'browser.maxConcurrentReads': [MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS], 'browser.maxPooledTabs': [MIN_POOLED_TABS, MAX_POOLED_TABS] };
 const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 function get(value: any, path: string): any { return path.split('.').reduce((v, k) => v?.[k], value); }
 function set(value: SearchConfig, path: string, next: unknown): SearchConfig {
@@ -819,7 +819,7 @@ export function createClient(React: any, ReactDOM?: any) {
           </div>}
           {tab === 'browser' && <div role="tabpanel" id="panel-browser" aria-labelledby="tab-browser">
             <section className="ns-card" aria-labelledby="sec-browser"><h3 id="sec-browser">{t('sharedBrowser')}</h3><p className="ns-muted">{t('sharedBrowserHint')}</p>
-              <div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' } })}</div>
+              <div className="ns-grid">{fields(['browser.endpoint', 'browser.statePath', 'browser.timeoutMs', 'browser.maxConcurrentReads', 'browser.maxPooledTabs'], { 'browser.timeoutMs': { type: 'number' }, 'browser.maxConcurrentReads': { type: 'number' }, 'browser.maxPooledTabs': { type: 'number' } })}</div>
               {!!snapshot && <div className="ns-credential"><h5>{t('browserTokenTitle')}</h5><p>{t(snapshot.browser.credentialConfigured ? 'credentialConfigured' : 'credentialMissing')} · {t('browserTokenHelp')}</p><label htmlFor="secret-browser">{t('browserTokenValue')}</label><input id="secret-browser" type="password" autoComplete="new-password" value={secrets.browser || ''} disabled={!!pending || !snapshot.browser.writable} onChange={(event: any) => setSecrets((previous: Record<string, string>) => ({ ...previous, browser: event.target.value }))} /><div className="ns-actions"><button disabled={!!pending || !snapshot.browser.writable || !secrets.browser} onClick={() => browserCredential(false)}>{t('saveToken')}</button><button disabled={!!pending || !snapshot.browser.writable || !snapshot.browser.credentialConfigured} onClick={() => setConfirming({ kind: 'delete-browser-credential' })}>{t('deleteCredential')}</button></div>{confirmRow('delete-browser-credential', 'deleteCredentialConfirm', () => { void browserCredential(true); })}</div>}
             </section>
             <section className="ns-card" aria-labelledby="sec-browser-dependents"><h3 id="sec-browser-dependents">{t('browserDependentsTitle')}</h3>

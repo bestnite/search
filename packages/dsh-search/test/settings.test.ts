@@ -105,6 +105,7 @@ test('issue focus maps provider fetch fields to the Fetch tab and browser fields
   assert.deepEqual(focusForPath('backends.exa.fetch.options.maxCharacters'), { tab: 'fetch', target: 'backends.exa.fetch.options.maxCharacters' });
   assert.deepEqual(focusForPath('browser.endpoint'), { tab: 'browser', target: 'browser.endpoint' });
   assert.deepEqual(focusForPath('browser.maxConcurrentReads'), { tab: 'browser', target: 'browser.maxConcurrentReads' });
+  assert.deepEqual(focusForPath('browser.maxPooledTabs'), { tab: 'browser', target: 'browser.maxPooledTabs' });
   // Fetch-only browser options stay with the fetch operation they describe.
   assert.deepEqual(focusForPath('pageFetch.browser.context'), { tab: 'fetch', target: 'pageFetch.browser.context' });
   assert.deepEqual(focusForPath('pageFetch.routes.1.rules.0.conditions.0.value'), { tab: 'fetch', target: 'pageFetch.routes.1.rules.0.conditions.0.value' });

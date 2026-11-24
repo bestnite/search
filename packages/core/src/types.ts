@@ -70,6 +70,11 @@ export interface BrowserConfig {
    * integer from 1 through 8. Hosts expose it as a per-site setting.
    */
   maxConcurrentReads: number;
+  /**
+   * How many search tabs are retained for follow-up note reads. Independent of the active-read
+   * limit; integer from 1 through 8, default 4.
+   */
+  maxPooledTabs: number;
 }
 
 /** Adapters omit backends; the engine stamps and unions trusted backend ids on merged results. */

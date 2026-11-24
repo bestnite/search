@@ -1,7 +1,7 @@
 import { catalog } from './catalog.js';
 import { orderLike } from './canonical.js';
 import { LANGUAGES, REGIONS } from './locale-map.js';
-import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
+import { DEFAULT_MAX_CONCURRENT_READS, DEFAULT_MAX_POOLED_TABS, MAX_CONCURRENT_READS, MAX_POOLED_TABS, MIN_MAX_CONCURRENT_READS, MIN_POOLED_TABS } from './browser-limits.js';
 import { DEFAULT_FALLBACK_RULES, validateRuleIssues } from './fetch/rules.js';
 import { parseBrowserEndpoint } from './browser-endpoint.js';
 import {
@@ -91,7 +91,7 @@ export function defaultConfig(): SearchConfig {
   return {
     maxResults:8, concurrency:4, overallTimeoutMs:30000,
     language:'', region:'', recency:'any', safeSearch:true, includeDomains:[], excludeDomains:[],dedup:'url',fusion:'rrf',
-    browser:{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:DEFAULT_MAX_CONCURRENT_READS},
+    browser:{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:DEFAULT_MAX_CONCURRENT_READS,maxPooledTabs:DEFAULT_MAX_POOLED_TABS},
     retry:{enabled:true,statuses:[408,429,500,502,503,504],maxRetries:2,initialDelayMs:500,maxDelayMs:5000,networkErrors:false,timeouts:false},
     cache:{enabled:true,ttlSeconds:900,maxEntries:100},breaker:{enabled:false,threshold:3,cooldownMs:60000},diagnostics:{enabled:true,maxEntries:50},tools:{webSearchPlus:true,compactByDefault:false,webExtract:false},
     pageFetch:defaultPageFetchConfig(),
@@ -157,6 +157,7 @@ export function validateConfig(value: unknown): ConfigIssue[] {
   };
   if (!(c.browser.timeoutMs >= 1000 && c.browser.timeoutMs <= 120000)) fail('browser.timeoutMs', 'Expected 1000 to 120000 milliseconds.', 'field.range', { min: 1000, max: 120000 });
   num(c.browser.maxConcurrentReads, MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, 'browser.maxConcurrentReads');
+  num(c.browser.maxPooledTabs, MIN_POOLED_TABS, MAX_POOLED_TABS, 'browser.maxPooledTabs');
   for (const d of catalog) {
     const b = c.backends[d.id]!; const p = `backends.${d.id}`;
     choice(b.mode, d.modes.map(m => m.mode), `${p}.mode`, 'backend.mode.unsupported', { backend: d.id, title: d.title, mode: String(b.mode) });
@@ -339,6 +340,9 @@ export function parseConfig(value:unknown):SearchConfig{
     // is filled: an explicit null, wrong type or out-of-range value is left for validation to reject,
     // and unknown sibling keys stay unknown.
     if(raw.browser&&typeof raw.browser==='object'&&!Array.isArray(raw.browser)&&!Object.hasOwn(raw.browser,'maxConcurrentReads'))raw.browser.maxConcurrentReads=defaults.browser.maxConcurrentReads;
+    // Older saved browser blocks likewise gain the retained-tab default, while invalid explicit
+    // values are left in place for validation to reject.
+    if(raw.browser&&typeof raw.browser==='object'&&!Array.isArray(raw.browser)&&!Object.hasOwn(raw.browser,'maxPooledTabs'))raw.browser.maxPooledTabs=defaults.browser.maxPooledTabs;
     // A browser or provider fetch route is its own delegated decision now: the retired switch is
     // dropped on load instead of failing the whole file, so an enabled route keeps working.
     if(raw.pageFetch&&typeof raw.pageFetch==='object'&&!Array.isArray(raw.pageFetch))delete raw.pageFetch.allowDelegatedFetching;

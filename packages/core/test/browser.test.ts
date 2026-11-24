@@ -728,6 +728,19 @@ test('the legacy evaluate and target entry points use the same kept page and lim
 
 // --- retained tabs ---------------------------------------------------------------------------
 
+test('four recent search tabs are retained by default', async () => {
+  const world = new FakeWorld();
+  world.onNewPage = page => scriptSearchPage(world, page, 'q');
+  const session = sessionOf(world);
+  const ctx = xhsContext(session);
+  for (const query of ['one', 'two', 'three', 'four', 'five']) {
+    await readXhsSearch({ query }, ctx);
+  }
+  const openTabs = world.pages.filter(page => !page.closed && page.navigations.some(url => url.includes('/search_result')));
+  assert.equal(openTabs.length, 4, 'the fifth search evicts only the least recently used search tab');
+  await session.close();
+});
+
 test('retained tabs are bounded, and the least recently used one is closed first', async () => {
   const world = new FakeWorld();
   world.onNewPage = page => {
@@ -758,7 +771,7 @@ test('retained tabs are bounded, and the least recently used one is closed first
       call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
     };
   };
-  const session = sessionOf(world);
+  const session = sessionOf(world, { maxPooledTabs: 2 });
   const ctx = xhsContext(session);
 
   // Each search retains its tab, so a bounded pool must evict rather than accumulate.
@@ -1315,4 +1328,26 @@ test('maxConcurrentReads is validated instead of silently clamped', () => {
   }
   const passedThrough = optionsOf({ wsEndpoint: 'ws://127.0.0.1:3000/xhs', timeoutMs: 1_000, signal: new AbortController().signal, maxConcurrentReads: 3 });
   assert.equal(passedThrough.maxConcurrentReads, 3);
+});
+
+test('maxPooledTabs is validated and passed through independently', () => {
+  const world = new FakeWorld();
+  for (const value of [0, 9, 1.5, Number.NaN]) {
+    assert.throws(
+      () => new BrowserSession(options(world, { maxPooledTabs: value })),
+      (error: unknown) => {
+        assert.ok(error instanceof SearchError);
+        assert.equal(error.kind, 'configuration');
+        assert.match(error.message, /maxPooledTabs/);
+        return true;
+      },
+    );
+  }
+  for (const value of [1, 4, 8]) {
+    const session = new BrowserSession(options(world, { maxPooledTabs: value }));
+    assert.ok(session);
+  }
+  const passedThrough = optionsOf({ wsEndpoint: 'ws://127.0.0.1:3000/xhs', timeoutMs: 1_000, signal: new AbortController().signal, maxPooledTabs: 6 });
+  assert.equal(passedThrough.maxPooledTabs, 6);
+  assert.equal(passedThrough.maxConcurrentReads, undefined, 'the active-read limit is untouched');
 });

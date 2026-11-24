@@ -94,9 +94,10 @@ Point the DSH plugin or the MCP server at the endpoint and give it the token. In
 | Session file | `/path/to/data/state.json`, the host path of the `/profile` volume |
 | Read timeout | leave the default unless reads time out |
 | Per-site concurrent reads | 1–8, default 2; a local cap, not a site quota |
+| Retained search tabs | 1–8, default 4; independent of the active-read cap |
 
 In the MCP server these are `search.browser.endpoint`, `search.browser.statePath`,
-`search.browser.timeoutMs`, `search.browser.maxConcurrentReads`, plus `DSH_SEARCH_BROWSER_TOKEN` or
+`search.browser.timeoutMs`, `search.browser.maxConcurrentReads`, `search.browser.maxPooledTabs`, plus `DSH_SEARCH_BROWSER_TOKEN` or
 `credentials.browser` for the token. See the [MCP README](../../websearch-mcp/README.md).
 
 The session file must be the one this container writes. If the host cannot read that path, every read

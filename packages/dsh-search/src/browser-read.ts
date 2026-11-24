@@ -20,6 +20,7 @@ export function xhsBrowserRead(config: SearchConfig, token: string | undefined, 
     ...(statePath ? { statePath } : {}),
     timeoutMs: config.browser.timeoutMs || backend.timeoutMs,
     maxConcurrentReads: config.browser.maxConcurrentReads,
+    maxPooledTabs: config.browser.maxPooledTabs,
     signal,
   };
 }

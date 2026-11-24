@@ -2,7 +2,7 @@ import type { AdapterInput, AdapterResult, Source } from './types.js';
 import { requestJson, requestText, SearchError, type TransportOptions } from './transport.js';
 import { callMcp } from './mcp.js';
 import { languageFor, regionFor } from './locale-map.js';
-import { DEFAULT_MAX_CONCURRENT_READS } from './browser-limits.js';
+import { DEFAULT_MAX_CONCURRENT_READS, DEFAULT_MAX_POOLED_TABS } from './browser-limits.js';
 import { searchTencent } from './tencent.js';
 import { searchReddit, type RedditCredentials } from './reddit/index.js';
 import { parseXCredentials, searchX, type XCredentials } from './x/index.js';
@@ -70,7 +70,7 @@ export interface BrowserRead {
    * caller's signal. The cap comes from the shared browser configuration and is part of the session
    * identity, so a reader that drops it would silently join a differently bounded session.
    */
-  search(input:{query:string;maxResults:number;options:Record<string,unknown>;key?:string},ctx:{wsEndpoint:string;statePath?:string;timeoutMs:number;maxConcurrentReads:number;signal:AbortSignal}):Promise<Source[]>;
+  search(input:{query:string;maxResults:number;options:Record<string,unknown>;key?:string},ctx:{wsEndpoint:string;statePath?:string;timeoutMs:number;maxConcurrentReads:number;maxPooledTabs:number;signal:AbortSignal}):Promise<Source[]>;
 }
 
 export const browserBackends:Record<string,BrowserRead>={};
@@ -88,7 +88,8 @@ export async function runAdapter(id:string,i:AdapterInput,t:TransportOptions):Pr
     const statePath=String(o.statePath||c.browser?.statePath||'');
     const timeoutMs=Number(c.browser?.timeoutMs||b.timeoutMs);
     const maxConcurrentReads=Number(c.browser?.maxConcurrentReads??DEFAULT_MAX_CONCURRENT_READS);
-    const sources=await browser.search({query:i.query,maxResults:i.maxResults,options:o,key:i.key},{wsEndpoint:endpoint,...(statePath?{statePath}:{}),timeoutMs,maxConcurrentReads,signal:t.signal});
+    const maxPooledTabs=Number(c.browser?.maxPooledTabs??DEFAULT_MAX_POOLED_TABS);
+    const sources=await browser.search({query:i.query,maxResults:i.maxResults,options:o,key:i.key},{wsEndpoint:endpoint,...(statePath?{statePath}:{}),timeoutMs,maxConcurrentReads,maxPooledTabs,signal:t.signal});
     return {sources};
   }
   if(id==='x'){

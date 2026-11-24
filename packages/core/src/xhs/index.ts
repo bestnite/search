@@ -7,6 +7,7 @@ import {
   type BrowserTab,
   type TabHandle,
   DEFAULT_MAX_CONCURRENT_READS,
+  DEFAULT_MAX_POOLED_TABS,
   sessionFor,
   type BrowserSessionOptions,
 } from '../browser.js';
@@ -35,6 +36,11 @@ export interface XhsContext {
    * of the session identity, so a note read has to pass the same value to join the search's session.
    */
   maxConcurrentReads?: number;
+  /**
+   * How many search tabs are retained for follow-up reads (1 through 8, default 4). Like the active
+   * read limit, it is part of the session identity so search and note reads must pass the same value.
+   */
+  maxPooledTabs?: number;
   /**
    * Injected in tests; production uses the kept browser session. Only the transaction entry points
    * are exposed: a read must not be able to close the connection or write the session file.
@@ -154,6 +160,7 @@ const browserFor = (ctx: XhsContext): Pick<BrowserSession, 'read' | 'readTab'> =
     options.siteUrl,
     options.statePath ?? '',
     options.maxConcurrentReads ?? DEFAULT_MAX_CONCURRENT_READS,
+    options.maxPooledTabs ?? DEFAULT_MAX_POOLED_TABS,
   ]);
   return sessionFor(key, options);
 };
@@ -169,6 +176,7 @@ export function optionsOf(ctx: XhsContext): BrowserSessionOptions {
     statePolicy: 'read-only',
     ...(ctx.token ? { token: ctx.token } : {}),
     ...(ctx.maxConcurrentReads !== undefined ? { maxConcurrentReads: ctx.maxConcurrentReads } : {}),
+    ...(ctx.maxPooledTabs !== undefined ? { maxPooledTabs: ctx.maxPooledTabs } : {}),
   };
 }
 

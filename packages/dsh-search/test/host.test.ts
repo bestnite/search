@@ -32,7 +32,7 @@ test('the shared browser per-site cap is a schema default, an editable field wit
  assert.equal(defaults.browser.maxConcurrentReads,2);
  assert.equal(Config({}).browser.maxConcurrentReads,2,'the host schema carries the new default');
  const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');
- assert.match(client,/fields\(\['browser\.endpoint', 'browser\.statePath', 'browser\.timeoutMs', 'browser\.maxConcurrentReads'\]/,'the shared browser section renders the new field');
+ assert.match(client,/fields\(\['browser\.endpoint', 'browser\.statePath', 'browser\.timeoutMs', 'browser\.maxConcurrentReads', 'browser\.maxPooledTabs'\]/,'the shared browser section renders the new field');
  assert.match(client,/'browser\.maxConcurrentReads': \{ type: 'number' \}/);
  assert.match(client,/'browser\.maxConcurrentReads': \[MIN_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS\]/);
  for(const lang of ['en','zh']){
@@ -44,14 +44,32 @@ test('the shared browser per-site cap is a schema default, an editable field wit
  }
 });
 
+test('the retained-tab pool is a schema default and an editable field with localized help',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ assert.equal(defaultConfig().browser.maxPooledTabs,4);
+ assert.equal(Config({}).browser.maxPooledTabs,4,'the host schema carries the pool default');
+ const client=await readFile(new URL('../src/client.tsx',import.meta.url),'utf8');
+ assert.match(client,/'browser\.maxPooledTabs': \{ type: 'number' \}/);
+ assert.match(client,/'browser\.maxPooledTabs': \[MIN_POOLED_TABS, MAX_POOLED_TABS\]/);
+ for(const lang of ['en','zh']){
+  const locale=JSON.parse(await readFile(new URL(`../locale/${lang}.json`,import.meta.url),'utf8'));
+  for(const key of ['field.browser.maxPooledTabs','help.browser.maxPooledTabs']){
+   assert.equal(typeof locale[key],'string',`${lang} supplies ${key}`);
+   assert.ok(locale[key].trim(),`${lang} supplies non-empty ${key}`);
+  }
+ }
+});
+
 test('a non-default per-site browser cap survives save and reload',async()=>{
  const h=harness();await apply(h.ctx,defaultConfig());const signal=new AbortController().signal;
  const snapshot=await h.tool('search_manage')!.execute({action:'settings'},{signal});
- const next=structuredClone(snapshot.config);next.browser.maxConcurrentReads=5;
+ const next=structuredClone(snapshot.config);next.browser.maxConcurrentReads=5;next.browser.maxPooledTabs=7;
  await h.tool('search_manage')!.execute({action:'save',config:next,expectedRevision:snapshot.revision},{signal});
  assert.equal((h.stored as any).browser.maxConcurrentReads,5,'the saved configuration keeps the chosen cap');
+ assert.equal((h.stored as any).browser.maxPooledTabs,7,'the saved configuration keeps the retained-tab pool');
  const {parseConfig}=await import('@nite07/search-core');
  assert.equal(parseConfig(h.stored).browser.maxConcurrentReads,5,'a reload keeps it instead of restoring the default');
+ assert.equal(parseConfig(h.stored).browser.maxPooledTabs,7,'the pool survives reload independently');
 });
 
 test('Reddit is an opt-in backend with two explicit modes and its own comment tool',async()=>{const {catalog}=await import('@nite07/search-core');const reddit=catalog.find(item=>item.id==='reddit')!;assert.deepEqual(reddit.modes.map(m=>m.mode).sort(),['anonymous','oauth']);assert.ok(reddit.modes.every(m=>m.tier!=='unverified'));const h=harness();await apply(h.ctx,defaultConfig());const tool=h.tool('reddit_thread');assert.ok(tool,'reddit_thread should be registered');const props=Object.keys((tool as any).parameters.properties);for(const key of['url','postId','sort','limit','depth'])assert.ok(props.includes(key),`missing ${key}`);assert.match(String((tool as any).description),/untrusted/i);});

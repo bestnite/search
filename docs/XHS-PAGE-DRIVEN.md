@@ -276,10 +276,10 @@ Passing the current suite is a regression baseline, not evidence that this archi
 
 These were open questions in the design and are now settled in the code.
 
-- **Pooled tabs are kept, bounded to two.** A candidate reference is only usable while its tab
-  lives, so closing every tab after a read would make the reference useless. The pool holds at most
-  two tabs and evicts the least recently used one, so a long run cannot hoard pages. A pooled tab
-  still dies with the session's idle window.
+- **Pooled tabs are kept, bounded by `browser.maxPooledTabs`.** A candidate reference is only usable
+  while its tab lives, so closing every tab after a read would make the reference useless. The pool
+  defaults to four tabs and accepts 1–8, evicting the least recently used one so a long run cannot
+  hoard pages. A pooled tab still dies with the session's idle window.
 - **Content generation follows `framenavigated`.** The counter increments on the page's own
   navigation event, which fires for a `pushState` route change as well as for a new document. Live
   searches were observed advancing the counter several times while the page settled. A route change

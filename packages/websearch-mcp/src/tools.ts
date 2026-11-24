@@ -316,6 +316,7 @@ async function xhsContext(config: ServerConfig, signal: AbortSignal): Promise<Xh
     ...(statePath ? { statePath } : {}),
     timeoutMs: config.search.browser.timeoutMs || backend.timeoutMs,
     maxConcurrentReads: config.search.browser.maxConcurrentReads,
+    maxPooledTabs: config.search.browser.maxPooledTabs,
     signal,
   };
 }

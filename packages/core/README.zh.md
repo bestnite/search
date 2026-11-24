@@ -100,13 +100,14 @@ result.outcomes;  // 每个后端的细节：ok、错误类型、耗时、尝试
 config.browser.endpoint = 'ws://127.0.0.1:3000/ws';
 config.browser.statePath = '/path/to/search-browser/data/state.json';
 config.browser.maxConcurrentReads = 3;   // 可选，同站点并发上限；默认 2，范围 1–8
+config.browser.maxPooledTabs = 4;        // 可选，保留搜索标签页数；默认 4，范围 1–8
 config.backends.xiaohongshu!.enabled = true;
 config.backends.xiaohongshu!.mode = 'browser';
 ```
 
 端点令牌从 `DSH_SEARCH_BROWSER_TOKEN` 解析。端点本身允许匿名连接时，缺令牌也不影响连上去。这个库只负责连上去和读取，登录和 profile 始终归那个浏览器的主人。
 
-`maxConcurrentReads` 限制同一个站点上同时跑几个读取。它是本地的安全上限，不是站点额度；超出范围会当作配置错误，而不是悄悄截断。
+`maxConcurrentReads` 限制同一个站点上同时跑几个读取；`maxPooledTabs` 独立限制保留多少个搜索标签页供后续笔记读取。两者都是本地安全上限，不是站点额度；超出范围会当作配置错误，而不是悄悄截断。
 
 不想经过引擎、只想发一次请求的宿主，可以直接用导出的读取函数：`searchXhs`、`fetchXhsNote`、`fetchXhsComments`、`searchX`、`fetchXThread`、`fetchRedditThread`。
 

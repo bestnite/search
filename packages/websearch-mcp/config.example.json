@@ -106,7 +106,8 @@
       "endpoint": "",
       "statePath": "",
       "timeoutMs": 60000,
-      "maxConcurrentReads": 2
+      "maxConcurrentReads": 2,
+      "maxPooledTabs": 4
     },
     "pageFetch": {
       "routes": [

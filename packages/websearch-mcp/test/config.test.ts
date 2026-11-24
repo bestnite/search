@@ -85,12 +85,14 @@ test('the shipped example loads against the current core',async()=>{
  const config=await loadConfig({configPath:new URL('../config.example.json',import.meta.url).pathname,env:{}});
  assert.deepEqual(enabledBackendIds(config),['keenable','reddit']);
  assert.equal(config.search.browser.maxConcurrentReads,2,'the example carries the per-site read cap');
+ assert.equal(config.search.browser.maxPooledTabs,4,'the example carries the retained-tab pool');
 });
 
 test('a config file from before the per-site cap loads with the default',async()=>{
- const search:any=defaultConfig();delete search.browser.maxConcurrentReads;
+ const search:any=defaultConfig();delete search.browser.maxConcurrentReads;delete search.browser.maxPooledTabs;
  const config=await loadConfig({configPath:await writeTemp({search}),env:{}});
  assert.equal(config.search.browser.maxConcurrentReads,2,'parseConfig fills the missing field without a second option set');
+ assert.equal(config.search.browser.maxPooledTabs,4,'parseConfig also backfills the retained-tab pool');
 });
 
 test('a configured per-site browser cap reaches the browser reader through load and search',async()=>{
@@ -99,16 +101,18 @@ test('a configured per-site browser cap reaches the browser reader through load 
  const search=defaultConfig();
  search.browser.endpoint='ws://127.0.0.1:3000/ws';
  search.browser.maxConcurrentReads=3;
+ search.browser.maxPooledTabs=6;
  search.backends.xiaohongshu!.enabled=true;
  search.backends.xiaohongshu!.endpoint='';
  const config=await loadConfig({configPath:await writeTemp({search,credentials:{browser:'ENDPOINT_TOKEN'}}),env:{}});
  assert.equal(config.search.browser.maxConcurrentReads,3,'a non-default value survives loading');
+ assert.equal(config.search.browser.maxPooledTabs,6,'the pool survives loading independently');
  const original=browserBackends.xiaohongshu!;
- const seen:number[]=[];
- browserBackends.xiaohongshu={search:async(_input,ctx)=>{seen.push(ctx.maxConcurrentReads);return [];}};
+ const seen:Array<{reads:number;pool:number}>=[];
+ browserBackends.xiaohongshu={search:async(_input,ctx)=>{seen.push({reads:ctx.maxConcurrentReads,pool:ctx.maxPooledTabs});return [];}};
  try{
   const tools=createTools(config,{name:'websearch-mcp',version:'0.0.0',projectUrl:'https://example.test'});
   await tools.find(tool=>tool.name==='web_search')!.call({query:'x',backends:['xiaohongshu']},new AbortController().signal);
-  assert.deepEqual(seen,[3],'the real engine hands the loaded cap to the browser reader');
+  assert.deepEqual(seen,[{reads:3,pool:6}],'the real engine hands both loaded limits to the browser reader');
  }finally{browserBackends.xiaohongshu=original;}
 });

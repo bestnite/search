@@ -36,7 +36,7 @@ export { LANGUAGES, REGIONS } from './locale-map.js';
 export { appUserAgent, setUserAgent } from './ua.js';
 export { VERSION, PROJECT_URL } from './version.js';
 export { runAdapter, browserBackends, type BrowserRead } from './adapters.js';
-export { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS, MIN_MAX_CONCURRENT_READS } from './browser-limits.js';
+export { DEFAULT_MAX_CONCURRENT_READS, DEFAULT_MAX_POOLED_TABS, MAX_CONCURRENT_READS, MAX_POOLED_TABS, MIN_MAX_CONCURRENT_READS, MIN_POOLED_TABS } from './browser-limits.js';
 export { fetchRedditThread, searchReddit } from './reddit/index.js';
 export type { RedditComment, RedditCredentials, RedditThread } from './reddit/index.js';
 export { parseXCredentials, searchX } from './x/index.js';

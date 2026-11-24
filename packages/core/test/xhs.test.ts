@@ -415,7 +415,9 @@ test('the xhs session policy is read-only: it loads the state file but never wri
   assert.equal(options.statePath, process.env.XHS_STATE_PATH ?? DEFAULT_STATE_PATH);
   assert.equal(optionsOf({ ...base, statePath: '/tmp/xhs-state.json' }).statePath, '/tmp/xhs-state.json');
   assert.equal(optionsOf({ ...base, maxConcurrentReads: 3 }).maxConcurrentReads, 3);
+  assert.equal(optionsOf({ ...base, maxPooledTabs: 6 }).maxPooledTabs, 6);
   assert.equal('maxConcurrentReads' in optionsOf(base), false, 'the default is left to the browser session');
+  assert.equal('maxPooledTabs' in optionsOf(base), false, 'the pool default is left to the browser session');
 });
 
 test('an empty query is a configuration error before any browser work', async () => {

@@ -7,9 +7,9 @@ and [image README](../packages/core/image/README.md).
 ## One session per site identity
 
 `sessionFor(key, options)` keeps one session per process, keyed by endpoint, token, site URL, state
-file and the concurrency cap. The cap is part of the key deliberately: a reader that omitted it would
-silently join a differently bounded session, so a note or comment read must pass the same value a
-search uses.
+file, the concurrency cap and the retained-tab pool size. Both limits are part of the key deliberately:
+a reader that omitted one would silently join a differently bounded session, so a note or comment read
+must pass the same values a search uses.
 
 A session owns its own connection, context and page. It never touches the keeper's context — that
 belongs to a different client and holds the human sign-in window.
@@ -25,8 +25,17 @@ conservative local starting point, not a site quota. An out-of-range or non-inte
 configuration error, never a silent clamp. A saved configuration from before the field existed is
 filled with the default on load.
 
-Because transactions on the shared page interleave, each result is bound to its own async call; there
+Because transactions on separate tabs interleave, each result is bound to its own async call; there
 is no shared mutable result state.
+
+## Retained search tabs
+
+A successful search may retain its tab so a follow-up read can click the card that produced a result.
+Configuration is `browser.maxPooledTabs` (integer 1–8, default 4), independent of
+`browser.maxConcurrentReads`: the pool bounds idle pages kept for reuse, while the admission limit
+bounds transactions currently running. Beyond the configured pool size, the least recently used tab
+is closed. Pooled tabs are also closed when the session idles out or its generation is recycled, and
+an older saved configuration gains the default pool size on load.
 
 ## Generations and recycling
 

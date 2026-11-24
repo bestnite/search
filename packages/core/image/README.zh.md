@@ -78,8 +78,9 @@ docker logs search-browser
 | 会话文件 | `/path/to/data/state.json`，也就是 `/profile` 卷在宿主上的路径 |
 | 读取超时 | 没超时就保持默认 |
 | 同站点并发读取数 | 1–8，默认 2；本地并发上限，不是站点额度 |
+| 保留搜索标签页数 | 1–8，默认 4；独立于并发读取上限 |
 
-MCP 服务里对应的是 `search.browser.endpoint`、`search.browser.statePath`、`search.browser.timeoutMs`、`search.browser.maxConcurrentReads`，令牌用 `DSH_SEARCH_BROWSER_TOKEN` 或 `credentials.browser`。详见 [MCP 说明](../../websearch-mcp/README.zh.md)。
+MCP 服务里对应的是 `search.browser.endpoint`、`search.browser.statePath`、`search.browser.timeoutMs`、`search.browser.maxConcurrentReads`、`search.browser.maxPooledTabs`，令牌用 `DSH_SEARCH_BROWSER_TOKEN` 或 `credentials.browser`。详见 [MCP 说明](../../websearch-mcp/README.zh.md)。
 
 会话文件必须是这个容器写的那个文件。宿主读不到这个路径，每次读回来就都是未登录。
 

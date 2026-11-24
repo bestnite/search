@@ -183,7 +183,7 @@ const TEXT = {
     cacheEnabled: '启用缓存', ttl: 'TTL (秒)', maxEntries: '条目上限',
     breakerEnabled: '启用熔断', threshold: '失败阈值', cooldown: '冷却 (ms)',
     diagEnabled: '记录诊断', diagEntries: '记录条数',
-    browserEndpoint: '浏览器端点', statePath: '登录态文件', browserTimeout: '浏览器超时 (ms)', maxReads: '并发读取上限',
+    browserEndpoint: '浏览器端点', statePath: '登录态文件', browserTimeout: '浏览器超时 (ms)', maxReads: '并发读取上限', maxPooledTabs: '保留搜索标签页数',
     browserToken: '浏览器令牌', browserTokenNote: '保护浏览器端点，不是站点账号凭证',
     backends: '后端', filter: '按名称或 id 过滤', onlyEnabled: '只看已启用',
     summary: (on, total, missing) => `已启用 ${on} / ${total}，缺凭证 ${missing}`,
@@ -481,7 +481,8 @@ function browserSection() {
   const session = group(t('groupSession'),
     field({ path: 'browser.statePath', type: 'text', label: t('statePath'), placeholder: '~/.config/dsh-search/browser/state.json' }));
   const limits = group(t('groupLimits'),
-    field({ path: 'browser.maxConcurrentReads', type: 'number', label: t('maxReads'), min: 1, max: 8 }));
+    field({ path: 'browser.maxConcurrentReads', type: 'number', label: t('maxReads'), min: 1, max: 8 }),
+    field({ path: 'browser.maxPooledTabs', type: 'number', label: t('maxPooledTabs'), min: 1, max: 8 }));
   // credentialRow renders the name, the state chip and the note itself; adding the note here again
   // printed the same sentence twice.
   const token = h('div', { class: 'panel pad' }, credentialRow('browser', state.snap.browser, t('browserToken'), t('browserTokenNote')));

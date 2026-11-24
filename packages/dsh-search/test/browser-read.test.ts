@@ -9,8 +9,10 @@ test('a direct note read carries the shared per-site cap so it joins the search 
   const config = defaultConfig();
   config.browser.endpoint = 'ws://127.0.0.1:3000/ws';
   config.browser.maxConcurrentReads = 3;
+  config.browser.maxPooledTabs = 6;
   const read = xhsBrowserRead(config, 'ENDPOINT_TOKEN', signal);
   assert.equal(read.maxConcurrentReads, 3, 'the cap is part of the session identity, so the tool must pass it');
+  assert.equal(read.maxPooledTabs, 6, 'the pool size joins the same session identity');
   assert.equal(read.wsEndpoint, config.browser.endpoint);
   assert.equal(read.token, 'ENDPOINT_TOKEN');
   assert.equal(read.timeoutMs, config.browser.timeoutMs);
@@ -34,6 +36,7 @@ test('the same read context applies the shared browser precedence that search ap
   assert.equal(fallback.wsEndpoint, 'ws://backend:3000/ws', "the backend's own endpoint is only a fallback");
   assert.equal(fallback.statePath, '/shared/state.json', 'an empty backend override falls back to the shared session file');
   assert.equal(fallback.maxConcurrentReads, 2, 'a default configuration reads at the conservative default');
+  assert.equal(fallback.maxPooledTabs, 4, 'four search tabs are retained by default');
 
   config.browser.statePath = '';
   assert.equal('statePath' in xhsBrowserRead(config, undefined, signal), false, 'an empty session path is omitted rather than saved as an empty string');

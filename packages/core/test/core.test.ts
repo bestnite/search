@@ -24,7 +24,7 @@ test('malformed successful response is a protocol failure not no-results',async(
 test('configuration rejects credential-bearing and malformed endpoints but accepts plaintext on any host',()=>{for(const endpoint of ['https://u:p@example.org','https://example.org?key=secret','ws://example.org/socket#secret','ftp://example.org']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.ok(validateConfig(c).some(i=>i.path.endsWith('.endpoint')),`${endpoint} should be rejected`);}for(const endpoint of ['http://search.example.org/api','http://host.containers.internal:3030/socket']){const c=config();c.backends.keenable!.endpoint=endpoint;assert.deepEqual(validateConfig(c).filter(i=>i.path.endsWith('.endpoint')),[],`${endpoint} should be accepted`);}});
 test('an adapter that leaves fields undefined cannot break the JSON boundary',async()=>{const c=defaultConfig();c.backends.keenable!.enabled=true;c.retry.enabled=false;const e=new SearchEngine(c,async()=>undefined,mock(()=>Response.json({results:[{url:'https://example.org/a'}]})));const r=await e.search({query:'q'},new AbortController().signal);const walk=(v:any,path:string)=>{if(v===undefined)throw new Error(`undefined at ${path}`);if(v&&typeof v==='object')for(const[k,item]of Object.entries(v))walk(item,`${path}.${k}`);};walk(r,'result');assert.equal(JSON.parse(JSON.stringify(r)).sources.length,1);});
 test('browser-backed readers share one endpoint, one token reference and one session file',async()=>{const {defaultConfig}=await import('../src/config.js');const {validateConfig}=await import('../src/config.js');const {browserBackends}=await import('../src/adapters.js');
- const c=defaultConfig();assert.deepEqual(c.browser,{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:2},'the shared browser block carries no credential name');
+ const c=defaultConfig();assert.deepEqual(c.browser,{endpoint:'',statePath:'',timeoutMs:60000,maxConcurrentReads:2,maxPooledTabs:4},'the shared browser block carries no credential name');
  assert.ok(browserBackends.xiaohongshu,'the browser registry carries the Xiaohongshu reader');
  // A browser backend may leave its own endpoint empty once the shared one is set.
  const shared=defaultConfig();shared.backends.xiaohongshu!.enabled=true;shared.backends.xiaohongshu!.endpoint='';assert.ok(validateConfig(shared).some(i=>i.path==='backends.xiaohongshu.endpoint'),'without any endpoint it is an error');
@@ -198,17 +198,36 @@ test('the shared browser per-site cap defaults to 2, backfills old blocks and re
   assert.ok(validateConfig(unknown).some(issue=>issue.path==='browser.maxReaders'),'the new field does not loosen unknown sibling fields');
 });
 
+test('the retained-tab pool defaults to 4, backfills old blocks and refuses invalid values',async()=>{
+  const {parseConfig}=await import('../src/config.js');
+  const {DEFAULT_MAX_POOLED_TABS,MIN_POOLED_TABS,MAX_POOLED_TABS}=await import('../src/browser-limits.js');
+  assert.equal(DEFAULT_MAX_POOLED_TABS,4);assert.equal(MIN_POOLED_TABS,1);assert.equal(MAX_POOLED_TABS,8);
+  assert.equal(defaultConfig().browser.maxPooledTabs,4);
+  const saved:any=structuredClone(defaultConfig());delete saved.browser.maxPooledTabs;
+  const before=JSON.stringify(saved);
+  const loaded=parseConfig(saved);
+  assert.equal(loaded.browser.maxPooledTabs,4,'an older browser block gains the new default');
+  assert.deepEqual(validateConfig(loaded),[]);
+  assert.equal(JSON.stringify(saved),before,'migration never mutates the caller input');
+  for(const value of [0,9,1.5,'4',null]){
+    const broken:any=structuredClone(defaultConfig());broken.browser.maxPooledTabs=value;
+    assert.ok(validateConfig(broken).some(issue=>issue.path==='browser.maxPooledTabs'),`${String(value)} must be rejected`);
+    assert.throws(()=>parseConfig(broken),/browser\.maxPooledTabs/,`${String(value)} must not be silently replaced on load`);
+  }
+  for(const value of [1,4,8]){const accepted:any=structuredClone(defaultConfig());accepted.browser.maxPooledTabs=value;assert.deepEqual(validateConfig(accepted),[],`${value} is inside the supported range`);}
+});
+
 test('the configured per-site read cap reaches the browser reader',async()=>{
   const {browserBackends}=await import('../src/adapters.js');
-  const original=browserBackends.xiaohongshu!;const seen:number[]=[];
-  browserBackends.xiaohongshu={search:async(_input,ctx)=>{seen.push(ctx.maxConcurrentReads);return [];}};
+  const original=browserBackends.xiaohongshu!;const seen:Array<{reads:number;pool:number}>=[];
+  browserBackends.xiaohongshu={search:async(_input,ctx)=>{seen.push({reads:ctx.maxConcurrentReads,pool:ctx.maxPooledTabs});return [];}};
   try{
     const c=defaultConfig();c.browser.endpoint='ws://127.0.0.1:3000/ws';c.backends.xiaohongshu!.enabled=true;c.backends.xiaohongshu!.mode='browser';c.retry.enabled=false;
     const engine=new SearchEngine(c,async()=>undefined,mock(()=>Response.json(payload)));
     await engine.search({query:'x'},undefined,'xiaohongshu');
-    c.browser.maxConcurrentReads=3;
+    c.browser.maxConcurrentReads=3;c.browser.maxPooledTabs=6;
     await engine.search({query:'x'},undefined,'xiaohongshu');
-    assert.deepEqual(seen,[2,3],'both the default and a non-default cap are handed to the browser reader');
+    assert.deepEqual(seen,[{reads:2,pool:4},{reads:3,pool:6}],'both limits reach the reader, with independent defaults and overrides');
   }finally{browserBackends.xiaohongshu=original;}
 });
 

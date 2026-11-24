@@ -12,3 +12,13 @@ export const DEFAULT_MAX_CONCURRENT_READS = 2;
 export const MIN_MAX_CONCURRENT_READS = 1;
 
 export const MAX_CONCURRENT_READS = 8;
+
+/**
+ * How many search tabs remain available for follow-up reads. Four covers several recent searches
+ * without letting a long-running process accumulate pages indefinitely.
+ */
+export const DEFAULT_MAX_POOLED_TABS = 4;
+
+export const MIN_POOLED_TABS = 1;
+
+export const MAX_POOLED_TABS = 8;

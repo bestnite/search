@@ -149,6 +149,7 @@ Run the container from [`image/`](./image/README.md), sign in once over VNC, the
 config.browser.endpoint = 'ws://127.0.0.1:3000/ws';
 config.browser.statePath = '/path/to/search-browser/data/state.json';
 config.browser.maxConcurrentReads = 3;   // optional per-site cap; default 2, range 1–8
+config.browser.maxPooledTabs = 4;        // optional retained search tabs; default 4, range 1–8
 config.backends.xiaohongshu!.enabled = true;
 config.backends.xiaohongshu!.mode = 'browser';
 ```
@@ -157,8 +158,9 @@ The endpoint token is resolved from `DSH_SEARCH_BROWSER_TOKEN`. A missing token 
 attachment to an endpoint that accepts unauthenticated clients. The library only attaches and only
 reads: signing in and keeping the profile stay with whoever owns that browser.
 
-`maxConcurrentReads` bounds how many reads run on one site at once. It is a local safety bound, not a
-site quota; an out-of-range value is a configuration error rather than a silent clamp.
+`maxConcurrentReads` bounds how many reads run on one site at once. `maxPooledTabs` independently
+bounds how many search tabs stay available for follow-up note reads. Both are local safety bounds,
+not site quotas; an out-of-range value is a configuration error rather than a silent clamp.
 
 Direct readers are exported for hosts that want one call without the engine: `searchXhs`,
 `fetchXhsNote`, `fetchXhsComments`, `searchX`, `fetchXThread` and `fetchRedditThread`.

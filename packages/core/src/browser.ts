@@ -4,7 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'patchrig
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS } from './browser-limits.js';
+import { DEFAULT_MAX_CONCURRENT_READS, DEFAULT_MAX_POOLED_TABS, MAX_CONCURRENT_READS, MAX_POOLED_TABS, MIN_POOLED_TABS } from './browser-limits.js';
 import { SearchError } from './transport.js';
 
 /** A refusal that reaches the whole site, as opposed to one item the caller asked for. */
@@ -21,7 +21,7 @@ export function defaultBrowserStatePath(): string {
 
 // The bound itself lives in a browser-safe module: the settings UI bundles the configuration schema
 // and must not pull patchright in. Re-exported here because this is where callers expect it.
-export { DEFAULT_MAX_CONCURRENT_READS } from './browser-limits.js';
+export { DEFAULT_MAX_CONCURRENT_READS, DEFAULT_MAX_POOLED_TABS } from './browser-limits.js';
 
 /**
  * One connection to the browser the user runs. The browser belongs to them: this class never
@@ -55,6 +55,11 @@ export interface BrowserSessionOptions {
    * configuration error rather than a silent clamp.
    */
   maxConcurrentReads?: number;
+  /**
+   * How many tabs may wait in the pool for a caller to return to their candidates. Defaults to 4;
+   * accepted values are integers from 1 through 8. This is independent of the active-read limit.
+   */
+  maxPooledTabs?: number;
   /**
    * Whole shutdown budget for `close()`: the wait for in-flight reads plus the teardown are paid
    * from this one deadline. Defaults to 5000ms.
@@ -184,11 +189,6 @@ interface ReadJob {
 const DEFAULT_IDLE_MS = 300_000;
 const DEFAULT_CLOSE_MS = 5_000;
 const PERSIST_INTERVAL_MS = 60_000;
-/**
- * How many tabs may wait in the pool for a caller to come back to their candidates. Enough for a
- * couple of recent searches to stay operable, small enough that a long run cannot hoard pages.
- */
-const MAX_POOLED_TABS = 2;
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -346,6 +346,7 @@ export class BrowserSession {
   private closed = false;
   private closing: Promise<void> | undefined;
   private admissionLimit: number;
+  private readonly poolLimit: number;
   private activeCount = 0;
   private waiters: ReadJob[] = [];
   private readonly activeJobs = new Set<ReadJob>();
@@ -381,6 +382,14 @@ export class BrowserSession {
       );
     }
     this.admissionLimit = limit;
+    const poolLimit = options.maxPooledTabs ?? DEFAULT_MAX_POOLED_TABS;
+    if (!Number.isInteger(poolLimit) || poolLimit < MIN_POOLED_TABS || poolLimit > MAX_POOLED_TABS) {
+      throw new SearchError(
+        'configuration',
+        `maxPooledTabs must be an integer from ${MIN_POOLED_TABS} through ${MAX_POOLED_TABS}; it bounds retained tabs, not active reads.`,
+      );
+    }
+    this.poolLimit = poolLimit;
   }
 
   get isClosed(): boolean {
@@ -1140,7 +1149,7 @@ export class BrowserSession {
       this.pooledTabs.set(record.id, record);
       // The pool exists so a candidate reference survives a search, not to hoard pages: past a
       // small bound the least recently used one is closed, so a busy caller cannot accumulate tabs.
-      while (this.pooledTabs.size > MAX_POOLED_TABS) {
+      while (this.pooledTabs.size > this.poolLimit) {
         const oldest = [...this.pooledTabs.values()].sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
         if (!oldest) break;
         this.pooledTabs.delete(oldest.id);
