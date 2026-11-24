@@ -334,6 +334,7 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
     }
 
     const notes: XhsNoteSummary[] = [];
+    const openings: Array<{ id: string; url: string }> = [];
     for (const raw of items) {
       if (!raw || typeof raw !== 'object') continue;
       const item = raw as Record<string, unknown>;
@@ -343,20 +344,30 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
       const card = (item.note_card ?? {}) as Record<string, unknown>;
       const user = (card.user ?? {}) as Record<string, unknown>;
       const stats = (card.interact_info ?? {}) as Record<string, unknown>;
+      const publicUrl = `${DEFAULT_SITE_URL}/explore/${id}`;
       notes.push({
         id,
         title: stringOf(card.display_title) || stringOf(card.title),
         author: stringOf(user.nickname) || stringOf(user.nick_name),
         likes: stats.liked_count === undefined || stats.liked_count === null ? '0' : String(stats.liked_count),
-        url: `${DEFAULT_SITE_URL}/explore/${id}`,
+        url: publicUrl,
       });
+      // The site may refuse the bare /explore/<id> address even though the card was just listed.
+      // Keep the search-issued token for an internal fallback opening, never in the public source.
+      const openUrl = new URL(publicUrl);
+      const token = stringOf(item.xsec_token) || stringOf(card.xsec_token);
+      if (token) {
+        openUrl.searchParams.set('xsec_token', token);
+        openUrl.searchParams.set('xsec_source', 'pc_search');
+      }
+      openings.push({ id, url: openUrl.toString() });
     }
 
     if (input.retain !== false) tab.retain();
     const handle = tab.handle();
     // Remember which notes this search listed, so "read the note I just saw" can act on the tab
     // without the caller ever holding a token or a private handle.
-    if (input.retain !== false) rememberListed(notes, handle);
+    if (input.retain !== false) rememberListed(openings, handle);
     return { notes, candidates: [...byId.values()], handle };
   }, { signal: ctx.signal });
 }
@@ -383,6 +394,8 @@ export async function searchXhs(input: { query: string; maxResults: number; sort
 interface NoteTarget {
   id: string;
   handle?: TabHandle;
+  /** Where the note lives, used when the tab that listed it is no longer around. */
+  url?: string;
 }
 
 /**
@@ -397,13 +410,20 @@ interface NoteTarget {
  * never turn into a click on different content. Entries are replaced by later searches and bounded,
  * so the table cannot grow without limit.
  */
-const listedNotes = new Map<string, TabHandle>();
+interface ListedNote {
+  /** The tab that rendered this note, while it is still alive. */
+  handle: TabHandle;
+  /** The page address for this note, which is how the note is reached when that tab is gone. */
+  url: string;
+}
+
+const listedNotes = new Map<string, ListedNote>();
 const LISTED_NOTE_LIMIT = 200;
 
-function rememberListed(notes: readonly { id: string }[], handle: TabHandle): void {
+function rememberListed(notes: readonly { id: string; url: string }[], handle: TabHandle): void {
   for (const note of notes) {
     if (!note.id) continue;
-    listedNotes.set(note.id, handle);
+    listedNotes.set(note.id, { handle, url: note.url });
   }
   while (listedNotes.size > LISTED_NOTE_LIMIT) {
     const oldest = listedNotes.keys().next();
@@ -413,12 +433,14 @@ function rememberListed(notes: readonly { id: string }[], handle: TabHandle): vo
 }
 
 /**
- * Forget the listed notes a handle can no longer act on. Called when a read proves the tab is gone,
- * so a later "read that note by id" reports a stale reference instead of retrying a dead one.
+ * Drop the tab a stale handle referred to, keeping the note address. A read whose tab has gone can
+ * still open the note by its address; only the click path is lost.
  */
 function forgetListedFrom(handle: TabHandle): void {
   for (const [id, entry] of listedNotes) {
-    if (entry.generation !== handle.generation || entry.tabId === handle.tabId) listedNotes.delete(id);
+    if (entry.handle.generation === handle.generation && entry.handle.tabId === handle.tabId) {
+      listedNotes.delete(id);
+    }
   }
 }
 
@@ -449,21 +471,25 @@ export function resolveTarget(input: { url?: string; id?: string; handle?: TabHa
       const id = match?.[1] ?? url.pathname.split('/').filter(Boolean).pop() ?? '';
       if (id === '') throw new SearchError('configuration', `Could not read a note id from "${raw}".`);
       // A share link may also reuse a listed tab, which keeps the click path available.
-      const listed = input.handle ?? listedNotes.get(id);
-      return { id, ...(listed ? { handle: listed } : {}) };
+      const entry = listedNotes.get(id);
+      const handle = input.handle ?? entry?.handle;
+      return { id, ...(handle ? { handle } : {}), ...(entry ? { url: entry.url } : {}) };
     } catch (error) {
       if (error instanceof SearchError) throw error;
       throw new SearchError('configuration', `"${raw}" is not a Xiaohongshu note URL.`);
     }
   }
-  const handle = input.handle ?? listedNotes.get(raw);
+  const listed = listedNotes.get(raw);
+  const handle = input.handle ?? listed?.handle;
   if (!handle) {
     throw new SearchError(
       'configuration',
       'A note id is only usable for a note this session listed. Search for it first, or pass the note share link.',
     );
   }
-  return { id: raw, handle };
+  // The address travels with the id: if the tab that listed it has since gone, the read still has a
+  // way to open the note, and it stays a page navigation rather than an API call.
+  return { id: raw, handle, ...(listed ? { url: listed.url } : {}) };
 }
 
 /**
@@ -480,13 +506,18 @@ export async function readXhsNote(
   const limit = Math.min(Math.max(input.commentLimit ?? 20, 1), 50);
   const withComments = input.withComments === true;
 
-  const run = async (): Promise<XhsNoteRead> => browserFor(ctx).readTab(async tab => {
+  /**
+   * One attempt at the read. `openUrl` is set when the note must be reached by its address — either
+   * because the caller passed a share link, or because the tab that listed it is gone — and left
+   * unset when the card can be clicked in the tab that listed it.
+   */
+  const attempt = (options: { openUrl?: string; handle?: TabHandle }): Promise<XhsNoteRead> => browserFor(ctx).readTab(async tab => {
     const detail = tab.expectResponse(url => url.pathname === '/api/sns/web/v1/feed', ctx.timeoutMs);
     detail.catch(() => undefined);
 
-    if (input.url && input.url.includes('/')) {
-      // A share link is a defined way in: open the target itself, carrying the token it holds.
-      await tab.navigate(input.url, ctx.timeoutMs);
+    if (options.openUrl) {
+      // Open the target itself. A share link carries the token it was copied with.
+      await tab.navigate(options.openUrl, ctx.timeoutMs);
     } else {
       // A listed note is opened from the tab that listed it, which is already on the search page, so
       // the identity is judged here rather than after the click. A blank tab has no runtime, and
@@ -505,26 +536,53 @@ export async function readXhsNote(
       await tab.clickTarget(candidateSelector(target.id), ctx.timeoutMs);
     }
 
-    const data = await readEnvelope(await detail, 'note');
-    const items = data.items;
-    if (items !== undefined && !Array.isArray(items)) {
-      throw new SearchError('protocol', 'The Xiaohongshu note response carried an unexpected item list.');
-    }
-    // An empty item list is the site saying this note is not readable by this account, which is a
-    // subject refusal. Waiting for a state that will never arrive would report it as a timeout.
-    if (Array.isArray(items) && items.length === 0) {
-      throw new SearchError(
-        'authentication',
-        'Xiaohongshu returned no note for this link. It may be private, deleted, or not visible to this account.',
-      );
-    }
-
-    const note = await until(async () => {
+    const detailData = detail.then(response => readEnvelope(response, 'note'));
+    const checkDetail = (data: Record<string, unknown>): void => {
+      const items = data.items;
+      if (items !== undefined && !Array.isArray(items)) {
+        throw new SearchError('protocol', 'The Xiaohongshu note response carried an unexpected item list.');
+      }
+      // An empty item list is the site saying this note is not readable by this account, which is a
+      // subject refusal. Waiting for a state that will never arrive would report it as a timeout.
+      if (Array.isArray(items) && items.length === 0) {
+        throw new SearchError(
+          'authentication',
+          'Xiaohongshu returned no note for this link. It may be private, deleted, or not visible to this account.',
+        );
+      }
+    };
+    const noteReady = (): Promise<NoteDetailProbe> => until(async () => {
+      // A missing or expired note token can redirect to the site's own 404 page without any detail
+      // response. That is a subject refusal, not a reason to wait for the whole timeout budget.
+      if (tab.path === '/404' || tab.path.startsWith('/404/')) {
+        throw new SearchError(
+          'authentication',
+          'Xiaohongshu could not open this note. It may be private, deleted, or its search token may have expired; search again or use a fresh share link.',
+        ).withScope('subject');
+      }
       const found = await tab.evaluate<NoteDetailProbe>(noteDetailScript(target.id));
       if (!found.found) return undefined;
       if (!found.idMatches) throw new SearchError('protocol', 'The page opened a different note than the one this read asked for.');
       return found;
     }, ctx.timeoutMs, ctx.signal);
+
+    let note: NoteDetailProbe;
+    if (options.openUrl) {
+      // A direct navigation may render the note from the document's initial state and never call
+      // /v1/feed at all. Accept either that state or the response, but never require both.
+      const state = noteReady();
+      const first = await Promise.race([
+        state.then(value => ({ kind: 'state' as const, value })),
+        detailData.then(value => ({ kind: 'response' as const, value })),
+      ]);
+      if (first.kind === 'response') checkDetail(first.value);
+      note = first.kind === 'state' ? first.value : await state;
+    } else {
+      // A card click opens the note through the site's own detail request, which also carries the
+      // refusal when the note cannot be read.
+      checkDetail(await detailData);
+      note = await noteReady();
+    }
 
     const projectNote: XhsNote = {
       id: target.id,
@@ -589,15 +647,19 @@ export async function readXhsNote(
       note: projectNote,
       comments: { comments, hasMore: hasMore || collected.length > limit, ...(cursor ? { cursor } : {}) },
     };
-  }, { ...(target.handle ? { handle: target.handle } : {}), signal: ctx.signal });
+  }, { ...(options.handle ? { handle: options.handle } : {}), signal: ctx.signal });
 
+  // A share link opens the target directly; anything else starts from the tab that listed the note.
+  const shareLink = input.url && input.url.includes('/') ? input.url : undefined;
   try {
-    return await run();
+    return await attempt({ ...(shareLink ? { openUrl: shareLink } : {}), ...(target.handle ? { handle: target.handle } : {}) });
   } catch (error) {
-    // A dead handle is worth forgetting: keeping it would make every later attempt on that tab
-    // fail the same way instead of telling the caller to search again.
-    if (target.handle && isStaleHandle(error)) forgetListedFrom(target.handle);
-    throw error;
+    if (shareLink || !target.handle || !isStaleHandle(error)) throw error;
+    // The tab that listed this note is gone. Drop the dead handle and open the note by its address:
+    // the read still happens on a real page, it simply cannot reuse that listing's click.
+    forgetListedFrom(target.handle);
+    if (!target.url) throw error;
+    return attempt({ openUrl: target.url });
   }
 }
 

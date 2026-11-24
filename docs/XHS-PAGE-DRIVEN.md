@@ -117,34 +117,38 @@ Identity is a pair, and both halves are checked:
 A follow-up read:
 
 1. Takes an admission slot.
-2. Re-acquires exclusive ownership of the referenced tab from the pool.
+2. Re-acquires exclusive ownership of the referenced tab from the pool when it still exists.
 3. Verifies generation, content generation, and that `noteId` is still present and operable.
 4. Clicks only after that verification; `position` is a hint for finding it again, never a click
    target.
-5. Fails with a distinct stale-reference error if any check fails. It does not click a different
-   card, and it does not fall back to the interface path.
+5. If the tab or its generation is stale, discards the dead handle and opens the note by the full
+   page address recorded by the search. This is still a page navigation, never an interface call.
+   If the candidate is present but no longer operable, the read fails without clicking another card.
 
 Because a pooled tab lives at most one idle window while search results are cached for fifteen
-minutes, a cached result can easily outlive its tab. That is expected: the reference is reported
-stale, and the caller may retry from a fresh search or supply a share link.
+minutes, a cached result can easily outlive its tab. The recorded page address keeps the note
+readable after that. If the search-issued token has also expired, the caller must search again or
+supply a fresh share link.
 
 ### Opening by target instead of by candidate
 
-A caller may pass a note URL. That opens the target in the caller's own tab. It is a defined
-operation, not a fallback.
+A caller may pass a note URL. That opens the target in the caller's own tab. The same operation is
+used when a listed note's tab has disappeared.
 
-A bare note id is accepted only when a live candidate for that id exists in the current session.
-Otherwise the read fails with an actionable error asking for a share link. A token is not evidence of
-session ownership, so an id alone cannot be resolved safely.
+A bare note id is accepted only when a search in this process listed it. Otherwise the read fails
+with an actionable error asking for a search or a share link. An arbitrary id is never resolved
+merely because it resembles a note id.
 
 ## Candidates
 
 A search yields two things that must stay separate:
 
 1. **Public results** — URL, title, summary. Cacheable and shown like any other source.
-2. **Private candidate references** — the fields above, held in an internal registry. They are never
-   carried on a public `Source`, because the compact path rebuilds `Source` and would drop or leak
-   them.
+2. **Private candidate references** — the fields above, the tab handle, and the full page address for
+   reopening the note, held in a bounded internal registry. The address may carry the search-issued
+   `xsec_token`, because the bare `/explore/<id>` address can be refused even immediately after a
+   search. None of these fields is carried on a public `Source`, because the compact path rebuilds
+   `Source` and would drop or leak them.
 
 Constraints:
 
@@ -277,12 +281,19 @@ These were open questions in the design and are now settled in the code.
   two tabs and evicts the least recently used one, so a long run cannot hoard pages. A pooled tab
   still dies with the session's idle window.
 - **Content generation follows `framenavigated`.** The counter increments on the page's own
-  navigation event, which fires for a `pushState` route change as well as for a new document. This
-  signal has not been verified against the live site from inside this project's context; if a route
-  change ever fails to surface, the generation would lag and a stale reference could survive. The
-  path check in the handle is the second line of defence.
-- **A bare note id requires the handle from the search that listed it.** A share link is accepted on
-  its own. This is stricter than the previous behaviour, and it is what makes an id safe to act on.
+  navigation event, which fires for a `pushState` route change as well as for a new document. Live
+  searches were observed advancing the counter several times while the page settled. A route change
+  after the caller asked to retain the tab invalidates the listing; route changes during the search
+  itself do not.
+- **A bare note id requires a prior listing in this process.** The registry holds the handle and a
+  full internal opening address, bounded at 200 notes. A live tab is preferred; after it disappears,
+  the read opens the recorded address with its search-issued token. The public source remains a
+  clean `/explore/<id>` URL, and neither form exposes the token to the agent.
+- **A direct opening does not require a detail response.** Live navigation showed that the document's
+  initial state may already contain the note while `/v1/feed` never fires. Direct opens therefore
+  accept either the page state or the response; card clicks still require the detail response. The
+  site's own 404 route is reported as a subject refusal rather than waiting for a response that will
+  never arrive.
 - **Image URLs no longer leave the process.** The note report drops them; hosts report pictures by
   ordinal plus a short digest, or by local path. The bytes are still delivered.
 

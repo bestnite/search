@@ -736,9 +736,23 @@ test('retained tabs are bounded, and the least recently used one is closed first
       match: url => url.pathname === '/api/sns/web/v2/search/notes',
       body: { success: true, data: { items: [{ id: 'n1', model_type: 'note', note_card: {} }] } },
     });
+    // Once the oldest tab has been evicted, the read opens the note by its address on a fresh tab.
+    page.responseQueue.push({
+      url: 'https://www.xiaohongshu.com/api/sns/web/v1/feed',
+      match: url => url.pathname === '/api/sns/web/v1/feed',
+      body: { success: true, data: { items: [{}] } },
+    });
     world.onPageCall = call => {
       if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
         call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      if (call.source.includes('imageUrls')) {
+        call.settle({
+          found: true, idMatches: true, title: 'n1', desc: 'd', author: 'a', authorId: 'u', likes: '0',
+          collects: '0', comments: '0', shares: '0', tags: [], imageUrls: [], commentCount: 0,
+          commentsLoaded: true, commentsHasMore: false, commentsCursor: '',
+        });
         return;
       }
       call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
@@ -756,15 +770,10 @@ test('retained tabs are bounded, and the least recently used one is closed first
   const openTabs = world.pages.filter(page => !page.closed && page.navigations.length > 0);
   assert.ok(openTabs.length <= 3, `the pool kept too many tabs open: ${openTabs.length}`);
 
-  // The oldest reference is gone, and using it says so instead of clicking something else.
-  await assert.rejects(
-    fetchXhsNote({ id: 'n1', handle: handles[0]! }, ctx),
-    (error: unknown) => {
-      assert.ok(error instanceof SearchError);
-      assert.match(error.message, /gone|stale|earlier browser session/);
-      return true;
-    },
-  );
+  // The oldest tab is gone, but the note it listed is still reachable by its address: the read
+  // falls back to opening the page rather than losing the note the caller already saw.
+  const note = await fetchXhsNote({ id: 'n1', handle: handles[0]! }, ctx);
+  assert.equal(note.id, 'n1');
   await session.close();
 });
 

@@ -83,6 +83,9 @@ function fakeTab(answers: {
         return respond(answers.searchEnvelope);
       }
       if (answers.commentEnvelope !== undefined) return respond(answers.commentEnvelope);
+      // Null models a directly opened note that is satisfied by the document's initial state and
+      // never emits a detail response.
+      if (answers.noteEnvelope === null) return new Promise<TabResponse>(() => undefined);
       return respond(answers.noteEnvelope ?? { success: true, data: { items: [] } });
     },
     clickTarget: async target => {
@@ -213,12 +216,18 @@ test('a search keeps a card that has no title, because text is not required', as
 });
 
 test('search results stay citeable and never carry the note token', async () => {
-  const page = fakeTab({ candidates: [candidate('n1')], searchEnvelope });
+  const withToken = structuredClone(searchEnvelope);
+  (withToken.data.items[0] as Record<string, unknown>).xsec_token = 'SECRET';
+  const page = fakeTab({ candidates: [candidate('n1')], searchEnvelope: withToken });
   const session = { readTab: async <T,>(fn: (tab: BrowserTab) => Promise<T>) => fn(page.tab) };
   const sources = await searchXhs({ query: 'q', maxResults: 5 }, ctx(session));
   assert.equal(sources.length, 2);
   assert.match(sources[0]!.summary!, /作者/);
-  assert.doesNotMatch(JSON.stringify(sources), /xsec_token/i);
+  assert.doesNotMatch(JSON.stringify(sources), /xsec_token|SECRET/i);
+  // The token remains available only to the internal fallback opening for a note this search listed.
+  const target = resolveTarget({ id: 'n1' });
+  assert.match(target.url ?? '', /xsec_token=SECRET/);
+  assert.match(target.url ?? '', /xsec_source=pc_search/);
 });
 
 test('a malformed search payload is a failure, not an empty result', async () => {
@@ -312,6 +321,15 @@ test('a share link opens the target directly', async () => {
   assert.match(page.navigations[0]!, /xsec_token=TOKEN123/, 'the share link keeps the token it carries');
   assert.equal(read.note.title, '来自链接');
   assert.equal(page.clicks.length, 0, 'a share link does not depend on a listed card');
+});
+
+test('a directly opened note may come from the initial state without a detail response', async () => {
+  const page = fakeTab({ detail: detailProbe({ title: '首屏详情' }), noteEnvelope: null });
+  const fake = fakeSession(page.tab);
+  const read = await readXhsNote({ url: 'https://www.xiaohongshu.com/explore/n1' }, ctx(fake.session));
+  assert.equal(read.note.title, '首屏详情');
+  assert.equal(page.navigations.length, 1, 'the note was still opened as a page');
+  assert.equal(page.clicks.length, 0);
 });
 
 test('the note read reports the note the page actually opened', async () => {
