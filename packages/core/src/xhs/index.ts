@@ -280,14 +280,19 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
   const query = input.query.trim();
   if (query === '') throw new SearchError('configuration', 'The Xiaohongshu search query was empty.');
   return browserFor(ctx).readTab(async tab => {
-    const probe = await tab.evaluate<StateProbe>(stateProbeScript());
-    requireSignedIn(probe);
-
     // Arm the collector before navigating: the page fires this request while it loads, so a waiter
     // registered afterwards would miss it.
     const response = tab.expectResponse(url => url.pathname === '/api/sns/web/v2/search/notes', ctx.timeoutMs);
     response.catch(() => undefined);
     await tab.navigate(`${ctx.siteUrl ?? DEFAULT_SITE_URL}${searchPath(query)}`, ctx.timeoutMs);
+
+    // The identity is read from the page itself, so it can only be judged once the page has loaded.
+    // A tab that starts blank has no runtime at all, which is not the same as being signed out.
+    const probe = await until(async () => {
+      const state = await tab.evaluate<StateProbe>(stateProbeScript());
+      return state.hasState ? state : undefined;
+    }, ctx.timeoutMs, ctx.signal);
+    requireSignedIn(probe);
 
     const data = await readEnvelope(await response, 'search');
     const items = data.items;
@@ -455,9 +460,6 @@ export async function readXhsNote(
   const withComments = input.withComments === true;
 
   const run = async (): Promise<XhsNoteRead> => browserFor(ctx).readTab(async tab => {
-    const probe = await tab.evaluate<StateProbe>(stateProbeScript());
-    requireSignedIn(probe);
-
     const detail = tab.expectResponse(url => url.pathname === '/api/sns/web/v1/feed', ctx.timeoutMs);
     detail.catch(() => undefined);
 
@@ -465,6 +467,11 @@ export async function readXhsNote(
       // A share link is a defined way in: open the target itself, carrying the token it holds.
       await tab.navigate(input.url, ctx.timeoutMs);
     } else {
+      // A listed note is opened from the tab that listed it, which is already on the search page, so
+      // the identity is judged here rather than after the click. A blank tab has no runtime, and
+      // that is not the same as being signed out.
+      const before = await tab.evaluate<StateProbe>(stateProbeScript());
+      if (before.hasState) requireSignedIn(before);
       // Otherwise click the card that was listed, so the page arrives the way a person's would.
       // Re-check right before acting: geometry seen during the search is stale by definition.
       const check = await tab.evaluate<{ found: boolean; clickable: boolean }>(candidateCheckScript(target.id, `/explore/${target.id}`));

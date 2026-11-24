@@ -250,7 +250,9 @@ test('an explicitly empty result set is accepted as an empty search', async () =
   assert.equal(result.candidates.length, 0);
 });
 
-test('a guest page refuses the read before any page operation', async () => {
+test('a guest page refuses the read once the page reports it', async () => {
+  // The identity lives in the page, so it can only be judged after the page has loaded. A tab that
+  // starts blank has no runtime, which is not the same as a signed-out session.
   const page = fakeTab({ probe: guest });
   const session = { readTab: async <T,>(fn: (tab: BrowserTab) => Promise<T>) => fn(page.tab) };
   await assert.rejects(readXhsSearch({ query: 'q' }, ctx(session)), (error: unknown) => {
@@ -259,7 +261,7 @@ test('a guest page refuses the read before any page operation', async () => {
     assert.equal(error.scope, 'site', 'a guest session closes the gate for the whole site');
     return true;
   });
-  assert.equal(page.navigations.length, 0, 'no page was opened');
+  assert.equal(page.navigations.length, 1, 'the page was opened so its identity could be read');
 });
 
 test('a missing identity payload is refused instead of being read as signed in', async () => {
