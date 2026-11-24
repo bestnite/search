@@ -1074,9 +1074,13 @@ export class BrowserSession {
     // the counter has to follow the main-frame navigation event, not only new documents.
     const onNavigated = (): void => {
       record.contentGeneration += 1;
-      record.retained = false;
-      // A routed or navigated tab no longer holds the candidates a caller saw, so it leaves the pool.
-      this.dropPooled(record);
+      // A route change after the caller asked to keep this tab replaces the content it saw, so the
+      // tab leaves the pool. Route changes during the search itself are expected: the page settles
+      // across several of them before the candidates exist.
+      if (record.retained) {
+        record.retained = false;
+        this.dropPooled(record);
+      }
     };
     page.on('framenavigated', onNavigated);
     page.once('close', () => {
