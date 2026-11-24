@@ -2,14 +2,14 @@
 // like Playwright where it matters: closing a page, context or connection rejects every call still
 // in flight. Gates are deferred promises, so no test depends on a sleep to order work.
 
-import test, { after } from 'node:test';
+import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserSession, closeBrowserSessions, sessionFor, type BrowserSessionOptions } from '../src/browser.js';
 import { SearchError } from '../src/transport.js';
-import { fetchXhsComments, fetchXhsNote, optionsOf, readXhsSearch, searchXhs, type XhsContext } from '../src/xhs/index.js';
+import { clearListedNotes, fetchXhsComments, fetchXhsNote, optionsOf, readXhsSearch, searchXhs, type XhsContext } from '../src/xhs/index.js';
 
 const closedError = (): Error => new Error('Target page, context or browser has been closed');
 
@@ -33,6 +33,9 @@ const flush = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
 // resolved" (Node 22 does this; Node 26 keeps the loop alive on its own). Pin the loop for the file.
 const loopPin = setInterval(() => {}, 60_000);
 after(() => clearInterval(loopPin));
+
+// The listing table is process state, so a case must not inherit what an earlier case listed.
+beforeEach(() => clearListedNotes());
 
 interface PageCall {
   readonly source: string;

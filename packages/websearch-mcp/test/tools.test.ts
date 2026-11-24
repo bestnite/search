@@ -257,9 +257,15 @@ function stubNotes(comments: Array<Record<string, unknown>> = []) {
   };
   return {
     seen,
+    // One reader, because the note and its comment page are one transaction in the real client.
     readers: {
-      note: (async (input: Record<string, unknown>) => { seen.push({ kind: 'note', ...input }); return note; }) as never,
-      comments: (async (input: Record<string, unknown>) => { seen.push({ kind: 'comments', ...input }); return { comments, hasMore: true }; }) as never,
+      read: (async (input: Record<string, unknown>) => {
+        seen.push({ kind: 'note', ...input });
+        return {
+          note,
+          ...(input.withComments === true ? { comments: { comments, hasMore: true } } : {}),
+        };
+      }) as never,
     },
   };
 }
@@ -292,13 +298,14 @@ test('xiaohongshu_note reads comments only when asked, within the documented bou
   const tools = createTools(xhsConfig(), identity, engine, undefined, readers);
   const tool = tools.find(item => item.name === 'xiaohongshu_note')!;
   const plain = await tool.call({ id: 'n1' }, new AbortController().signal) as Record<string, any>;
-  assert.equal(plain.comments, undefined);
-  assert.equal(seen.filter(item => item.kind === 'comments').length, 0);
+  assert.equal(plain.comments, undefined, 'comments are omitted unless they were asked for');
+  assert.equal(seen[0]!.withComments, false, 'the read was told not to bring comments');
   const withComments = await tool.call({ id: 'n1', withComments: true, commentLimit: 99 }, new AbortController().signal) as Record<string, any>;
   assert.equal(withComments.comments.length, 1);
   assert.equal(withComments.commentsTruncated, true);
-  assert.equal(seen.filter(item => item.kind === 'comments').length, 1);
-  assert.equal((seen.find(item => item.kind === 'comments') as Record<string, unknown>).limit, 50);
+  assert.equal(seen.length, 2, 'the note and its comments were one read, not two');
+  assert.equal(seen[1]!.withComments, true);
+  assert.equal(seen[1]!.commentLimit, 50, 'the documented bound is applied');
 });
 
 test('xiaohongshu_note names the missing prerequisite instead of returning an empty note', async () => {

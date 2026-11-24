@@ -5,8 +5,7 @@ import {
   renderPageFetchReport,
   browserCredentialRef,
   fetchRedditThread,
-  fetchXhsComments,
-  fetchXhsNote,
+  readXhsNote,
   fetchXThread,
   formatXhsNote,
   parseXCredentials,
@@ -51,10 +50,14 @@ export interface ThreadReaders {
   x: typeof fetchXThread;
 }
 
-/** Browser note readers, injected for the same reason: they need a live browser and a sign-in. */
+/**
+ * The browser note reader, injected for the same reason: it needs a live browser and a sign-in.
+ *
+ * The note and its comment page are one read. The detail page loads its own first comment page, so
+ * asking for comments separately would reload the page and throw away what it had already fetched.
+ */
 export interface NoteReaders {
-  note: typeof fetchXhsNote;
-  comments: typeof fetchXhsComments;
+  read: typeof readXhsNote;
 }
 
 export function createTools(
@@ -62,7 +65,7 @@ export function createTools(
   identity: ServerIdentity,
   engine?: SearchEngine,
   readers: ThreadReaders = { reddit: fetchRedditThread, x: fetchXThread },
-  notes: NoteReaders = { note: fetchXhsNote, comments: fetchXhsComments },
+  notes: NoteReaders = { read: readXhsNote },
 ): ToolDefinition[] {
   setUserAgent(`${identity.name}/${identity.version} (+${identity.projectUrl})`);
   // Read through the source on every call: a configuration saved by the settings page has to reach a
@@ -261,9 +264,10 @@ export function createTools(
       };
       if (!target.url && !target.id) throw new Error('xiaohongshu_note needs a share link or a note id.');
       const context = await xhsContext(config, signal);
-      const note = await notes.note(target, context);
       const limit = Math.min(Math.max(int(args.commentLimit) ?? 20, 1), 50);
-      const page = bool(args.withComments) === true ? await notes.comments({ ...target, limit }, context) : undefined;
+      const read = await notes.read({ ...target, withComments: bool(args.withComments) === true, commentLimit: limit }, context);
+      const note = read.note;
+      const page = read.comments;
       const report = formatXhsNote(note, page?.comments, page ? page.hasMore : undefined);
       // The report carries no picture links on purpose; the note's own list is where they are read.
       const images = await fetchImages(note.imageUrls, { signal });

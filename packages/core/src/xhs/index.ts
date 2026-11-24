@@ -327,7 +327,11 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
     }
 
     if (input.retain !== false) tab.retain();
-    return { notes, candidates: [...byId.values()], handle: tab.handle() };
+    const handle = tab.handle();
+    // Remember which notes this search listed, so "read the note I just saw" can act on the tab
+    // without the caller ever holding a token or a private handle.
+    if (input.retain !== false) rememberListed(notes, handle);
+    return { notes, candidates: [...byId.values()], handle };
   }, { signal: ctx.signal });
 }
 
@@ -350,11 +354,59 @@ interface NoteTarget {
 }
 
 /**
- * A note is addressed either by its share link, which opens the target directly, or by an id that
- * comes with the handle of the tab that listed it. A bare id on its own is refused: nothing in the
- * process can prove the id belongs to a note this session is allowed to read, and a token would not
- * prove it either.
+ * Note ids that the most recent searches actually listed, with the tab handle that can act on them.
+ *
+ * A caller sees only a public result (a note URL and a title), so it cannot supply the private
+ * handle itself. This table is what lets "search, then read one of the notes that came back" work
+ * without handing a token to the caller and without accepting an arbitrary id.
+ *
+ * It is keyed by note id and holds the handle, which carries the browser generation and the content
+ * generation. An entry whose generation has moved is refused when it is used, so a stale row can
+ * never turn into a click on different content. Entries are replaced by later searches and bounded,
+ * so the table cannot grow without limit.
  */
+const listedNotes = new Map<string, TabHandle>();
+const LISTED_NOTE_LIMIT = 200;
+
+function rememberListed(notes: readonly { id: string }[], handle: TabHandle): void {
+  for (const note of notes) {
+    if (!note.id) continue;
+    listedNotes.set(note.id, handle);
+  }
+  while (listedNotes.size > LISTED_NOTE_LIMIT) {
+    const oldest = listedNotes.keys().next();
+    if (oldest.done) break;
+    listedNotes.delete(oldest.value);
+  }
+}
+
+/**
+ * Forget the listed notes a handle can no longer act on. Called when a read proves the tab is gone,
+ * so a later "read that note by id" reports a stale reference instead of retrying a dead one.
+ */
+function forgetListedFrom(handle: TabHandle): void {
+  for (const [id, entry] of listedNotes) {
+    if (entry.generation !== handle.generation || entry.tabId === handle.tabId) listedNotes.delete(id);
+  }
+}
+
+/** Whether this failure means the handle is dead rather than the read being refused. */
+const isStaleHandle = (error: unknown): boolean =>
+  error instanceof SearchError && error.kind === 'protocol' && /gone|stale|closed|earlier browser session/i.test(error.message);
+
+/**
+ * A note is addressed either by its share link, which opens the target directly, or by an id that a
+ * search in this process listed. A bare id that no search produced is refused: nothing can prove it
+ * belongs to a note this session may read, and a token would not prove it either.
+ */
+/**
+ * Drop every remembered listing. Exposed for hosts that replace their browser session wholesale, and
+ * for tests that must not inherit what an earlier case listed.
+ */
+export function clearListedNotes(): void {
+  listedNotes.clear();
+}
+
 export function resolveTarget(input: { url?: string; id?: string; handle?: TabHandle }): NoteTarget {
   const raw = (input.url ?? input.id ?? '').trim();
   if (raw === '') throw new SearchError('configuration', 'Pass a note URL or a note id.');
@@ -364,19 +416,22 @@ export function resolveTarget(input: { url?: string; id?: string; handle?: TabHa
       const match = /\/(?:explore|discovery\/item)\/([0-9a-zA-Z]+)/.exec(url.pathname);
       const id = match?.[1] ?? url.pathname.split('/').filter(Boolean).pop() ?? '';
       if (id === '') throw new SearchError('configuration', `Could not read a note id from "${raw}".`);
-      return { id, ...(input.handle ? { handle: input.handle } : {}) };
+      // A share link may also reuse a listed tab, which keeps the click path available.
+      const listed = input.handle ?? listedNotes.get(id);
+      return { id, ...(listed ? { handle: listed } : {}) };
     } catch (error) {
       if (error instanceof SearchError) throw error;
       throw new SearchError('configuration', `"${raw}" is not a Xiaohongshu note URL.`);
     }
   }
-  if (!input.handle) {
+  const handle = input.handle ?? listedNotes.get(raw);
+  if (!handle) {
     throw new SearchError(
       'configuration',
-      'A note id is only usable together with the reference a search returned. Pass the note share link instead, or search for the note first.',
+      'A note id is only usable for a note this session listed. Search for it first, or pass the note share link.',
     );
   }
-  return { id: raw, handle: input.handle };
+  return { id: raw, handle };
 }
 
 /**
@@ -393,7 +448,7 @@ export async function readXhsNote(
   const limit = Math.min(Math.max(input.commentLimit ?? 20, 1), 50);
   const withComments = input.withComments === true;
 
-  return browserFor(ctx).readTab(async tab => {
+  const run = async (): Promise<XhsNoteRead> => browserFor(ctx).readTab(async tab => {
     const probe = await tab.evaluate<StateProbe>(stateProbeScript());
     requireSignedIn(probe);
 
@@ -501,6 +556,15 @@ export async function readXhsNote(
       comments: { comments, hasMore: hasMore || collected.length > limit, ...(cursor ? { cursor } : {}) },
     };
   }, { ...(target.handle ? { handle: target.handle } : {}), signal: ctx.signal });
+
+  try {
+    return await run();
+  } catch (error) {
+    // A dead handle is worth forgetting: keeping it would make every later attempt on that tab
+    // fail the same way instead of telling the caller to search again.
+    if (target.handle && isStaleHandle(error)) forgetListedFrom(target.handle);
+    throw error;
+  }
 }
 
 /** A note's detail, without its comments. */

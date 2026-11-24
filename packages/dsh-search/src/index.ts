@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import type { WebSearchRequest } from '@deepseek-ai/dsh-web';
 import '@deepseek-ai/dsh-config-editor';
-import { BROWSER_VERIFICATION_TIMEOUT_MS, BrowserVerificationAborted, catalog, createPageFetchEngine, defaultConfig, fetchProblemText, fetchReadiness, fetchReadinessProviders, fetchRedditThread, fetchXhsComments, fetchXhsNote, fetchXThread, backendCredentialRef, browserCredentialRef, parseBrowserEndpoint, parseConfig, parseXCredentials, renderPageFetchReport, revision, SearchEngine, setUserAgent, validateConfig, verifyBrowserDependencies, verifyBrowserEndpoint } from '@nite07/search-core';
+import { BROWSER_VERIFICATION_TIMEOUT_MS, BrowserVerificationAborted, catalog, createPageFetchEngine, defaultConfig, fetchProblemText, fetchReadiness, fetchReadinessProviders, fetchRedditThread, fetchXThread, backendCredentialRef, browserCredentialRef, parseBrowserEndpoint, parseConfig, parseXCredentials, readXhsNote, renderPageFetchReport, revision, SearchEngine, setUserAgent, validateConfig, verifyBrowserDependencies, verifyBrowserEndpoint } from '@nite07/search-core';
 import type { AccessMode, BackendDefinition, BackendOutcome, ConfigIssue, FetchFormat, PageFetchResult, RedditComment, RedditCredentials, SearchConfig, VerificationConnect } from '@nite07/search-core';
 import { openUsage } from './usage.js';
 import { xhsBrowserRead } from './browser-read.js';
@@ -405,9 +405,12 @@ export function createPlugin(options: HostOptions = {}) {
     const token=(await ctx.credentials.resolve(credentialRef(browserCredentialRef())))?.value;
     const read=xhsBrowserRead(config,token,AbortSignal.any([lifetime.signal,exec.signal]));
     const target={...(args.url?{url:args.url}:{}),...(args.id?{id:args.id}:{})};
-    const note=await fetchXhsNote(target,read);
     const limit=Math.min(Math.max(Math.trunc(Number(args.commentLimit??20))||20,1),50);
-    const page=args.withComments===true?await fetchXhsComments({...target,limit},read):undefined;
+    // The note and its first comment page are one transaction: the detail page loads those comments
+    // by itself, so asking for them separately would reload the page and discard what it had.
+    const readNote=await readXhsNote({...target,withComments:args.withComments===true,commentLimit:limit},read);
+    const note=readNote.note;
+    const page=readNote.comments;
     const report=formatXhsNote(note,page?.comments,page?page.hasMore:undefined);
     const attached=await attachImages(renderXhsNote(report),(note as {imageUrls?:string[]}).imageUrls??[],{signal:exec.signal});
     return {...report,images:attached.listed,markdown:attached.text};
