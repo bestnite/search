@@ -364,6 +364,17 @@ test('a note read without comments does not ask for them', async () => {
   assert.equal(page.scrolls.length, 0);
 });
 
+test('a note id becomes readable after a search listed it', async () => {
+  // The caller only ever sees public results, so the search has to remember what it listed.
+  const page = fakeTab({ candidates: [candidate('n1')], searchEnvelope, detail: detailProbe(), noteEnvelope: { success: true, data: { items: [{}] } } });
+  const session = { readTab: async <T,>(fn: (tab: BrowserTab) => Promise<T>) => fn(page.tab) };
+  const sources = await searchXhs({ query: 'q', maxResults: 3 }, ctx(session));
+  assert.equal(sources.length, 2);
+  // Reading by id alone now works, because the search recorded which tab listed it.
+  const read = await readXhsNote({ id: 'n1' }, ctx(session));
+  assert.equal(read.note.id, 'n1');
+});
+
 test('a note id is only accepted together with a reference from a search', () => {
   assert.deepEqual(resolveTarget({ url: 'https://www.xiaohongshu.com/explore/abc123?xsec_token=T' }), { id: 'abc123' });
   assert.deepEqual(resolveTarget({ id: 'abc123', handle: handle() }), { id: 'abc123', handle: handle() });

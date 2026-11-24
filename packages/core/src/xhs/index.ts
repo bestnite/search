@@ -335,9 +335,15 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
   }, { signal: ctx.signal });
 }
 
-/** Search as the engine sees it: citeable sources, one per note. No tab is kept for these. */
+/**
+ * Search as the engine sees it: citeable sources, one per note.
+ *
+ * The tab is retained, because a caller that sees these results will usually want to open one. A
+ * caller that only wanted sources pays for one pooled tab, bounded by the pool, rather than losing
+ * the ability to read a note it just discovered.
+ */
 export async function searchXhs(input: { query: string; maxResults: number; sort?: string }, ctx: XhsContext): Promise<Source[]> {
-  const result = await readXhsSearch({ query: input.query, retain: false }, ctx);
+  const result = await readXhsSearch({ query: input.query }, ctx);
   return result.notes
     .slice(0, Math.min(Math.max(input.maxResults, 1), 40))
     .map(note => ({
