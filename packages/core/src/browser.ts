@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { DEFAULT_MAX_CONCURRENT_READS, MAX_CONCURRENT_READS } from './browser-limits.js';
 import { SearchError } from './transport.js';
 
+/** A refusal that reaches the whole site, as opposed to one item the caller asked for. */
+const isSiteChallenge = (error: SearchError): boolean => error.scope === 'site';
+
 /**
  * Where the browser container writes the signed-in session when no explicit path is configured.
  * The container writes this file and every reader reads the same one, so leaving the field empty
@@ -87,6 +90,8 @@ interface SessionGeneration {
   readonly browser: Browser;
   readonly context: BrowserContext;
   readonly page: Page;
+  /** Monotonic id of this generation; a tab handle from an older one is stale by definition. */
+  readonly id: number;
   inflight: number;
   stale: boolean;
   /** A page-only rebuild keeps the connection and context; a connection recycle drops both. */
@@ -102,8 +107,69 @@ interface Lease {
   released: boolean;
 }
 
+/**
+ * A tab that can be handed back to the pool and re-acquired later. The generations are what make a
+ * retained reference safe: a tab is only reusable while the browser generation it belongs to is
+ * alive, and only while its own document has not been replaced or routed away from.
+ */
+export interface TabHandle {
+  readonly tabId: string;
+  /** Browser generation the tab belongs to; a recycle invalidates every handle at once. */
+  readonly generation: number;
+  /** Bumped on every main-frame navigation, including same-document SPA routing. */
+  readonly contentGeneration: number;
+  /** Clean pathname the handle was taken on, used as a second check against a missed event. */
+  readonly path: string;
+}
+
+/** A response captured by a waiter armed before the action that produced it. */
+export interface TabResponse {
+  readonly url: string;
+  readonly status: number;
+  json(): Promise<unknown>;
+}
+
+/**
+ * One tab, owned exclusively by one transaction. Every member refuses after release, so a reference
+ * kept past its transaction fails instead of acting on a tab another task now owns.
+ */
+export interface BrowserTab {
+  /** Set once the transaction settles; nothing may use the tab afterwards. */
+  readonly released: boolean;
+  readonly id: string;
+  readonly contentGeneration: number;
+  readonly path: string;
+  /** Stable identity for a retained reference; only meaningful once the tab is retained. */
+  handle(): TabHandle;
+  evaluate<T>(script: string): Promise<T>;
+  navigate(url: string, timeoutMs?: number): Promise<void>;
+  /**
+   * Arm a waiter now and resolve it when a matching response arrives later. Registration must
+   * always happen before the action, or the response can be missed.
+   */
+  expectResponse(match: (url: URL) => boolean, timeoutMs?: number): Promise<TabResponse>;
+  /** Click the first visible, unobscured match; fails rather than clicking something else. */
+  clickTarget(target: string, timeoutMs?: number): Promise<void>;
+  /** Scroll a container (or the document) by one page and report the resulting offset. */
+  scrollBy(selector: string | undefined, distance: number, timeoutMs?: number): Promise<number>;
+  /** Keep this tab for later handle use. Without it the tab is closed when the transaction ends. */
+  retain(): void;
+}
+
+interface TabRecord {
+  readonly id: string;
+  readonly page: Page;
+  readonly generation: SessionGeneration;
+  contentGeneration: number;
+  retained: boolean;
+  lastUsedAt: number;
+  disposing: Promise<void> | undefined;
+}
+
 interface ReadJob {
   readonly run: (reader: BrowserReader, page: Page) => Promise<unknown>;
+  /** When set, the transaction is handed an exclusive tab instead of the shared page. */
+  readonly useTab?: { handle?: TabHandle; run: (tab: BrowserTab) => Promise<unknown> };
   readonly signal?: AbortSignal;
   started: boolean;
   settled: boolean;
@@ -118,8 +184,31 @@ interface ReadJob {
 const DEFAULT_IDLE_MS = 300_000;
 const DEFAULT_CLOSE_MS = 5_000;
 const PERSIST_INTERVAL_MS = 60_000;
+/**
+ * How many tabs may wait in the pool for a caller to come back to their candidates. Enough for a
+ * couple of recent searches to stay operable, small enough that a long run cannot hoard pages.
+ */
+const MAX_POOLED_TABS = 2;
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Parse a page URL without letting a malformed one throw out of a tab operation. */
+const safeURL = (value: string): URL => {
+  try {
+    return new URL(value);
+  } catch {
+    return new URL('about:blank');
+  }
+};
+
+/** The pathname of a page URL, or an empty string when the URL does not parse. */
+function safePath(value: string): string {
+  try {
+    return new URL(value).pathname;
+  } catch {
+    return '';
+  }
+}
 
 const cancelled = (detail: string): SearchError => new SearchError('cancelled', detail);
 
@@ -161,7 +250,7 @@ const siteName = (siteUrl: string): string => {
   }
 };
 
-function createGeneration(browser: Browser, context: BrowserContext, page: Page): SessionGeneration {
+function createGeneration(browser: Browser, context: BrowserContext, page: Page, id: number): SessionGeneration {
   let resolveDrained = (): void => undefined;
   const drained = new Promise<void>(resolve => {
     resolveDrained = resolve;
@@ -171,6 +260,7 @@ function createGeneration(browser: Browser, context: BrowserContext, page: Page)
     browser,
     context,
     page,
+    id,
     inflight: 0,
     stale: false,
     staleReason: undefined,
@@ -265,6 +355,16 @@ export class BrowserSession {
   private maintenanceRequested = false;
   private maintenanceRunning = false;
   private readonly shutdown = new AbortController();
+  /** Tabs kept for handle reuse. They are not leases and do not consume the admission cap. */
+  private readonly pooledTabs = new Map<string, TabRecord>();
+  private tabSequence = 0;
+  private generationSequence = 0;
+  /**
+   * Site-level gate. When the site challenges the session, every read that was already queued for
+   * this site is rejected instead of started. The gate is cleared when a new generation opens, so a
+   * session that reloads its saved state can carry on rather than staying shut for good.
+   */
+  private siteGate: SearchError | undefined;
 
   constructor(
     private readonly options: BrowserSessionOptions,
@@ -298,6 +398,22 @@ export class BrowserSession {
   /** Legacy single-script entry point. It now uses the same admission limiter as `read`. */
   async evaluate<T>(script: string): Promise<T> {
     return this.read(reader => reader.evaluate<T>(script));
+  }
+
+  /**
+   * Run one page transaction that owns an exclusive tab. The tab is either a retained one matching
+   * `handle` or a freshly opened one, and the admission slot covers the whole operation. When the
+   * callback returns, the tab is retained for later handle use if it asked to be, and closed
+   * otherwise.
+   */
+  async readTab<T>(run: (tab: BrowserTab) => Promise<T>, options: { handle?: TabHandle; signal?: AbortSignal } = {}): Promise<T> {
+    return this.enqueueTab(run, options);
+  }
+
+  /** Drop every retained tab, e.g. after the caller repaired the session. */
+  closePooledTabs(): void {
+    for (const record of this.pooledTabs.values()) void this.disposeTab(record);
+    this.pooledTabs.clear();
   }
 
   /** Legacy way to get the page. The admission slot is released before the caller uses it. */
@@ -335,6 +451,62 @@ export class BrowserSession {
   }
 
   // --- admission -----------------------------------------------------------------------------
+
+  /**
+   * Tab transactions use the same admission queue and the same cap as script reads, so a site-wide
+   * limit stays a limit on active leases rather than on open tabs.
+   */
+  private enqueueTab<T>(run: (tab: BrowserTab) => Promise<T>, options: { handle?: TabHandle; signal?: AbortSignal }): Promise<T> {
+    if (this.closed || this.retired || this.closing) {
+      return Promise.reject(cancelled(
+        this.retired
+          ? 'The browser session was retired after idling out; ask the registry for the current session.'
+          : 'The browser session was closed before this read started.',
+      ));
+    }
+    if (this.siteGate) return Promise.reject(this.siteGate);
+    const signal = options.signal;
+    if (signal?.aborted) {
+      return Promise.reject(cancelled('The browser tab transaction was cancelled before it started.'));
+    }
+    return new Promise<T>((resolve, reject) => {
+      let job: ReadJob;
+      const onAbort = (): void => {
+        if (job.settled) return;
+        if (!job.started) {
+          job.cancelled = true;
+          job.reject(cancelled('The queued browser tab transaction was cancelled.'));
+          this.pump();
+          return;
+        }
+        job.cancelRequested = true;
+      };
+      job = {
+        run: () => Promise.resolve(undefined),
+        useTab: { ...(options.handle ? { handle: options.handle } : {}), run },
+        ...(signal ? { signal } : {}),
+        started: false,
+        settled: false,
+        cancelled: false,
+        cancelRequested: false,
+        resolve: value => {
+          if (job.settled) return;
+          job.settled = true;
+          signal?.removeEventListener('abort', onAbort);
+          resolve(value as T);
+        },
+        reject: error => {
+          if (job.settled) return;
+          job.settled = true;
+          signal?.removeEventListener('abort', onAbort);
+          reject(error);
+        },
+      };
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      this.waiters.push(job);
+      this.pump();
+    });
+  }
 
   private enqueue<T>(run: (reader: BrowserReader, page: Page) => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (this.closed || this.retired || this.closing) {
@@ -400,6 +572,12 @@ export class BrowserSession {
         const job = this.waiters.shift();
         if (!job) break;
         if (job.cancelled) continue;
+        // A challenge refuses the work that was already queued for this site. The job is settled
+        // here rather than started, and the gate itself clears when the next generation opens.
+        if (this.siteGate && job.useTab) {
+          job.reject(this.siteGate);
+          continue;
+        }
         job.started = true;
         this.activeCount += 1;
         this.activeJobs.add(job);
@@ -419,6 +597,12 @@ export class BrowserSession {
       lease = await this.acquireLease(this.readSignal(job.signal));
       if (this.closed || this.retired) throw cancelled('The browser session was closed.');
       if (job.signal?.aborted || job.cancelRequested) throw cancelled('The browser read was cancelled.');
+      if (job.useTab) {
+        const value = await this.runTabJob(job, job.useTab, lease);
+        if (job.cancelRequested) throw cancelled('The browser read was cancelled; the operation in flight was allowed to finish.');
+        job.resolve(value);
+        return;
+      }
       const reader = this.readerFor(job, lease);
       const value = await job.run(reader, lease.generation.page);
       if (job.cancelRequested) throw cancelled('The browser read was cancelled; the operation in flight was allowed to finish.');
@@ -427,6 +611,9 @@ export class BrowserSession {
       // A rate-limit answer means the site pushed back. Keep this session at one concurrent read
       // for the rest of its life; in-flight reads are not interrupted and nothing is replayed.
       if (error instanceof SearchError && error.kind === 'rate-limit') this.lowerAdmission();
+      // A challenge is a site-wide refusal, so the gate closes before this slot is released. A
+      // subject refusal (a private note) keeps its own scope and never reaches this branch.
+      if (error instanceof SearchError && isSiteChallenge(error)) this.closeSiteGate(error, lease?.generation);
       job.reject(
         job.cancelRequested && !(error instanceof SearchError && error.kind === 'cancelled')
           ? cancelled('The browser read was cancelled; the operation in flight was allowed to finish.')
@@ -662,8 +849,10 @@ export class BrowserSession {
       await this.resetResources();
       throw new SearchError('protocol', 'The browser session lost its resources while attaching.');
     }
-    const generation = createGeneration(browser, context, ready);
+    const generation = createGeneration(browser, context, ready, ++this.generationSequence);
     this.generation = generation;
+    // A new generation is a new session: whatever challenged the previous one no longer applies.
+    this.siteGate = undefined;
     return generation;
   }
 
@@ -762,6 +951,210 @@ export class BrowserSession {
     };
   }
 
+  // --- tabs ----------------------------------------------------------------------------------
+
+  private async runTabJob(job: ReadJob, plan: NonNullable<ReadJob['useTab']>, lease: Lease): Promise<unknown> {
+    const generation = lease.generation;
+    const record = plan.handle ? this.takePooledTab(plan.handle, generation) : await this.createTab(generation);
+    const tab = this.tabFor(job, record);
+    let outcome: 'close' | 'retain' = 'close';
+    try {
+      if (plan.handle && record.page.isClosed()) {
+        throw new SearchError('protocol', 'The retained tab was closed before the read could use it.');
+      }
+      const value = await plan.run(tab);
+      outcome = record.retained ? 'retain' : 'close';
+      return value;
+    } finally {
+      await this.settleTab(record, outcome === 'retain');
+    }
+  }
+
+  /** Build the exclusive view of one tab. Every member refuses once the transaction settled. */
+  private tabFor(job: ReadJob, record: TabRecord): BrowserTab {
+    const generation = record.generation;
+    const signal = job.signal;
+    const ensure = (): void => {
+      if (this.closed || this.retired) throw cancelled('The browser session was closed.');
+      if (generation.stale) throw new SearchError('protocol', 'The browser generation this tab belonged to was recycled.');
+      if (record.page.isClosed()) throw new SearchError('protocol', 'The tab was closed during the transaction.');
+      if (signal?.aborted || job.cancelRequested) throw cancelled('The browser tab transaction was cancelled.');
+    };
+    const state: { released: boolean } = { released: false };
+    const guard = (): void => {
+      if (state.released) throw new SearchError('protocol', 'This tab transaction already settled; its tab is no longer owned by it.');
+      ensure();
+    };
+    return {
+      get released() {
+        return state.released;
+      },
+      id: record.id,
+      get contentGeneration() {
+        return record.contentGeneration;
+      },
+      get path() {
+        return safePath(record.page.url());
+      },
+      handle: () => ({
+        tabId: record.id,
+        generation: generation.id,
+        contentGeneration: record.contentGeneration,
+        path: safePath(record.page.url()),
+      }),
+      evaluate: async <T,>(script: string): Promise<T> => {
+        guard();
+        const pageFunction = new Function(`return (${script});`)() as () => Promise<T>;
+        // The site runtime lives in the main world, so this opts out of the isolated default.
+        return await record.page.evaluate(pageFunction, undefined, {}, false) as T;
+      },
+      navigate: async (url: string, timeoutMs?: number): Promise<void> => {
+        guard();
+        await record.page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs ?? this.options.timeoutMs });
+      },
+      expectResponse: (match, timeoutMs) => {
+        // Registration happens here, before the caller acts, so an early response is not missed.
+        guard();
+        return record.page.waitForResponse(
+          response => match(safeURL(response.url())),
+          { timeout: timeoutMs ?? this.options.timeoutMs },
+        ).then(response => ({ url: response.url(), status: response.status(), json: () => response.json() }));
+      },
+      clickTarget: async (target: string, timeoutMs?: number): Promise<void> => {
+        guard();
+        const locator = record.page.locator(target).first();
+        await locator.waitFor({ state: 'visible', timeout: timeoutMs ?? this.options.timeoutMs });
+        await locator.click({ timeout: timeoutMs ?? this.options.timeoutMs });
+      },
+      scrollBy: async (selector, distance, timeoutMs): Promise<number> => {
+        guard();
+        const timeout = timeoutMs ?? this.options.timeoutMs;
+        if (selector) {
+          const locator = record.page.locator(selector).first();
+          await locator.waitFor({ state: 'attached', timeout });
+          await locator.hover({ timeout });
+        }
+        await record.page.mouse.wheel(0, distance);
+        // Give the scroll a frame to be applied before reporting the offset.
+        await record.page.waitForTimeout(50).catch(() => undefined);
+        return await record.page.evaluate((sel?: string) => {
+          const element = sel ? document.querySelector(sel) : (document.scrollingElement ?? document.documentElement);
+          return element instanceof HTMLElement ? element.scrollTop : 0;
+        }, selector);
+      },
+      retain: () => {
+        guard();
+        record.retained = true;
+      },
+    };
+  }
+
+  private async createTab(generation: SessionGeneration): Promise<TabRecord> {
+    const page = await generation.context.newPage();
+    const record: TabRecord = {
+      id: `${generation.id}:${++this.tabSequence}`,
+      page,
+      generation,
+      contentGeneration: 0,
+      retained: false,
+      lastUsedAt: Date.now(),
+      disposing: undefined,
+    };
+    // A same-document route change replaces the page content without replacing the Page object, so
+    // the counter has to follow the main-frame navigation event, not only new documents.
+    const onNavigated = (): void => {
+      record.contentGeneration += 1;
+      record.retained = false;
+      // A routed or navigated tab no longer holds the candidates a caller saw, so it leaves the pool.
+      this.dropPooled(record);
+    };
+    page.on('framenavigated', onNavigated);
+    page.once('close', () => {
+      page.off('framenavigated', onNavigated);
+      this.dropPooled(record);
+    });
+    return record;
+  }
+
+  /** Remove a tab from the pool without closing it; the owning transaction decides its fate. */
+  private dropPooled(record: TabRecord): void {
+    if (this.pooledTabs.get(record.id) === record) {
+      this.pooledTabs.delete(record.id);
+    }
+  }
+
+  private takePooledTab(handle: TabHandle, generation: SessionGeneration): TabRecord {
+    if (handle.generation !== generation.id) {
+      throw new SearchError(
+        'protocol',
+        'The candidate reference belongs to an earlier browser session, so it cannot be used. Search again to get a fresh one.',
+      );
+    }
+    const record = this.pooledTabs.get(handle.tabId);
+    if (!record) {
+      throw new SearchError(
+        'protocol',
+        'The search tab that held this candidate is gone (it was reused, closed, or idled out). Search again, or open the note by its share link.',
+      );
+    }
+    this.pooledTabs.delete(record.id);
+    if (record.page.isClosed()) {
+      throw new SearchError('protocol', 'The search tab that held this candidate was closed. Search again, or open the note by its share link.');
+    }
+    if (record.contentGeneration !== handle.contentGeneration) {
+      record.retained = false;
+      void this.disposeTab(record);
+      throw new SearchError(
+        'protocol',
+        'The page in this tab has changed since the candidate was listed, so the reference is stale. Search again to get a fresh one.',
+      );
+    }
+    record.retained = false;
+    record.lastUsedAt = Date.now();
+    return record;
+  }
+
+  private async settleTab(record: TabRecord, keep: boolean): Promise<void> {
+    if (keep && !record.page.isClosed() && !record.generation.stale && !this.closed && !this.retired) {
+      record.retained = true;
+      record.lastUsedAt = Date.now();
+      this.pooledTabs.set(record.id, record);
+      // The pool exists so a candidate reference survives a search, not to hoard pages: past a
+      // small bound the least recently used one is closed, so a busy caller cannot accumulate tabs.
+      while (this.pooledTabs.size > MAX_POOLED_TABS) {
+        const oldest = [...this.pooledTabs.values()].sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
+        if (!oldest) break;
+        this.pooledTabs.delete(oldest.id);
+        void this.disposeTab(oldest);
+      }
+      return;
+    }
+    await this.disposeTab(record);
+  }
+
+  private async disposeTab(record: TabRecord): Promise<void> {
+    this.dropPooled(record);
+    if (record.disposing) return record.disposing;
+    record.disposing = (async () => {
+      try {
+        await record.page.close();
+      } catch {
+        // Already closed, or the browser went away with it.
+      }
+    })();
+    return record.disposing;
+  }
+
+  /**
+   * A challenge closes the gate for the whole site before the failing lease releases its slot. The
+   * generation is marked stale at the same time, so the next read rebuilds the session and reloads
+   * the saved state file: a gate that only refused new work would never let the session recover.
+   */
+  private closeSiteGate(error: SearchError, generation?: SessionGeneration): void {
+    if (!this.siteGate) this.siteGate = error;
+    if (generation) this.markGenerationStale(generation, 'connection');
+  }
+
   // --- persist -------------------------------------------------------------------------------
 
   private async persistUnlocked(): Promise<void> {
@@ -852,6 +1245,9 @@ export class BrowserSession {
     this.idleRunning = true;
     this.clearIdleTimer();
     try {
+      // Retained tabs live at most one idle window: the context they belong to is about to go away,
+      // so every handle taken from it is stale from here on.
+      this.closePooledTabs();
       this.generation = undefined;
       this.page = undefined;
       await bounded(this.dropResources(), this.closeWaitMs());
@@ -946,6 +1342,7 @@ export class BrowserSession {
       const persistBudget = Math.max(0, deadline - Date.now() - teardownReserve);
       if (persistBudget > 0) await bounded(this.persistUnlocked(), persistBudget);
     }
+    this.closePooledTabs();
     this.generation = undefined;
     this.page = undefined;
     // A wedged browser can also make the teardown hang; report completion after the budget and let

@@ -1,7 +1,22 @@
 import type { FailureKind, RetryConfig } from './types.js';
 import { initWithAppUserAgent } from './ua.js';
+
+/**
+ * How far a refusal reaches. A `subject` refusal (a private or deleted note) concerns the thing that
+ * was read; a `site` refusal (a challenge, an expired sign-in) concerns the whole site, so queued
+ * reads for that site must not start.
+ */
+export type FailureScope = 'site' | 'subject';
+
 export class SearchError extends Error {
+  /**
+   * Set by the reader that classified the refusal. `site` closes the session's site gate, which
+   * rejects queued reads for that site before their slot is granted.
+   */
+  public scope?: FailureScope;
   constructor(public kind:FailureKind,message:string,public status?:number,public attempts=0){super(message);this.name='SearchError';}
+  /** Mark this refusal as reaching every read for the site, not only the one that met it. */
+  withScope(scope: FailureScope): this { this.scope = scope; return this; }
 }
 export interface TransportOptions {
   retry: RetryConfig; signal: AbortSignal; attemptTimeoutMs: number;

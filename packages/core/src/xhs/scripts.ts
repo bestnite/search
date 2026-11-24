@@ -1,137 +1,200 @@
 /**
- * Xiaohongshu page scripts. The site's own webpack HTTP client is the only thing that can make
- * these calls — a plain in-page fetch was refused with 406 — so each script locates that client
- * inside the running page and performs one read. Module ids are never hardcoded: they are found
- * by route literals and the registration call, so a rebuild of the site does not break this.
+ * Page-side probes for the page-driven Xiaohongshu reader.
+ *
+ * Nothing here calls the site's API. The page does that by itself once it is driven like a person
+ * drives it, so these scripts only read what the page already produced: the identity it resolved,
+ * the candidates it rendered, and the state it stored for a note and its comments.
+ *
+ * The page's own state uses camelCase and wraps some values in reactive objects, so every probe
+ * unwraps refs before reading. A missing value is reported as `null` rather than as a plausible
+ * default: the caller treats "not there yet" and "there and empty" as different answers.
  */
 
-const PRELUDE = `
-const str=(v)=>(typeof v==='string'?v:'');
-const status=(e)=>(e&&e.response&&e.response.status)||0;
-const fail=(code,message)=>({ok:false,code,message:String(message===undefined?'':message).slice(0,300)});
-let captured=null;
-if(!Array.isArray(window.webpackChunkxhs_pc_web)){return fail('NOT_READY','the page has not loaded the site runtime');}
-try{
-  window.webpackChunkxhs_pc_web.push([['xhs_bridge_'+Date.now()+'_'+Math.random().toString(36).slice(2)],[],(req)=>{captured=req;}]);
-}catch(e){return fail('NO_RUNTIME',e&&e.message);}
-if(!captured||!captured.m){return fail('NO_RUNTIME','no webpack require was captured');}
-let hitId=null,hitSrc='';
-for(const key of Object.keys(captured.m)){
-  let src='';try{src=String(captured.m[key]);}catch{continue;}
-  if(src.indexOf('/api/sns/web/v2/user/me')>=0&&src.indexOf('/api/sns/web/v1/feed')>=0){hitId=key;hitSrc=src;break;}
-}
-if(!hitId){return fail('NO_CLIENT','no module registers both the identity and feed routes');}
-const reg=/registerHttp[^]*?\\}\\(\\w+\\((\\d+)\\)\\.([A-Za-z_$][\\w$]*)\\)\\}/.exec(hitSrc);
-if(!reg){return fail('NO_REGISTRATION','the http client registration shape changed');}
-let candidate=null;
-try{const mod=captured(Number(reg[1]));candidate=mod?mod[reg[2]]:null;}catch(e){return fail('NO_CLIENT',e&&e.message);}
-const client=candidate&&typeof candidate.get==='function'?candidate:(candidate&&candidate.default?candidate.default:candidate);
-if(!client||typeof client.get!=='function'||typeof client.post!=='function'){return fail('BAD_CLIENT','the captured export has no get/post');}
+const UNWRAP = `
+const unwrap=(value)=>value&&typeof value==='object'&&value.__v_isRef?value.value:value;
+const state=window.__INITIAL_STATE__;
+const str=(value)=>(typeof value==='string'?value:'');
 `;
 
-const wrap = (body: string): string => `async () => {\n${PRELUDE}\ntry{${body}}catch(e){return {ok:false,code:'CALL_FAILED',status:status(e),message:String((e&&e.message)||e).slice(0,300)};}\n}`;
-
-const literal = (value: unknown): string => JSON.stringify(value);
-
-/** Identity probe: is the runtime usable, and is the session signed in? */
-export function healthScript(): string {
-  return wrap(`const me=await client.get('/api/sns/web/v2/user/me');return {ok:true,guest:!!(me&&me.guest),signedIn:!!(me&&me.nickname)};`);
+/**
+ * What the page currently knows: how far the identity resolved, and how many results it rendered.
+ * Used both to gate a read on a signed-in session and to wait for a result set to settle.
+ */
+export function stateProbeScript(): string {
+  return `() => {
+${UNWRAP}
+const user=state&&state.user;
+const info=unwrap(user&&user.userInfo);
+const search=state&&state.search;
+const feeds=unwrap(search&&search.feeds);
+const cards=document.querySelectorAll('[data-note-id]');
+return {
+  hasState:!!state,
+  guest:info&&typeof info.guest==='boolean'?info.guest:null,
+  loggedIn:typeof unwrap(user&&user.loggedIn)==='boolean'?unwrap(user.loggedIn):null,
+  hasUserInfo:!!info,
+  feedCount:Array.isArray(feeds)?feeds.length:null,
+  cardCount:cards.length,
+  ready:document.readyState
+};
+}`;
 }
 
-export interface SearchScriptInput { query: string; limit: number; page: number; sort: string }
-
-export function searchScript(input: SearchScriptInput): string {
-  return wrap(`
-const r=await client.post('/api/sns/web/v2/search/notes',{
-  keyword:${literal(input.query)},page:${input.page},page_size:20,sort:${literal(input.sort)},note_type:0,ext_flags:[],image_formats:['jpg','webp','avif'],geo:''
-},{baseURL:'https://so.xiaohongshu.com',withCredentials:true,transform:true});
-const list=Array.isArray(r&&r.items)?r.items:[];
-const items=[];
-for(const item of list){
-  if(!item||item.modelType!=='note'){continue;}
-  const card=item.noteCard||{};const user=card.user||{};const stats=card.interactInfo||{};
-  items.push({
-    id:String(item.id||''),
-    title:str(card.displayTitle||card.title),
-    author:str(user.nickname||user.nickName),
-    authorId:str(user.userId),
-    likes:stats.likedCount||'0',
-    url:'https://www.xiaohongshu.com/explore/'+String(item.id||''),
-    cover:str(card.cover&&(card.cover.urlDefault||card.cover.url)),
-    xsecToken:str(item.xsecToken)
-  });
-  if(items.length>=${input.limit}){break;}
+/**
+ * The cards a search rendered, as references a caller can choose between.
+ *
+ * A card carries several links to the same note and some of them hold no text at all, so text is
+ * never required. `position` is an ordinal for finding the element again, never a click target, and
+ * `obscured` is reported as observed — the click path re-checks it at the moment it acts.
+ */
+export function candidatesScript(): string {
+  return `() => {
+const normal=(value)=>(value||'').replace(/\\s+/g,' ').trim();
+const visible=(element)=>{
+  const box=element.getBoundingClientRect();
+  const style=getComputedStyle(element);
+  return box.width>0&&box.height>0&&style.visibility!=='hidden'&&style.display!=='none';
+};
+const obscured=(element)=>{
+  const box=element.getBoundingClientRect();
+  const x=box.x+box.width/2;
+  const y=box.y+box.height/2;
+  if(x<0||y<0||x>=window.innerWidth||y>=window.innerHeight)return true;
+  const top=document.elementFromPoint(x,y);
+  return !!top&&!element.contains(top)&&!top.contains(element);
+};
+const candidates=[];
+const cards=[...document.querySelectorAll('[data-note-id]')];
+for(let index=0;index<cards.length;index++){
+  const card=cards[index];
+  const noteId=card.getAttribute('data-note-id')||'';
+  if(!noteId)continue;
+  let chosen=null;
+  for(const link of card.querySelectorAll('a[href]')){
+    let url;
+    try{url=new URL(link.getAttribute('href'),location.origin);}catch{continue;}
+    if(!url.pathname.endsWith('/'+noteId))continue;
+    if(!visible(link))continue;
+    const label=normal(link.innerText||link.getAttribute('aria-label')||'');
+    const role=label?'title':'cover';
+    const candidate={noteId,path:url.pathname,label,role,position:index,obscured:obscured(link)};
+    // A titled link is the better reference; a cover link is accepted when it is all there is.
+    if(!chosen||(!chosen.label&&label))chosen=candidate;
+    if(label)break;
+  }
+  if(chosen)candidates.push(chosen);
 }
-return {ok:true,items:items,hasMore:!!(r&&r.hasMore),raw:list.length};`);
+return candidates;
+}`;
 }
 
-export function noteScript(input: { id: string; token: string }): string {
-  return wrap(`
-const feed=await client.post('/api/sns/web/v1/feed',{
-  source_note_id:${literal(input.id)},
-  image_formats:['jpg','webp','avif'],
-  extra:{need_head_cursor:true},
-  xsec_token:${literal(input.token)}
-});
-const first=feed&&Array.isArray(feed.items)?feed.items[0]:null;
-const card=first&&first.noteCard?first.noteCard:null;
-if(!card){return {ok:false,code:'EMPTY','message':'the feed came back without a note card'};}
-const user=card.user||{};const stats=card.interactInfo||{};
-return {ok:true,note:{
-  id:${literal(input.id)},
-  title:str(card.title||card.displayTitle),
-  desc:str(card.desc),
+/** The note the page resolved, projected to the fields the reader returns. */
+export function noteDetailScript(noteId: string): string {
+  return `() => {
+${UNWRAP}
+const id=${JSON.stringify(noteId)};
+const store=unwrap(state&&state.note);
+const detail=unwrap(store&&store.noteDetailMap);
+const entry=detail&&detail[id];
+const note=unwrap(entry&&entry.note);
+if(!note)return {found:false};
+const user=unwrap(note.user)||{};
+const stats=unwrap(note.interactInfo)||{};
+const images=unwrap(note.imageList)||[];
+const tags=unwrap(note.tagList)||[];
+const count=(value)=>(value===undefined||value===null||value==='')?'0':String(value);
+return {
+  found:true,
+  idMatches:str(note.noteId)===id,
+  title:str(note.title),
+  desc:str(note.desc),
   author:str(user.nickname||user.nickName),
   authorId:str(user.userId),
-  likes:stats.likedCount||'0',
-  collects:stats.collectedCount||'0',
-  comments:stats.commentCount||'0',
-  shares:stats.sharedCount||'0',
-  publishedAt:str(card.time||card.lastUpdateTime),
-  tags:(card.tagList||[]).map(function(t){return str(t&&t.name);}).filter(Boolean).slice(0,20),
-  imageUrls:(card.imageList||[]).map(i=>str(i.urlDefault||i.urlPre||i.url)).filter(Boolean),
-  url:'https://www.xiaohongshu.com/explore/'+${literal(input.id)}
-}};`);
+  likes:count(stats.likedCount),
+  collects:count(stats.collectedCount),
+  comments:count(stats.commentCount),
+  shares:count(stats.sharedCount),
+  publishedAt:str(note.time||note.lastUpdateTime),
+  tags:tags.map((tag)=>str(unwrap(tag)&&unwrap(tag).name)).filter(Boolean).slice(0,20),
+  imageUrls:images.map((image)=>{
+    const item=unwrap(image)||{};
+    return str(item.urlDefault||item.urlPre||item.url);
+  }).filter(Boolean),
+  commentCount:Array.isArray(unwrap(entry.comments)&&unwrap(entry.comments).list)?unwrap(entry.comments).list.length:null,
+  commentsLoaded:!!(unwrap(entry.comments)&&unwrap(entry.comments).firstRequestFinish),
+  commentsHasMore:!!(unwrap(entry.comments)&&unwrap(entry.comments).hasMore),
+  commentsCursor:str(unwrap(entry.comments)&&unwrap(entry.comments).cursor)
+};
+}`;
 }
 
-export function commentsScript(input: { id: string; token: string; cursor: string; limit: number }): string {
-  return wrap(`
-const page=await client.get('/api/sns/web/v2/comment/page',{params:{
-  note_id:${literal(input.id)},cursor:${literal(input.cursor)},top_comment_id:'',image_formats:['jpg','webp','avif'],xsec_token:${literal(input.token)}
-}});
-const list=Array.isArray(page&&page.comments)?page.comments:[];
+/** One page of comments as the page stored it, projected to what the reader returns. */
+export function commentsStateScript(noteId: string): string {
+  return `() => {
+${UNWRAP}
+const id=${JSON.stringify(noteId)};
+const store=unwrap(state&&state.note);
+const detail=unwrap(store&&store.noteDetailMap);
+const entry=detail&&detail[id];
+const comments=unwrap(entry&&entry.comments);
+const list=comments&&Array.isArray(unwrap(comments).list)?unwrap(comments).list:[];
 const out=[];
-for(const c of list){
-  if(!c||c.invalid){continue;}
-  const u=c.userInfo||{};
+for(const raw of list){
+  const comment=unwrap(raw);
+  if(!comment||unwrap(comment).invalid)continue;
+  const user=unwrap(comment.userInfo)||{};
   out.push({
-    id:String(c.id||''),
-    author:str(u.nickname||u.nickName),
-    content:str(c.content),
-    likes:c.likeCount||'0',
-    replies:c.subCommentCount||'0',
-    ipLocation:str(c.ipLocation),
-    liked:!!c.liked
+    id:str(unwrap(comment).id),
+    author:str(user.nickname||user.nickName),
+    content:str(unwrap(comment).content),
+    likes:(unwrap(comment).likeCount===undefined||unwrap(comment).likeCount===null)?'0':String(unwrap(comment).likeCount),
+    replies:(unwrap(comment).subCommentCount===undefined||unwrap(comment).subCommentCount===null)?'0':String(unwrap(comment).subCommentCount),
+    ipLocation:str(unwrap(comment).ipLocation),
+    liked:!!unwrap(comment).liked
   });
-  if(out.length>=${input.limit}){break;}
 }
-return {ok:true,comments:out,hasMore:!!(page&&page.hasMore),cursor:str(page&&page.cursor)};`);
+return {
+  comments:out,
+  hasMore:!!(comments&&unwrap(comments).hasMore),
+  cursor:str(comments&&unwrap(comments).cursor),
+  loaded:!!(comments&&unwrap(comments).firstRequestFinish),
+  loading:!!(comments&&unwrap(comments).loading)
+};
+}`;
 }
 
-/** Set the session cookies inside the page, then prove they work before reporting success. */
-export function sessionScript(input: { cookies: string }): string {
-  return wrap(`
-const pairs=${literal(input.cookies)}.split(';');
-let applied=0;
-for(const pair of pairs){
-  const idx=pair.indexOf('=');
-  if(idx<=0){continue;}
-  const name=pair.slice(0,idx).trim();
-  const value=pair.slice(idx+1).trim();
-  if(!name||!value){continue;}
-  document.cookie=name+'='+value+'; path=/; domain=.xiaohongshu.com';
-  applied++;
+/** Whether a candidate is still present and clickable right now, checked just before acting. */
+export function candidateCheckScript(noteId: string, path: string): string {
+  return `() => {
+const normal=(value)=>(value||'').replace(/\\s+/g,' ').trim();
+const id=${JSON.stringify(noteId)};
+const want=${JSON.stringify(path)};
+const box=(element)=>{
+  const rect=element.getBoundingClientRect();
+  const style=getComputedStyle(element);
+  return rect.width>0&&rect.height>0&&style.visibility!=='hidden'&&style.display!=='none';
+};
+const cards=[...document.querySelectorAll('[data-note-id]')];
+for(const card of cards){
+  if(card.getAttribute('data-note-id')!==id)continue;
+  for(const link of card.querySelectorAll('a[href]')){
+    let url;
+    try{url=new URL(link.getAttribute('href'),location.origin);}catch{continue;}
+    if(url.pathname!==want)continue;
+    if(!box(link))continue;
+    const rect=link.getBoundingClientRect();
+    const x=rect.x+rect.width/2;
+    const y=rect.y+rect.height/2;
+    const top=document.elementFromPoint(x,y);
+    const clear=!!top&&(link.contains(top)||top.contains(link));
+    return {found:true,clickable:clear,present:true};
+  }
 }
-const me=await client.get('/api/sns/web/v2/user/me');
-return {ok:true,applied:applied,guest:!!(me&&me.guest),signedIn:!!(me&&me.nickname)};`);
+return {found:false,clickable:false,present:false};
+}`;
+}
+
+/** The query string of a search result page, built here so the caller never assembles URLs. */
+export function searchPath(query: string): string {
+  return `/search_result?keyword=${encodeURIComponent(query)}`;
 }

@@ -29,6 +29,8 @@ test('a note becomes a report and survives a JSON round trip', () => {
   assert.deepEqual(report.stats, { likes: '1200', collects: '300', comments: '45', shares: '12' });
   assert.equal('comments' in report, false, 'comments are absent until they are fetched');
   assert.equal('publishedAt' in report, false, 'an absent date is omitted rather than undefined');
+  assert.equal('imageUrls' in report, false, 'picture links are signed, so the report carries none');
+  assert.ok(!JSON.stringify(report).includes('img.example'), 'no picture link reaches the report');
 });
 
 test('comments keep their fields and drop the ones the site omits', () => {

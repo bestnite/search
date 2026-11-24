@@ -1,14 +1,18 @@
 import type { XhsComment, XhsNote } from './index.js';
 
-/** What the `xiaohongshu_note` tool returns: structured fields plus text a model can quote. */
+/**
+ * What the `xiaohongshu_note` tool returns: structured fields plus text a model can quote.
+ *
+ * The report deliberately carries no picture links: image URLs may be signed and time-limited, so
+ * only the downloaded bytes (a local path or an inline payload) leave the process. The note's own
+ * `imageUrls` stay internal, where the host's media layer reads them.
+ */
 export interface XhsNoteReport {
   url: string;
   title: string;
   author: string;
   desc: string;
   tags: string[];
-  /** Pictures the note carries, in display order. */
-  imageUrls: string[];
   stats: { likes: string; collects: string; comments: string; shares: string };
   publishedAt?: string;
   comments?: Array<{ author: string; content: string; likes: string; replies: string; ipLocation?: string }>;
@@ -29,7 +33,6 @@ export function formatXhsNote(note: XhsNote, comments?: XhsComment[], commentsTr
     author: note.author,
     desc: note.desc,
     tags: note.tags,
-    imageUrls: note.imageUrls,
     stats: { likes: note.likes, collects: note.collects, comments: note.comments, shares: note.shares },
     ...(note.publishedAt ? { publishedAt: note.publishedAt } : {}),
     ...(comments

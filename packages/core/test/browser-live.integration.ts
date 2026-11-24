@@ -14,8 +14,8 @@ import assert from 'node:assert/strict';
 import { chromium, type Browser } from 'patchright-core';
 import { BrowserSession, closeBrowserSessions, type BrowserSessionOptions } from '../src/browser.js';
 import { SearchError } from '../src/transport.js';
-import { healthScript } from '../src/xhs/scripts.js';
-import { searchXhs, unwrapAnswer, type XhsContext } from '../src/xhs/index.js';
+import { stateProbeScript } from '../src/xhs/scripts.js';
+import { searchXhs, type XhsContext } from '../src/xhs/index.js';
 
 const endpoint = (process.env.BROWSER_WS_ENDPOINT ?? '').trim();
 const token = (process.env.BROWSER_TOKEN ?? '').trim();
@@ -81,7 +81,7 @@ const logLine = (message: string): void => {
   process.stdout.write(`[browser-live] ${message}\n`);
 };
 
-interface Health { guest?: boolean; signedIn?: boolean; ok?: boolean }
+interface IdentityProbe { hasState: boolean; guest: boolean | null; loggedIn: boolean | null }
 
 test('live browser: one shared page, one attach for concurrent local evaluators, cap 2', { skip: endpoint === '' ? 'set BROWSER_WS_ENDPOINT' : false }, async () => {
   const counts = { connects: 0 };
@@ -128,12 +128,13 @@ test('live xhs: warm up identity, then 1/2/3 concurrent searches on one cap-3 se
     let warmKind = 'none';
     let coldInitMs: number | undefined;
     try {
-      const health: Health = await session.read(async reader => unwrapAnswer<Health>(await reader.evaluate(healthScript())));
+      const health = await session.read(async reader => reader.evaluate<IdentityProbe>(stateProbeScript()));
       coldInitMs = Date.now() - warmStarted;
       if (health.guest === true) {
         warmStatus = 'stopped';
         warmKind = 'guest';
-      } else if (health.signedIn !== true) {
+      } else if (health.guest !== false) {
+        // A missing or malformed identity is a stop, not a pass.
         warmStatus = 'stopped';
         warmKind = 'signedOut';
       } else {

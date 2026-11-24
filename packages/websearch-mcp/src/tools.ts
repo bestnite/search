@@ -18,7 +18,7 @@ import type { ServerConfig } from './config.js';
 import { credentialResolver, describeBackends, enabledBackendIds } from './config.js';
 import { asSource, type ConfigSource } from './live.js';
 import { createManageTool } from './manage.js';
-import { fetchImages, type InlineImage } from './images.js';
+import { fetchImages, renderImageList } from './images.js';
 
 export interface ServerIdentity {
   name: string;
@@ -213,7 +213,7 @@ export function createTools(
       render(thread.comments);
       if (thread.truncated) lines.push('', '[Comment text was truncated to fit the output budget.]');
       const images = await fetchImages((thread.post as { images?: string[] }).images ?? [], { signal });
-      return { text: withImageList(lines.join('\n'), images), images, post: thread.post, truncated: thread.truncated };
+      return { text: renderImageList(lines.join('\n'), images), images, post: thread.post, truncated: thread.truncated };
     },
   };
 
@@ -265,9 +265,10 @@ export function createTools(
       const limit = Math.min(Math.max(int(args.commentLimit) ?? 20, 1), 50);
       const page = bool(args.withComments) === true ? await notes.comments({ ...target, limit }, context) : undefined;
       const report = formatXhsNote(note, page?.comments, page ? page.hasMore : undefined);
-      const images = await fetchImages(report.imageUrls, { signal });
+      // The report carries no picture links on purpose; the note's own list is where they are read.
+      const images = await fetchImages(note.imageUrls, { signal });
       return {
-        text: withImageList(renderXhsNote(report), images),
+        text: renderImageList(renderXhsNote(report), images),
         images,
         note: report,
         ...(report.comments ? { comments: report.comments } : {}),
@@ -355,19 +356,5 @@ async function readXThread(id: string, args: Record<string, unknown>, signal: Ab
   }
   if (thread.truncated) lines.push('', '[The conversation was truncated to fit the output budget.]');
   const images = await fetchImages((thread.post as { images?: string[] }).images ?? [], { signal });
-  return { text: withImageList(lines.join('\n'), images), images, post: thread.post, replies: thread.replies, truncated: thread.truncated };
-}
-
-/**
- * Every link is listed, and the pictures that arrived are attached as content blocks beside the
- * text. A client that cannot read image content still learns which pictures exist and why some are
- * missing.
- */
-function withImageList(text: string, images: readonly InlineImage[]): string {
-  if (!images.length) return text;
-  const lines = [text, '', `## Images (${images.length})`];
-  for (const image of images) {
-    lines.push(image.data ? `- attached: ${image.url} (${image.mimeType}, ${image.bytes ?? 0} bytes)` : `- ${image.url} (not attached: ${image.error ?? 'unknown reason'})`);
-  }
-  return lines.join('\n');
+  return { text: renderImageList(lines.join('\n'), images), images, post: thread.post, replies: thread.replies, truncated: thread.truncated };
 }

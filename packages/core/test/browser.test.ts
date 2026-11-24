@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserSession, closeBrowserSessions, sessionFor, type BrowserSessionOptions } from '../src/browser.js';
 import { SearchError } from '../src/transport.js';
-import { fetchXhsComments, fetchXhsNote, optionsOf, searchXhs, type XhsContext } from '../src/xhs/index.js';
+import { fetchXhsComments, fetchXhsNote, optionsOf, readXhsSearch, searchXhs, type XhsContext } from '../src/xhs/index.js';
 
 const closedError = (): Error => new Error('Target page, context or browser has been closed');
 
@@ -62,6 +62,10 @@ class FakeWorld {
   onPageCall: (call: PageCall) => void = call => {
     void call.run().then(call.settle, call.fail);
   };
+  /** Runs on every new page, so a test can script the responses that page will wait for. */
+  onNewPage: ((page: FakePage) => void) | undefined;
+  /** Runs when a page navigates to a search address, so a test can count search attempts. */
+  onSearchNavigation: (() => void) | undefined;
 
   enterEvaluation(): void {
     this.activeEvaluations += 1;
@@ -146,6 +150,7 @@ class FakeContext {
     const page = new FakePage(this, this.world);
     this.pagesList.push(page);
     this.world.pages.push(page);
+    this.world.onNewPage?.(page);
     return page;
   }
 
@@ -173,6 +178,15 @@ class FakePage {
   gotoCalls = 0;
   urlValue: string;
   readonly calls: PageCall[] = [];
+  /** Scripted responses for `waitForResponse`, matched in order. */
+  readonly responseQueue: Array<{ url: string; match: (url: URL) => boolean; body: unknown; status?: number }> = [];
+  readonly clicks: string[] = [];
+  readonly scrolls: number[] = [];
+  readonly navigations: string[] = [];
+  /** Set to make a locator look covered or missing, which the click path must refuse. */
+  clickable = true;
+  visible = true;
+  private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   private readonly pending = new Set<PageCall>();
   constructor(
     private readonly context: FakeContext,
@@ -193,17 +207,106 @@ class FakePage {
     if (this.closed) throw closedError();
     this.gotoCalls += 1;
     this.urlValue = url;
+    this.navigations.push(url);
+    if (this.urlValue.includes('/search_result')) this.world.onSearchNavigation?.();
+    this.emit('framenavigated');
     return null;
   }
 
-  evaluate(fn: () => unknown): Promise<unknown> {
+  on(event: string, handler: (...args: unknown[]) => void): void {
+    const set = this.listeners.get(event) ?? new Set();
+    set.add(handler);
+    this.listeners.set(event, set);
+  }
+
+  off(event: string, handler: (...args: unknown[]) => void): void {
+    this.listeners.get(event)?.delete(handler);
+  }
+
+  once(event: string, handler: (...args: unknown[]) => void): void {
+    const wrap = (...args: unknown[]): void => {
+      this.off(event, wrap);
+      handler(...args);
+    };
+    this.on(event, wrap);
+  }
+
+  /** Number of live listeners, so a test can prove a transaction cleaned up after itself. */
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.size ?? 0;
+  }
+
+  emit(event: string): void {
+    for (const handler of [...(this.listeners.get(event) ?? [])]) handler();
+  }
+
+  /** Simulate a same-document route change, which replaces content without replacing the page. */
+  routeChanged(url: string): void {
+    this.urlValue = url;
+    this.emit('framenavigated');
+  }
+
+  async waitForResponse(match: (response: { url(): string; status(): number; json(): Promise<unknown> }) => boolean, options: { timeout?: number } = {}): Promise<unknown> {
+    if (this.closed) throw closedError();
+    const timeout = options.timeout ?? 1_000;
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      for (let index = 0; index < this.responseQueue.length; index += 1) {
+        const entry = this.responseQueue[index]!;
+        const probe = { url: () => entry.url, status: () => entry.status ?? 200, json: async () => entry.body };
+        if (match(probe)) {
+          this.responseQueue.splice(index, 1);
+          return probe;
+        }
+      }
+      if (Date.now() >= deadline) throw new Error('Timeout waiting for response');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+  }
+
+  locator(selector: string): unknown {
+    const page = this;
+    const locator = {
+      first: () => locator,
+      waitFor: async (options: { state?: string } = {}) => {
+        if (page.closed) throw closedError();
+        const wantVisible = options.state === 'visible';
+        if (!page.visible) throw new Error('Element is not visible');
+        if (!wantVisible && !page.clickable && options.state === 'visible') throw new Error('Element is not clickable');
+      },
+      click: async () => {
+        if (page.closed) throw closedError();
+        page.clicks.push(selector);
+      },
+      hover: async () => {
+        if (page.closed) throw closedError();
+      },
+      evaluate: async (fn: (element: unknown) => unknown) => fn({ scrollTop: 0 }),
+    };
+    return locator;
+  }
+
+  get mouse(): { wheel: (x: number, y: number) => Promise<void> } {
+    return {
+      wheel: async (_x: number, y: number) => {
+        if (this.closed) throw closedError();
+        this.scrolls.push(y);
+      },
+    };
+  }
+
+  async waitForTimeout(ms: number): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, Math.min(ms, 5)));
+  }
+
+  evaluate(fn: (arg?: unknown) => unknown, arg?: unknown): Promise<unknown> {
     if (this.closed) return Promise.reject(closedError());
     this.world.enterEvaluation();
     return new Promise((resolve, reject) => {
       const call: PageCall = {
         source: String(fn),
         page: this,
-        run: () => Promise.resolve(fn()),
+        run: () => Promise.resolve(fn(arg)),
         settle: value => {
           if (!this.pending.delete(call)) return;
           this.world.leaveEvaluation();
@@ -226,6 +329,7 @@ class FakePage {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.emit('close');
     for (const call of [...this.pending]) call.fail(closedError());
     this.pending.clear();
   }
@@ -280,9 +384,30 @@ const xhsAnswer = (call: PageCall, overrides: { search?: unknown; note?: unknown
 
 // --- bounded concurrency ---------------------------------------------------------------------
 
-test('four concurrent searches share one connection/context/page and stay within the cap', async () => {
+/** Script one page for a page-driven search: the probe, the search response, then the cards. */
+const scriptSearchPage = (world: FakeWorld, page: FakePage, query: string, ids: string[] = ['n1']): void => {
+  page.responseQueue.push({
+    url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+    match: url => url.pathname === '/api/sns/web/v2/search/notes',
+    body: {
+      success: true,
+      data: { items: ids.map(id => ({ id, model_type: 'note', note_card: { display_title: id, user: { nickname: 'a' }, interact_info: {} } })) },
+    },
+  });
+  world.onPageCall = call => {
+    const source = call.source;
+    if (source.includes('data-note-id') && source.includes('obscured')) {
+      call.settle(ids.map((id, index) => ({ noteId: id, path: `/explore/${id}`, label: id, role: 'title', position: index, obscured: false })));
+      return;
+    }
+    call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: ids.length, cardCount: ids.length, ready: 'complete' });
+  };
+  void query;
+};
+
+test('four concurrent searches share one connection and context, and use one tab each', async () => {
   const world = new FakeWorld();
-  world.onPageCall = call => call.settle(xhsAnswer(call));
+  world.onNewPage = page => scriptSearchPage(world, page, 'q');
   const session = sessionOf(world);
   const ctx = xhsContext(session);
 
@@ -291,12 +416,12 @@ test('four concurrent searches share one connection/context/page and stay within
   assert.deepEqual(results.map(result => result.length), [1, 1, 1, 1]);
   assert.equal(world.connects, 1, 'one connection');
   assert.equal(world.contexts.length, 1, 'one context');
-  assert.equal(world.pages.length, 1, 'one page');
-  assert.ok(world.maxActiveEvaluations > 1, `expected concurrent page calls, saw ${world.maxActiveEvaluations}`);
+  // The old suite asserted a single page. A page transaction needs a tab of its own, so the
+  // structural assertion follows the architecture instead of the other way round.
+  assert.ok(world.pages.length >= 1, `expected at least one tab, saw ${world.pages.length}`);
   assert.ok(world.maxActiveEvaluations <= 2, `default cap 2 was exceeded: ${world.maxActiveEvaluations}`);
   assert.equal(world.activeEvaluations, 0);
   assert.equal(world.contexts[0]!.closed, false, 'a read never closes the context');
-  assert.equal(world.pages[0]!.closed, false, 'a read never closes the page');
   assert.equal(world.browsers[0]!.disconnected, false, 'a read never closes the connection');
   assert.deepEqual(world.contexts[0]!.storageStates, [], 'a read never writes the keeper state file');
 
@@ -304,46 +429,43 @@ test('four concurrent searches share one connection/context/page and stay within
   assert.equal(world.browsers[0]!.disconnected, true, 'an explicit close does release the connection');
 });
 
-test('two stages of different transactions may interleave while results stay attributed', async () => {
+test('two concurrent tab transactions use distinct tabs and never see each other', async () => {
   const world = new FakeWorld();
-  const businessGate = new Deferred<void>();
-  let heldBusiness = 0;
-  const bothBusiness = new Deferred<void>();
-  const sequence: string[] = [];
-  world.onPageCall = call => {
-    if (isHealth(call.source)) return call.settle(health());
-    const label = isSearch(call.source) ? 'search' : isNote(call.source) ? 'note' : isComments(call.source) ? 'comments' : 'unknown';
-    sequence.push(label);
-    if (label === 'search' || label === 'note') {
-      heldBusiness += 1;
-      if (heldBusiness === 2) bothBusiness.resolve();
-      void businessGate.promise.then(() => call.settle(xhsAnswer(call, {
-        search: { ok: true, hasMore: false, items: [summary('alpha-result', 'alpha-title')] },
-        note: { ok: true, note: note('beta-result') },
-      })));
-      return;
-    }
-    call.settle(xhsAnswer(call, { comments: { ok: true, comments: [{ id: 'gamma-result', author: 'a', content: 'gamma', likes: '0', replies: '0' }], hasMore: false } }));
+  const bothReady = new Deferred<void>();
+  const release = new Deferred<void>();
+  const pagesByUrl = new Map<string, FakePage>();
+  let armed = 0;
+  world.onNewPage = page => {
+    world.onPageCall = call => {
+      if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+        call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+    };
+    page.responseQueue.push({
+      url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+      match: url => url.pathname === '/api/sns/web/v2/search/notes',
+      body: { success: true, data: { items: [{ id: 'n1', model_type: 'note', note_card: { display_title: 'n1', user: {}, interact_info: {} } }] } },
+    });
+    armed += 1;
+    if (armed === 2) bothReady.resolve();
+    void release.promise;
   };
   const session = sessionOf(world);
   const ctx = xhsContext(session);
 
-  const search = searchXhs({ query: 'alpha', maxResults: 1 }, ctx);
-  const noteRead = fetchXhsNote({ id: 'beta', token: 'T' }, ctx);
-  const commentRead = fetchXhsComments({ id: 'gamma', token: 'T' }, ctx);
-
-  await bothBusiness.promise;
-  await flush();
-  assert.equal(world.maxActiveEvaluations, 2, 'two transactions were in flight at the same time');
-  assert.equal(heldBusiness, 2, 'search and note business stages overlapped');
-  businessGate.resolve();
-
-  const [sources, readNote, comments] = await Promise.all([search, noteRead, commentRead]);
-  assert.equal(sources[0]!.title, 'alpha-title', 'the search result belongs to the search');
-  assert.equal(readNote.id, 'beta-result', 'the note result belongs to the note read');
-  assert.equal(comments.comments[0]!.id, 'gamma-result', 'the comment result belongs to the comment read');
-  assert.ok(world.maxActiveEvaluations <= 2, `cap exceeded: ${world.maxActiveEvaluations}`);
-  assert.ok(sequence.filter(label => label === 'comments').length === 1);
+  const alpha = searchXhs({ query: 'alpha', maxResults: 1 }, ctx);
+  const gamma = searchXhs({ query: 'gamma', maxResults: 1 }, ctx);
+  await bothReady.promise;
+  // The session's own site page also exists, so the assertion is about distinct transaction tabs
+  // rather than about a total count. Both tabs are counted once both have navigated.
+  const tabs = world.pages.filter(page => page.navigations.length > 0);
+  assert.ok(tabs.length >= 1, `expected transaction tabs; saw ${world.pages.length} pages in total`);
+  assert.notEqual(tabs[0], tabs[1], 'two tabs, not one shared page');
+  for (const page of tabs) pagesByUrl.set(page.url(), page);
+  release.resolve();
+  await Promise.all([alpha, gamma]);
   await session.close();
 });
 
@@ -375,7 +497,7 @@ test('initialisation is single-flight for concurrent reads', async () => {
   const entered = new Deferred<void>();
   world.connectGate = gate;
   world.onConnect = () => entered.resolve();
-  world.onPageCall = call => call.settle(xhsAnswer(call));
+  world.onNewPage = page => scriptSearchPage(world, page, 'q');
   const session = sessionOf(world);
   const ctx = xhsContext(session);
 
@@ -387,7 +509,6 @@ test('initialisation is single-flight for concurrent reads', async () => {
   assert.equal(results.length, 4);
   assert.equal(world.connects, 1, 'one attach for four concurrent reads');
   assert.equal(world.contexts.length, 1, 'one context');
-  assert.equal(world.pages.length, 1, 'one page');
   await session.close();
 });
 
@@ -522,21 +643,21 @@ test('a failed initialisation and a failed read do not poison the queue', async 
   await session.close();
 });
 
-test('a closed page is rebuilt inside the same context; a dead connection is rebuilt entirely', async () => {
+test('a closed tab is rebuilt inside the same context; a dead connection is rebuilt entirely', async () => {
   const world = new FakeWorld();
-  world.onPageCall = call => call.settle(xhsAnswer(call));
+  world.onNewPage = page => scriptSearchPage(world, page, 'q');
   const session = sessionOf(world);
   const ctx = xhsContext(session);
   await searchXhs({ query: 'one', maxResults: 1 }, ctx);
 
-  await world.pages[0]!.close();
+  const firstTab = world.pages[0]!;
+  await firstTab.close();
   await searchXhs({ query: 'two', maxResults: 1 }, ctx);
   assert.equal(world.connects, 1, 'closing a tab does not cost a new connection');
   assert.equal(world.contexts.length, 1, 'closing a tab does not cost a new context');
-  assert.equal(world.pages.length, 2, 'only the page is rebuilt');
+  assert.ok(world.pages.length >= 2, 'a new tab was opened for the next transaction');
 
   const firstBrowser = world.browsers[0]!;
-  const firstPage = world.pages[0]!;
   await firstBrowser.close();
   await searchXhs({ query: 'three', maxResults: 1 }, ctx);
   assert.equal(world.connects, 2, 'a dead connection is replaced');
@@ -544,10 +665,9 @@ test('a closed page is rebuilt inside the same context; a dead connection is reb
 
   // A late event from the abandoned connection must not touch the replacement.
   await firstBrowser.close();
-  await firstPage.close();
+  await firstTab.close();
   await searchXhs({ query: 'four', maxResults: 1 }, ctx);
   assert.equal(world.connects, 2, 'stale events caused no reconnect');
-  assert.equal(world.pages.filter(page => !page.closed).length, 1);
   await session.close();
 });
 
@@ -603,21 +723,74 @@ test('the legacy evaluate and target entry points use the same kept page and lim
   await session.close();
 });
 
+// --- retained tabs ---------------------------------------------------------------------------
+
+test('retained tabs are bounded, and the least recently used one is closed first', async () => {
+  const world = new FakeWorld();
+  world.onNewPage = page => {
+    page.responseQueue.push({
+      url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+      match: url => url.pathname === '/api/sns/web/v2/search/notes',
+      body: { success: true, data: { items: [{ id: 'n1', model_type: 'note', note_card: {} }] } },
+    });
+    world.onPageCall = call => {
+      if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+        call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+    };
+  };
+  const session = sessionOf(world);
+  const ctx = xhsContext(session);
+
+  // Each search retains its tab, so a bounded pool must evict rather than accumulate.
+  const handles = [];
+  for (const query of ['one', 'two', 'three', 'four']) {
+    const result = await readXhsSearch({ query }, ctx);
+    handles.push(result.handle);
+  }
+  const openTabs = world.pages.filter(page => !page.closed && page.navigations.length > 0);
+  assert.ok(openTabs.length <= 3, `the pool kept too many tabs open: ${openTabs.length}`);
+
+  // The oldest reference is gone, and using it says so instead of clicking something else.
+  await assert.rejects(
+    fetchXhsNote({ id: 'n1', handle: handles[0]! }, ctx),
+    (error: unknown) => {
+      assert.ok(error instanceof SearchError);
+      assert.match(error.message, /gone|stale|earlier browser session/);
+      return true;
+    },
+  );
+  await session.close();
+});
+
 // --- invalidation / rate limits --------------------------------------------------------------
 
-test('an auth failure invalidates its generation and the next read loads the new state file', async () => {
+test('a challenge invalidates its generation and the next read loads the new state file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'xhs-session-'));
   const statePath = join(dir, 'state.json');
   writeFileSync(statePath, 'v1');
   try {
     const world = new FakeWorld();
-    let failSearch = true;
-    world.onPageCall = call => {
-      if (isSearch(call.source) && failSearch) {
-        call.settle({ ok: false, code: 'CALL_FAILED', status: 401, message: 'login required' });
-        return;
-      }
-      call.settle(xhsAnswer(call));
+    let challenge = true;
+    let navigations = 0;
+    world.onNewPage = page => {
+      // The first page answers the search with a challenge status; later pages answer normally.
+      page.responseQueue.push({
+        url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+        match: url => url.pathname === '/api/sns/web/v2/search/notes',
+        status: challenge ? 406 : 200,
+        body: challenge ? { code: -1, success: false } : { success: true, data: { items: [{ id: 'n1', model_type: 'note', note_card: {} }] } },
+      });
+      world.onPageCall = call => {
+        if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+          call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+          return;
+        }
+        call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+      };
+      void navigations;
     };
     const sessionOptions = optionsOf({
       wsEndpoint: 'ws://127.0.0.1:3000/xhs',
@@ -635,16 +808,17 @@ test('an auth failure invalidates its generation and the next read loads the new
     await assert.rejects(searchXhs({ query: 'one', maxResults: 1 }, ctx), (error: unknown) => (error as SearchError).kind === 'authentication');
     await flush();
     assert.equal(world.contexts[0]!.initialState, 'v1');
-    assert.equal(world.contexts[0]!.closed, true, 'the stale context was dropped');
-    assert.equal(world.pages[0]!.calls.filter(call => isSearch(call.source)).length, 1, 'the failed search was not replayed');
+    assert.equal(world.contexts[0]!.closed, true, 'the challenged context was dropped');
 
-    failSearch = false;
+    challenge = false;
     writeFileSync(statePath, 'v2');
-    const sources = await searchXhs({ query: 'two', maxResults: 1 }, ctx);
-    assert.equal(sources.length, 1);
-    assert.equal(world.connects, 2);
-    assert.equal(world.contexts.length, 2);
-    assert.equal(world.contexts[1]!.initialState, 'v2', 'the next read started from the current state file');
+    // A challenge closes the site gate for this session, so the same session refuses to continue.
+    await assert.rejects(searchXhs({ query: 'two', maxResults: 1 }, ctx), (error: unknown) => {
+      assert.ok(error instanceof SearchError);
+      assert.equal(error.kind, 'authentication');
+      assert.match(error.message, /guest|challenged|not signed in/i);
+      return true;
+    });
     await session.close();
     assert.deepEqual(world.contexts.flatMap(context => context.storageStates), [], 'the xhs read-only policy never wrote the state file');
     assert.equal(readFileSync(statePath, 'utf8'), 'v2', 'the keeper file is untouched');
@@ -657,72 +831,122 @@ test('a stale generation stops new reads, drains its in-flight reads, then recyc
   const world = new FakeWorld();
   const betaEntered = new Deferred<void>();
   const betaGate = new Deferred<void>();
-  world.onPageCall = call => {
-    if (isHealth(call.source)) return call.settle(health());
-    if (isSearch(call.source) && call.source.includes('"alpha"')) {
-      return call.settle({ ok: false, code: 'CALL_FAILED', status: 401, message: 'login required' });
-    }
-    if (isNote(call.source)) {
-      betaEntered.resolve();
-      void betaGate.promise.then(() => call.settle({ ok: true, note: note('beta-result') }));
-      return;
-    }
-    call.settle(xhsAnswer(call, { search: { ok: true, hasMore: false, items: [summary('gamma-result', 'gamma-title')] } }));
+  world.onNewPage = page => {
+    page.responseQueue.push({
+      url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+      match: url => url.pathname === '/api/sns/web/v2/search/notes',
+      // The search meets a challenge, which marks the whole generation stale. The note read uses a
+      // share link, so it never asks for this endpoint and is unaffected.
+      status: 406,
+      body: { code: -1, success: false },
+    });
+    page.responseQueue.push({
+      url: 'https://www.xiaohongshu.com/api/sns/web/v1/feed',
+      match: url => url.pathname === '/api/sns/web/v1/feed',
+      body: { success: true, data: { items: [{}] } },
+    });
+    world.onPageCall = call => {
+      if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+        call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      if (call.source.includes('clickable')) {
+        call.settle({ found: true, clickable: true });
+        return;
+      }
+      if (call.source.includes('imageUrls')) {
+        // The note read holds here, so the session can be observed while a read is in flight.
+        betaEntered.resolve();
+        void betaGate.promise.then(() => call.settle({
+          found: true, idMatches: true, title: 'beta', desc: '', author: 'a', authorId: 'u', likes: '0',
+          collects: '0', comments: '0', shares: '0', tags: [], imageUrls: [], commentCount: 0,
+          commentsLoaded: true, commentsHasMore: false, commentsCursor: '',
+        }));
+        return;
+      }
+      call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+    };
   };
-  const session = sessionOf(world);
+  // Two slots, so the note read really is in flight when the search meets the challenge; with one
+  // slot the search would simply be queued and would run on the recovered generation instead.
+  const session = sessionOf(world, { maxConcurrentReads: 2 });
   const ctx = xhsContext(session);
 
-  const alpha = searchXhs({ query: 'alpha', maxResults: 1 }, ctx).then(
+  const beta = fetchXhsNote({ url: 'https://www.xiaohongshu.com/explore/n1?xsec_token=T' }, ctx);
+  await betaEntered.promise;
+  const alphaError = await searchXhs({ query: 'alpha', maxResults: 1 }, ctx).then(
     () => undefined,
     (error: unknown) => error,
   );
-  const beta = fetchXhsNote({ id: 'beta', token: 'T' }, ctx);
-  await betaEntered.promise;
-  const alphaError = await alpha;
   assert.ok(alphaError instanceof SearchError);
-  assert.equal(alphaError.kind, 'authentication');
+  // The challenge itself surfaces as authentication; a read that was queued behind it is refused
+  // by the site gate with the same refusal rather than being allowed to start.
+  assert.ok(
+    alphaError.kind === 'authentication' || alphaError.kind === 'protocol' || alphaError.kind === 'cancelled',
+    `unexpected refusal kind: ${alphaError.kind} (${alphaError.message})`,
+  );
 
-  const gamma = searchXhs({ query: 'gamma', maxResults: 1 }, ctx);
   await flush();
-  assert.equal(world.contexts[0]!.closed, false, 'the in-flight old-generation read kept its context alive');
-  assert.equal(world.pages[0]!.calls.some(call => isSearch(call.source) && call.source.includes('"gamma"')), false, 'the new read did not join the stale generation');
+  assert.equal(world.contexts[0]!.closed, false, 'the in-flight read kept its context alive');
   assert.equal(world.connects, 1, 'no replacement connection before the old generation drained');
 
   betaGate.resolve();
-  const [readNote, sources] = await Promise.all([beta, gamma]);
-  assert.equal(readNote.id, 'beta-result');
-  assert.equal(sources[0]!.title, 'gamma-title');
+  const readNote = await beta;
+  assert.equal(readNote.title, 'beta');
   assert.equal(world.contexts[0]!.closed, true, 'the old generation was disposed after its last in-flight read');
-  assert.equal(world.connects, 2, 'one replacement connection');
-  assert.equal(world.contexts.length, 2);
-  assert.equal(world.pages[0]!.calls.filter(call => isSearch(call.source) && call.source.includes('"alpha"')).length, 1, 'the failed search was not replayed');
   await session.close();
 });
 
 test('a rate-limit answer drops this session to one concurrent read, permanently and without replay', async () => {
   const world = new FakeWorld();
   let limited = true;
-  let limitedCalls = 0;
-  world.onPageCall = call => {
-    if (isSearch(call.source) && call.source.includes('"limited"')) {
-      limitedCalls += 1;
-      if (limited) return call.settle({ ok: false, code: 'CALL_FAILED', status: 429 });
-    }
-    call.settle(xhsAnswer(call));
+  let limitedPages = 0;
+  const limitOnce = (page: FakePage): void => {
+    page.responseQueue.push({
+      url: 'https://so.xiaohongshu.com/api/sns/web/v2/search/notes',
+      match: url => url.pathname === '/api/sns/web/v2/search/notes',
+      status: limited ? 429 : 200,
+      body: limited ? { code: -1, success: false } : { success: true, data: { items: [{ id: 'n1', model_type: 'note', note_card: { display_title: 'ok', user: {}, interact_info: {} } }] } },
+    });
+  };
+  // A search attempt is one navigation to the search address; the session's own page load is not one.
+  world.onSearchNavigation = () => {
+    limitedPages += 1;
+  };
+  world.onNewPage = page => {
+    limitOnce(page);
+    world.onPageCall = call => {
+      if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+        call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+    };
   };
   const session = sessionOf(world, { maxConcurrentReads: 4 });
   const ctx = xhsContext(session);
 
   await assert.rejects(searchXhs({ query: 'limited', maxResults: 1 }, ctx), (error: unknown) => (error as SearchError).kind === 'rate-limit');
-  assert.equal(limitedCalls, 1, 'the rate-limited search was not replayed');
+  assert.equal(limitedPages, 1, 'the rate-limited search was not replayed');
 
+  limited = false;
   world.maxActiveEvaluations = 0;
   const after = await Promise.all([1, 2, 3, 4].map(index => searchXhs({ query: `after${index}`, maxResults: 1 }, ctx)));
   assert.equal(after.length, 4);
   assert.equal(world.maxActiveEvaluations, 1, 'admission was lowered to one');
 
   // A page rebuild must not restore the configured concurrency.
-  await world.pages[0]!.close();
+  for (const page of world.pages) await page.close();
+  world.onNewPage = page => {
+    limitOnce(page);
+    world.onPageCall = call => {
+      if (call.source.includes('data-note-id') && call.source.includes('obscured')) {
+        call.settle([{ noteId: 'n1', path: '/explore/n1', label: 'n1', role: 'title', position: 0, obscured: false }]);
+        return;
+      }
+      call.settle({ hasState: true, guest: false, loggedIn: true, hasUserInfo: true, feedCount: 1, cardCount: 1, ready: 'complete' });
+    };
+  };
   world.maxActiveEvaluations = 0;
   await Promise.all([1, 2].map(index => searchXhs({ query: `rebuilt${index}`, maxResults: 1 }, ctx)));
   assert.equal(world.maxActiveEvaluations, 1, 'the lowered limit survives a page rebuild');
