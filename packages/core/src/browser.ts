@@ -365,6 +365,8 @@ export class BrowserSession {
    * session that reloads its saved state can carry on rather than staying shut for good.
    */
   private siteGate: SearchError | undefined;
+  /** Why the last tab that asked to be kept was closed instead; surfaced in the stale-tab error. */
+  private lastPoolRefusal = '';
 
   constructor(
     private readonly options: BrowserSessionOptions,
@@ -1108,9 +1110,10 @@ export class BrowserSession {
     if (!record) {
       // Name what the pool actually holds: an empty pool and a different tab id are different bugs.
       const pooled = [...this.pooledTabs.values()].map(item => item.id).join(',') || 'none';
+      const why = this.lastPoolRefusal ? ` why=${this.lastPoolRefusal}` : '';
       throw new SearchError(
         'protocol',
-        `The search tab that held this candidate is gone (it was reused, closed, or idled out). Search again, or open the note by its share link. [want=${handle.tabId} gen=${handle.generation} pooled=${pooled}]`,
+        `The search tab that held this candidate is gone (it was reused, closed, or idled out). Search again, or open the note by its share link. [want=${handle.tabId} gen=${handle.generation} pooled=${pooled}${why}]`,
       );
     }
     this.pooledTabs.delete(record.id);
@@ -1144,6 +1147,10 @@ export class BrowserSession {
         void this.disposeTab(oldest);
       }
       return;
+    }
+    // Record why a tab that was meant to stay did not, so a missing candidate is diagnosable.
+    if (keep) {
+      this.lastPoolRefusal = `pageClosed=${record.page.isClosed()} stale=${record.generation.stale} sessionClosed=${this.closed} retired=${this.retired}`;
     }
     await this.disposeTab(record);
   }
