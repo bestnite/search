@@ -164,30 +164,32 @@ return {
 }
 
 /** Whether a candidate is still present and clickable right now, checked just before acting. */
-export function candidateCheckScript(noteId: string, path: string): string {
+export function candidateCheckScript(noteId: string): string {
   return `() => {
 const normal=(value)=>(value||'').replace(/\\s+/g,' ').trim();
 const id=${JSON.stringify(noteId)};
-const want=${JSON.stringify(path)};
 const box=(element)=>{
   const rect=element.getBoundingClientRect();
   const style=getComputedStyle(element);
   return rect.width>0&&rect.height>0&&style.visibility!=='hidden'&&style.display!=='none';
 };
+// The card links to the note under whichever route rendered it — a search page uses
+// /search_result/<id>, a feed uses /explore/<id> — so the id at the end is what identifies it.
+const targets=(pathname)=>pathname.endsWith('/'+id);
 const cards=[...document.querySelectorAll('[data-note-id]')];
 for(const card of cards){
   if(card.getAttribute('data-note-id')!==id)continue;
   for(const link of card.querySelectorAll('a[href]')){
     let url;
     try{url=new URL(link.getAttribute('href'),location.origin);}catch{continue;}
-    if(url.pathname!==want)continue;
+    if(!targets(url.pathname))continue;
     if(!box(link))continue;
     const rect=link.getBoundingClientRect();
     const x=rect.x+rect.width/2;
     const y=rect.y+rect.height/2;
     const top=document.elementFromPoint(x,y);
     const clear=!!top&&(link.contains(top)||top.contains(link));
-    return {found:true,clickable:clear,present:true};
+    return {found:true,clickable:clear,present:true,path:url.pathname};
   }
 }
 return {found:false,clickable:false,present:false};

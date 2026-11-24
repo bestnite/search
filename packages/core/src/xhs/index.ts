@@ -178,16 +178,29 @@ const guard = (ctx: XhsContext): void => {
 };
 
 /** Poll until `check` reports done, or the budget runs out. A slow page is a timeout, not a result. */
-async function until<T>(check: () => Promise<T | undefined>, timeoutMs: number, signal: AbortSignal): Promise<T> {
+async function until<T>(check: () => Promise<T | undefined>, timeoutMs: number, signal: AbortSignal, describe?: () => Promise<string>): Promise<T> {
   const deadline = Date.now() + Math.max(1, timeoutMs);
+  let lastError = '';
   for (;;) {
     if (signal.aborted) throw new SearchError('cancelled', 'The Xiaohongshu read was cancelled.');
-    const value = await check();
-    if (value !== undefined) return value;
+    try {
+      const value = await check();
+      if (value !== undefined) return value;
+    } catch (error) {
+      // A page that is still navigating rejects a probe for a moment. That is not a refusal, so the
+      // loop keeps waiting; only a probe that never succeeds ends as a timeout carrying the reason.
+      if (error instanceof SearchError && error.kind !== 'protocol') throw error;
+      lastError = error instanceof Error ? error.message : String(error);
+    }
     if (Date.now() >= deadline) break;
     await new Promise(resolve => setTimeout(resolve, 150));
   }
-  throw new SearchError('timeout', 'The Xiaohongshu page did not finish loading the data this read needs in time.');
+  // Say what the page actually was, so a timeout is diagnosable instead of a guess.
+  const detail = describe ? await describe().catch(() => '') : '';
+  throw new SearchError(
+    'timeout',
+    `The Xiaohongshu page did not finish loading the data this read needs in time.${detail ? ` (${detail})` : ''}${lastError ? ` Last error: ${lastError.slice(0, 160)}` : ''}`,
+  );
 }
 
 /**
@@ -264,7 +277,7 @@ const stringOf = (value: unknown): string => (typeof value === 'string' ? value 
  * Locate a listed card by its note id rather than by a class name: the site's class names are build
  * artifacts, while the id attribute is the identity the page itself uses.
  */
-const candidateSelector = (noteId: string): string => `section[data-note-id="${noteId}"] a[href$="/${noteId}"]`;
+const candidateSelector = (noteId: string): string => `section[data-note-id="${noteId}"] a[href*="/${noteId}"]`;
 
 /**
  * Read the search page the way a person reaches it: navigate to the address that carries the query,
@@ -288,10 +301,18 @@ export async function readXhsSearch(input: { query: string; retain?: boolean }, 
 
     // The identity is read from the page itself, so it can only be judged once the page has loaded.
     // A tab that starts blank has no runtime at all, which is not the same as being signed out.
-    const probe = await until(async () => {
-      const state = await tab.evaluate<StateProbe>(stateProbeScript());
-      return state.hasState ? state : undefined;
-    }, ctx.timeoutMs, ctx.signal);
+    const probe = await until(
+      async () => {
+        const state = await tab.evaluate<StateProbe>(stateProbeScript());
+        return state.hasState ? state : undefined;
+      },
+      ctx.timeoutMs,
+      ctx.signal,
+      async () => {
+        const state = await tab.evaluate<StateProbe>(stateProbeScript()).catch(() => undefined);
+        return `url=${tab.path}, runtime=${state?.hasState ? 'present' : 'absent'}, ready=${state?.ready ?? 'unknown'}`;
+      },
+    );
     requireSignedIn(probe);
 
     const data = await readEnvelope(await response, 'search');
@@ -474,7 +495,7 @@ export async function readXhsNote(
       if (before.hasState) requireSignedIn(before);
       // Otherwise click the card that was listed, so the page arrives the way a person's would.
       // Re-check right before acting: geometry seen during the search is stale by definition.
-      const check = await tab.evaluate<{ found: boolean; clickable: boolean }>(candidateCheckScript(target.id, `/explore/${target.id}`));
+      const check = await tab.evaluate<{ found: boolean; clickable: boolean }>(candidateCheckScript(target.id));
       if (!check.found) {
         throw new SearchError('protocol', 'The candidate this read referred to is no longer on the page. Search again to get a fresh reference.');
       }

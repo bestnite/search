@@ -1022,9 +1022,19 @@ export class BrowserSession {
       },
       clickTarget: async (target: string, timeoutMs?: number): Promise<void> => {
         guard();
-        const locator = record.page.locator(target).first();
-        await locator.waitFor({ state: 'visible', timeout: timeoutMs ?? this.options.timeoutMs });
-        await locator.click({ timeout: timeoutMs ?? this.options.timeoutMs });
+        const timeout = timeoutMs ?? this.options.timeoutMs;
+        // A card carries several links to the same note and some of them are zero-sized decoys, so
+        // the first match is not necessarily the clickable one: pick the first that is visible.
+        const locator = record.page.locator(target);
+        const count = await locator.count();
+        for (let index = 0; index < count; index += 1) {
+          const candidate = locator.nth(index);
+          if (await candidate.isVisible().catch(() => false)) {
+            await candidate.click({ timeout });
+            return;
+          }
+        }
+        throw new SearchError('protocol', `Nothing matching ${target} was visible, so nothing was clicked.`);
       },
       scrollBy: async (selector, distance, timeoutMs): Promise<number> => {
         guard();
@@ -1092,9 +1102,11 @@ export class BrowserSession {
     }
     const record = this.pooledTabs.get(handle.tabId);
     if (!record) {
+      // Name what the pool actually holds: an empty pool and a different tab id are different bugs.
+      const pooled = [...this.pooledTabs.values()].map(item => item.id).join(',') || 'none';
       throw new SearchError(
         'protocol',
-        'The search tab that held this candidate is gone (it was reused, closed, or idled out). Search again, or open the note by its share link.',
+        `The search tab that held this candidate is gone (it was reused, closed, or idled out). Search again, or open the note by its share link. [want=${handle.tabId} gen=${handle.generation} pooled=${pooled}]`,
       );
     }
     this.pooledTabs.delete(record.id);
