@@ -18,7 +18,7 @@
 
 | 你想做的事 | 装这个 | 位置 |
 | --- | --- | --- |
-| 在 DeepSeek Harness 里搜索 | `@nite07/dsh-search` | [packages/dsh-search](packages/dsh-search/README.zh.md) |
+| 在 DeepSeek Harness 里搜索 | `@nite07/dsh-search` | [packages/dsh-search](packages/dsh-search/README.zh-CN.md) |
 | 给任意 MCP 客户端加一个搜索工具 | `@nite07/websearch-mcp` | [packages/websearch-mcp](packages/websearch-mcp/README.zh.md) |
 | 自己写客户端 | `@nite07/search-core` | [packages/core](packages/core/README.zh.md) |
 
@@ -44,7 +44,7 @@ web_extract(url, format)   format：markdown 或 html
 dsh plugin add @nite07/dsh-search
 ```
 
-然后打开 **设置 → 网页搜索**，选择后端并保存。完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh.md)。
+然后打开 **设置 → 网页搜索**，选择后端并保存。完整步骤见 [dsh-search 说明](packages/dsh-search/README.zh-CN.md)。
 
 **MCP 客户端**
 
@@ -69,7 +69,7 @@ npm install @nite07/search-core
 | --- | --- |
 | [packages/core](packages/core/README.zh.md) | 库的 API、引擎、后端目录 |
 | [packages/core/image](packages/core/image/README.zh.md) | 起浏览器容器、登录站点 |
-| [packages/dsh-search](packages/dsh-search/README.zh.md) | DSH 插件、设置界面、agent 工具 |
+| [packages/dsh-search](packages/dsh-search/README.zh-CN.md) | DSH 插件、设置界面、agent 工具 |
 | [packages/websearch-mcp](packages/websearch-mcp/README.zh.md) | MCP 服务、配置文件、客户端接入 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 仓库结构、构建、测试、发布 |
 | [docs/BROWSER-SESSIONS.md](docs/BROWSER-SESSIONS.md) | 浏览器会话的内部机制 |

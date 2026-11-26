@@ -1,7 +1,7 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.1.16",
-  "description": "Explicit-mode multi-backend search with transparent costs and complete Web settings for DSH",
+  "version": "0.1.17",
+  "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,7 +37,7 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "README.zh.md"
+    "README.zh-CN.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
