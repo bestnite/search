@@ -1,6 +1,6 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on.",
   "author": "nite",
   "license": "MIT",

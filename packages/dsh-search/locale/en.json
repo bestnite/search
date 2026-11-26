@@ -1,9 +1,9 @@
 {
   "meta": {
-    "title": "Web Search",
-    "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on. Find it in Settings → Web Search."
+    "title": "Search",
+    "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on. Find it in Settings → Search."
   },
-  "title": "Web Search",
+  "title": "Search",
   "intro": "{{enabled}} of {{total}} backends enabled.",
   "loading": "Loading saved settings…",
   "loadFailed": "Could not load settings. Reload to try again.",
