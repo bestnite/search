@@ -18,7 +18,7 @@ Searches the web through the backends you enable, with each backend's price show
 dsh plugin add @nite07/dsh-search
 ```
 
-Works with any current DeepSeek Harness release; Node.js 22 or newer must be available where DSH runs. Restart DSH, then open **Settings → Web Search**.
+DeepSeek Harness 0.2.2-rc.4 or a later 0.2 version is required, and Node.js 22 or newer must be available where DSH runs. Restart DSH, then open **Settings → Web Search**.
 
 ## Use
 

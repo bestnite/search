@@ -1,7 +1,8 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on.",
+  "author": "nite",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -46,6 +47,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "engines": {
+    "dsh": "^0.2.2-rc.4",
     "node": ">=22"
   },
   "dependencies": {

@@ -18,7 +18,7 @@
 dsh plugin add @nite07/dsh-search
 ```
 
-适用于当前任意 DeepSeek Harness 版本；DSH 所在环境需要 Node.js 22 或更高版本。重启 DSH 后，打开 **设置 → 网页搜索**。
+需要 DeepSeek Harness 0.2.2-rc.4 或更高的 0.2 版本，且 DSH 所在环境需要 Node.js 22 或更高版本。重启 DSH 后，打开 **设置 → 网页搜索**。
 
 ## 使用
 
