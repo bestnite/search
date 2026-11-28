@@ -51,7 +51,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@nite07/search-core": "0.2.2"
+    "@nite07/search-core": "0.2.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

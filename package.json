@@ -19,6 +19,7 @@
     "test": "npm run build -w @nite07/search-core && npm test --workspaces",
     "check": "npm run typecheck && npm test && npm run build && npm run verify:workspace",
     "verify:workspace": "node scripts/verify-workspace.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
     "pack": "npm run build && node scripts/pack.mjs",
     "prepare": "node scripts/prepare-git-install.mjs"
   },
@@ -35,7 +36,7 @@
     "README.zh.md"
   ],
   "dependencies": {
-    "@nite07/search-core": "0.2.2",
+    "@nite07/search-core": "0.2.3",
     "@modelcontextprotocol/server": "2.4.0",
     "zod": "^4.2.0",
     "@modelcontextprotocol/client": "2.4.0"

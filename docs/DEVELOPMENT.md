@@ -73,8 +73,11 @@ Package versions stay independent so existing consumers keep working.
 1. Change core's version and both hosts' exact core requirement together; bump the affected host
    versions.
 2. Regenerate the root lockfile: `npm install --package-lock-only --ignore-scripts`.
-3. Run `npm run check` and `npm run pack`; inspect the archives.
-4. Publish core first, then the hosts:
+3. Run `npm run check` and `npm run pack`; inspect the archives. `check` also reads every host's built
+   imports of core and fails on a name core does not export.
+4. Run `npm run verify:release`. Every version must still be free on the registry: a published version
+   keeps its old build, so changes committed under it are never in the package importers resolve.
+5. Publish core first, then the hosts:
 
 ```sh
 npm publish --workspace @nite07/search-core --access public
