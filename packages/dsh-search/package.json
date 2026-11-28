@@ -1,6 +1,6 @@
 {
   "name": "@nite07/dsh-search",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "Searches the web through the backends you enable, with each backend's price shown before you turn it on.",
   "author": "nite",
   "license": "MIT",
@@ -51,7 +51,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@nite07/search-core": "0.2.3"
+    "@nite07/search-core": "0.2.4"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

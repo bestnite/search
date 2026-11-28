@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { chromium, type Browser, type BrowserContext, type Frame, type Page } from 'patchright-core';
+import type { Browser, BrowserContext, Frame, Page } from 'patchright-core';
+import { loadPlaywright } from '../playwright-driver.js';
 import { delegatedNote } from './notes.js';
 import { connectFailure, defaultBrowserStatePath } from '../browser.js';
 import type { SearchError } from '../transport.js';
@@ -61,7 +62,10 @@ export type BrowserFetcher = (request: BrowserRouteRequest) => Promise<RouteResu
 /** The one transport operation this route needs, so tests can drive the real code with a fake browser. */
 export type BrowserConnect = (endpoint: string, options: { timeout: number; headers?: Record<string, string> }) => Promise<Browser>;
 
-export const defaultBrowserConnect: BrowserConnect = (endpoint, options) => chromium.connect(endpoint, options);
+export const defaultBrowserConnect: BrowserConnect = async (endpoint, options) => {
+  const { chromium } = await loadPlaywright();
+  return chromium.connect(endpoint, options);
+};
 
 /** One bounded close, so no single unresponsive resource can hold the whole teardown open. */
 const boundedClose = async (operation: () => Promise<unknown>, timeoutMs = 2_000): Promise<void> => {

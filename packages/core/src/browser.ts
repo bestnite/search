@@ -1,6 +1,7 @@
 // patchright-core is a patched Playwright: same protocol and API, with the CDP leaks closed.
 // Both sides of the connection must share a major.minor, so the browser image pins the same version.
-import { chromium, type Browser, type BrowserContext, type Page } from 'patchright-core';
+import type { Browser, BrowserContext, Page } from 'patchright-core';
+import { loadPlaywright } from './playwright-driver.js';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -212,11 +213,13 @@ function safePath(value: string): string {
 
 const cancelled = (detail: string): SearchError => new SearchError('cancelled', detail);
 
-const defaultConnect = (options: BrowserSessionOptions): Promise<Browser> =>
-  chromium.connect(options.wsEndpoint, {
+const defaultConnect = async (options: BrowserSessionOptions): Promise<Browser> => {
+  const { chromium } = await loadPlaywright();
+  return chromium.connect(options.wsEndpoint, {
     timeout: options.timeoutMs,
     ...(options.token ? { headers: { authorization: `Bearer ${options.token}` } } : {}),
   });
+};
 
 /**
  * The site owns a page only when the hostname is the configured one, a subdomain of it, or the

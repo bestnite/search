@@ -1,4 +1,4 @@
-import { chromium } from 'patchright-core';
+import { loadPlaywright } from './playwright-driver.js';
 import { catalog } from './catalog.js';
 import { parseBrowserEndpoint } from './browser-endpoint.js';
 import type { ConfigIssue, ConfigIssueParams, SearchConfig } from './types.js';
@@ -61,8 +61,10 @@ export interface VerificationContext {
 }
 export type VerificationConnect = (endpoint: string, options: { timeout: number; headers?: Record<string, string> }) => Promise<VerificationBrowser>;
 
-export const defaultVerificationConnect: VerificationConnect = (endpoint, options) =>
-  chromium.connect(endpoint, options) as unknown as Promise<VerificationBrowser>;
+export const defaultVerificationConnect: VerificationConnect = async (endpoint, options) => {
+  const { chromium } = await loadPlaywright();
+  return chromium.connect(endpoint, options) as unknown as Promise<VerificationBrowser>;
+};
 
 export interface VerificationOptions {
   /** Reads the stored endpoint token. The value never enters an issue, a check or a log line. */
